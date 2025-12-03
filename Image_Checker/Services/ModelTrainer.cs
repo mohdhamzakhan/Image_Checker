@@ -3,6 +3,7 @@ using Image_Checker.Utils;
 using Microsoft.ML;
 using System.Drawing;
 using System.IO;
+using System.Threading;
 
 namespace Image_Checker.Services
 {
@@ -85,13 +86,15 @@ namespace Image_Checker.Services
                 Console.WriteLine($"   ✅ No path issues found");
         }
 
-        private void ValidateImageFiles(string csvPath)
+        private void ValidateImageFiles(string csvPath, CancellationToken cancellationToken)
         {
             Console.WriteLine("\n🔍 Validating image files...");
             int missing = 0, unreadable = 0, total = 0;
 
             foreach (var line in File.ReadLines(csvPath))
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 total++;
                 var parts = line.Split(',');
                 if (parts.Length < 2) continue;
@@ -128,8 +131,18 @@ namespace Image_Checker.Services
             Console.WriteLine();
         }
 
-        public void TrainAndEvaluate()
+        public void TrainAndEvaluate(
+            int cvFolds = 3,
+            int trials = 5,
+            bool useSDCA = true,
+            bool useLBFGS = true,
+            bool useFastTree = true,
+            bool useLightGBM = true,
+            bool useTransferLearning = false,
+            CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var csvPath = Path.Combine(_basePath, "images.csv");
             if (!File.Exists(csvPath))
             {
@@ -138,7 +151,10 @@ namespace Image_Checker.Services
             }
 
             FixDoubleDrivePaths(csvPath);
-            ValidateImageFiles(csvPath);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            ValidateImageFiles(csvPath, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
 
             bool isGray = IsGrayscaleDataset();
             Console.WriteLine(isGray
@@ -148,13 +164,19 @@ namespace Image_Checker.Services
             bool absolutePaths = AreImagePathsAbsolute(csvPath);
             Console.WriteLine($"📂 Path type: {(absolutePaths ? "Absolute" : "Relative")}");
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             Console.WriteLine("\n📊 Loading dataset...");
             var data = _mlContext.Data.LoadFromTextFile<ImageData>(csvPath, separatorChar: ',', hasHeader: false);
             Console.WriteLine("✅ Dataset loaded");
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             Console.WriteLine("\n✂️ Splitting data: 80% train, 20% test...");
             var split = _mlContext.Data.TrainTestSplit(data, 0.2, seed: 42);
             Console.WriteLine("✅ Data split complete");
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             // === Preprocessing ===
             Console.WriteLine("\n🔧 Building preprocessing pipeline...");
@@ -181,9 +203,13 @@ namespace Image_Checker.Services
             Console.WriteLine("   • Feature extraction (RGB, normalized)");
             Console.WriteLine("   • Label encoding");
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             Console.WriteLine("\n⚙️ Fitting preprocessing pipeline...");
             var preprocessModel = preprocess.Fit(data);
             Console.WriteLine("✅ Preprocessing complete");
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             // Prepare cached training data for tuning
             Console.WriteLine("\n💾 Preparing data for hyperparameter tuning...");
@@ -191,94 +217,122 @@ namespace Image_Checker.Services
             var cachedTrain = _mlContext.Data.Cache(preprocessedTrain);
             Console.WriteLine("✅ Training data cached in memory");
 
-            // === Model Training ===
-            var trainers = new List<(string Name, IEstimator<ITransformer> Est, bool Full)>
-            {
-                // Add baseline model
-                ("LBFGS_MaxEnt_Baseline", _mlContext.MulticlassClassification.Trainers.LbfgsMaximumEntropy(
-                    labelColumnName: "Label",
-                    featureColumnName: "Features"), false)
-            };
+            cancellationToken.ThrowIfCancellationRequested();
 
-            Console.WriteLine($"\n🎯 Registered {trainers.Count} baseline model");
+            // === Model Training ===
+            var trainers = new List<(string Name, IEstimator<ITransformer> Est, bool Full)>();
+
+            // Add selected baseline models
+            if (useSDCA)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                trainers.Add(("SDCA_MaxEnt", _mlContext.MulticlassClassification.Trainers.SdcaMaximumEntropy(
+                    labelColumnName: "Label", featureColumnName: "Features"), false));
+            }
+
+            if (useLBFGS)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                trainers.Add(("LBFGS_MaxEnt", _mlContext.MulticlassClassification.Trainers.LbfgsMaximumEntropy(
+                    labelColumnName: "Label", featureColumnName: "Features"), false));
+            }
+
+            Console.WriteLine($"\n🎯 Registered {trainers.Count} baseline model(s)");
 
             // === FastTree Tuning ===
-            Console.WriteLine("\n🌳 Starting FastTree hyperparameter tuning...");
-            try
+            if (useFastTree)
             {
-                var ftResult = FastTreeTuner.Tune(
-                    _mlContext,
-                    cachedTrain,
-                    "Label",
-                    nTrials: 5,
-                    cvFolds: 2,
-                    seed: 42,
-                    logPath: Path.Combine(_basePath, "fasttree_tuning_log.csv"),
-                    sampleFraction: 0.5);
+                cancellationToken.ThrowIfCancellationRequested();
+                Console.WriteLine("\n🌳 Starting FastTree hyperparameter tuning...");
+                try
+                {
+                    var ftResult = FastTreeTuner.Tune(
+                        _mlContext,
+                        cachedTrain,
+                        "Label",
+                        nTrials: trials,
+                        cvFolds: cvFolds,
+                        seed: 42,
+                        logPath: Path.Combine(_basePath, "fasttree_tuning_log.csv"),
+                        sampleFraction: 0.5,
+                        cancellationToken: cancellationToken);
 
-                if (ftResult.BestEstimator != null && !double.IsNegativeInfinity(ftResult.Score))
-                {
-                    trainers.Add(("FastTree_Tuned", ftResult.BestEstimator, false));
-                    Console.WriteLine($"✅ FastTree tuning complete (Best MacroAcc={ftResult.Score:P2})");
+                    if (ftResult.BestEstimator != null && !double.IsNegativeInfinity(ftResult.Score))
+                    {
+                        trainers.Add(("FastTree_Tuned", ftResult.BestEstimator, false));
+                        Console.WriteLine($"✅ FastTree tuning complete (Best MacroAcc={ftResult.Score:P2})");
+                    }
+                    else
+                    {
+                        Console.WriteLine("⚠️ FastTree tuning returned invalid score");
+                        trainers.Add(("FastTree_Default", _mlContext.MulticlassClassification.Trainers.OneVersusAll(
+                            _mlContext.BinaryClassification.Trainers.FastTree("Label", "Features",
+                                numberOfLeaves: 50, numberOfTrees: 100, learningRate: 0.1)), false));
+                    }
                 }
-                else
+                catch (OperationCanceledException)
                 {
-                    Console.WriteLine("⚠️ FastTree tuning returned invalid score");
-                    // Add default FastTree as fallback
+                    Console.WriteLine("⚠️ FastTree tuning cancelled");
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"⚠️ FastTree tuning failed: {ex.GetBaseException().Message}");
                     trainers.Add(("FastTree_Default", _mlContext.MulticlassClassification.Trainers.OneVersusAll(
                         _mlContext.BinaryClassification.Trainers.FastTree("Label", "Features",
                             numberOfLeaves: 50, numberOfTrees: 100, learningRate: 0.1)), false));
                 }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"⚠️ FastTree tuning failed: {ex.GetBaseException().Message}");
-                // Add default FastTree as fallback
-                trainers.Add(("FastTree_Default", _mlContext.MulticlassClassification.Trainers.OneVersusAll(
-                    _mlContext.BinaryClassification.Trainers.FastTree("Label", "Features",
-                        numberOfLeaves: 50, numberOfTrees: 100, learningRate: 0.1)), false));
-            }
 
             // === LightGBM Tuning ===
-            Console.WriteLine("\n🔬 Starting LightGBM hyperparameter tuning...");
-            try
+            if (useLightGBM)
             {
-                var lgbResult = LightGbmTuner.Tune(
-                    _mlContext,
-                    cachedTrain,
-                    "Label",
-                    nTrials: 5,
-                    cvFolds: 2,
-                    seed: 42,
-                    logPath: Path.Combine(_basePath, "lgb_tuning_log.csv"),
-                    sampleFraction: 0.5);
+                cancellationToken.ThrowIfCancellationRequested();
+                Console.WriteLine("\n🔬 Starting LightGBM hyperparameter tuning...");
+                try
+                {
+                    var lgbResult = LightGbmTuner.Tune(
+                        _mlContext,
+                        cachedTrain,
+                        "Label",
+                        nTrials: trials,
+                        cvFolds: cvFolds,
+                        seed: 42,
+                        logPath: Path.Combine(_basePath, "lgb_tuning_log.csv"),
+                        sampleFraction: 0.5,
+                        cancellationToken: cancellationToken);
 
-                if (lgbResult.BestEstimator != null && !double.IsNegativeInfinity(lgbResult.Score))
-                {
-                    trainers.Add(("LightGBM_Tuned", lgbResult.BestEstimator, false));
-                    Console.WriteLine($"✅ LightGBM tuning complete (Best MacroAcc={lgbResult.Score:P2})");
+                    if (lgbResult.BestEstimator != null && !double.IsNegativeInfinity(lgbResult.Score))
+                    {
+                        trainers.Add(("LightGBM_Tuned", lgbResult.BestEstimator, false));
+                        Console.WriteLine($"✅ LightGBM tuning complete (Best MacroAcc={lgbResult.Score:P2})");
+                    }
+                    else
+                    {
+                        Console.WriteLine("⚠️ LightGBM tuning returned invalid score");
+                        trainers.Add(("LightGBM_Default", _mlContext.MulticlassClassification.Trainers.LightGbm(
+                            labelColumnName: "Label", featureColumnName: "Features",
+                            numberOfLeaves: 31, learningRate: 0.02f, numberOfIterations: 300), false));
+                    }
                 }
-                else
+                catch (OperationCanceledException)
                 {
-                    Console.WriteLine("⚠️ LightGBM tuning returned invalid score");
-                    // Add default LightGBM as fallback
+                    Console.WriteLine("⚠️ LightGBM tuning cancelled");
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"⚠️ LightGBM tuning failed: {ex.GetBaseException().Message}");
                     trainers.Add(("LightGBM_Default", _mlContext.MulticlassClassification.Trainers.LightGbm(
                         labelColumnName: "Label", featureColumnName: "Features",
                         numberOfLeaves: 31, learningRate: 0.02f, numberOfIterations: 300), false));
                 }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"⚠️ LightGBM tuning failed: {ex.GetBaseException().Message}");
-                // Add default LightGBM as fallback
-                trainers.Add(("LightGBM_Default", _mlContext.MulticlassClassification.Trainers.LightGbm(
-                    labelColumnName: "Label", featureColumnName: "Features",
-                    numberOfLeaves: 31, learningRate: 0.02f, numberOfIterations: 300), false));
-            }
 
             // === Transfer Learning (RGB only - NO TUNING) ===
-            if (!isGray)
+            if (useTransferLearning && !isGray)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 Console.WriteLine("\n🧠 Adding transfer learning model (MobilenetV2)...");
                 try
                 {
@@ -306,6 +360,12 @@ namespace Image_Checker.Services
                     Console.WriteLine($"⚠️ Transfer learning unavailable: {ex.GetBaseException().Message}");
                 }
             }
+            else if (useTransferLearning && isGray)
+            {
+                Console.WriteLine("\n⚠️ Transfer learning skipped: Only works with RGB (color) images");
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             // === Train & Evaluate All Models ===
             Console.WriteLine($"\n🚀 Evaluating {trainers.Count} models on test set...");
@@ -316,6 +376,8 @@ namespace Image_Checker.Services
 
             foreach (var (name, est, full) in trainers)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 Console.WriteLine($"\n[{modelNum}/{trainers.Count}] Evaluating: {name}");
                 Console.WriteLine("─────────────────────────────────────────────");
 
@@ -346,6 +408,8 @@ namespace Image_Checker.Services
                         Console.WriteLine($"   ✅ Training complete in {duration.TotalSeconds:F1}s");
                     }
 
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     Console.WriteLine("   📊 Evaluating on test set...");
                     var preds = model.Transform(split.TestSet);
                     var m = _mlContext.MulticlassClassification.Evaluate(preds, "Label");
@@ -358,6 +422,11 @@ namespace Image_Checker.Services
                     results.Add((name, m.MacroAccuracy, m.MicroAccuracy, m.LogLoss, model, full));
                     Console.WriteLine($"   ✅ {name} completed successfully");
                 }
+                catch (OperationCanceledException)
+                {
+                    Console.WriteLine($"   ⚠️ {name} training cancelled");
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"   ❌ {name} failed: {ex.GetBaseException().Message}");
@@ -365,6 +434,8 @@ namespace Image_Checker.Services
 
                 modelNum++;
             }
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             if (!results.Any())
             {
@@ -390,6 +461,8 @@ namespace Image_Checker.Services
             Console.WriteLine($"   • Macro Accuracy: {best.Macro:P2}");
             Console.WriteLine($"   • Micro Accuracy: {best.Micro:P2}");
             Console.WriteLine($"   • Log Loss: {best.LogLoss:F4}");
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             var modelName = PathUtils.SanitizeFileName(best.Name);
             var modelPath = Path.Combine(_basePath, $"bestModel-{modelName}-{DateTime.Now:yyyyMMddHHmmss}.zip");

@@ -17,6 +17,7 @@ namespace Image_Checker.WinForm
         private string _basePath;
         private string _modelPath;
         private IncrementalModelTrainer _incrementalTrainer;
+        private CorrectionManager _correctionManager;
         private const string CONFIG_FILE = "app_config.txt";
 
         public Form1()
@@ -114,6 +115,7 @@ namespace Image_Checker.WinForm
             if (!string.IsNullOrEmpty(_basePath))
             {
                 _incrementalTrainer = new IncrementalModelTrainer(new Microsoft.ML.MLContext(), _basePath);
+                _correctionManager = new CorrectionManager(_basePath);
             }
         }
 
@@ -231,14 +233,18 @@ namespace Image_Checker.WinForm
             foreach (var file in imageFiles)
             {
                 string subfolder = new DirectoryInfo(Path.GetDirectoryName(file)).Name;
-                string pred = _predictor.Predict(file);
+
+                // Use PredictWithConfidence to get both label and confidence
+                var (pred, confidence) = _predictor.PredictWithConfidence(file);
+
                 _results.Add(new ImageResult
                 {
                     FileName = Path.GetFileName(file),
                     ImagePath = file,
                     Subfolder = subfolder,
                     PredictedLabel = pred,
-                    CorrectedLabel = pred
+                    CorrectedLabel = pred,
+                    Confidence = confidence
                 });
 
                 processed++;
@@ -269,9 +275,9 @@ namespace Image_Checker.WinForm
         {
             string csvPath = Path.Combine(folder, "predictions.csv");
             using var sw = new StreamWriter(csvPath);
-            sw.WriteLine("FileName,ImagePath,SubFolder,Prediction");
+            sw.WriteLine("FileName,ImagePath,SubFolder,Prediction,Confidence");
             foreach (var r in _results)
-                sw.WriteLine($"{r.FileName},{r.ImagePath},{r.Subfolder},{r.PredictedLabel}");
+                sw.WriteLine($"{r.FileName},{r.ImagePath},{r.Subfolder},{r.PredictedLabel},{r.Confidence:F4}");
         }
 
         // === Filtering ===
@@ -297,6 +303,7 @@ namespace Image_Checker.WinForm
                     r.ImagePath,
                     r.Subfolder,
                     Prediction = r.PredictedLabel,
+                    Confidence = $"{r.Confidence:P2}",
                     Corrected = r.CorrectedLabel
                 }).ToList();
         }
@@ -326,17 +333,26 @@ namespace Image_Checker.WinForm
                 {
                     pictureBox.Image?.Dispose();
                     pictureBox.Image = Image.FromFile(path);
-                    lblInfo.Text = Path.GetFileName(path);
+
+                    var result = _results.FirstOrDefault(r => r.ImagePath == path);
+                    if (result != null)
+                    {
+                        lblInfo.Text = $"{Path.GetFileName(path)} | Prediction: {result.PredictedLabel} ({result.Confidence:P2})";
+                    }
+                    else
+                    {
+                        lblInfo.Text = Path.GetFileName(path);
+                    }
                 }
             }
         }
 
-        // === Correction ===
+        // === Correction with CorrectionManager ===
         private void BtnCorrect_Click(object sender, EventArgs e)
         {
-            if (string.IsNullOrEmpty(_basePath))
+            if (_correctionManager == null)
             {
-                MessageBox.Show("Base path not configured. Please select a base folder from Settings menu.",
+                MessageBox.Show("Correction manager not initialized. Please configure base path from Settings menu.",
                     "Configuration Required", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
@@ -365,53 +381,104 @@ namespace Image_Checker.WinForm
                 return;
             }
 
-            result.CorrectedLabel = newLabel;
+            // Disable button while saving
+            btnCorrect.Enabled = false;
+            btnCorrect.Text = "Saving...";
+            lblStatus.Text = "💾 Saving correction...";
+            Application.DoEvents();
 
-            string correctionPath = Path.Combine(_basePath, "corrections.csv");
-            bool exists = File.Exists(correctionPath);
-            using var sw = new StreamWriter(correctionPath, append: true);
-            if (!exists)
-                sw.WriteLine("FileName,ImagePath,SubFolder,PredictedLabel,CorrectedLabel");
-            sw.WriteLine($"{result.FileName},{result.ImagePath},{result.Subfolder},{result.PredictedLabel},{result.CorrectedLabel}");
-
-            MessageBox.Show($"✅ Correction saved\n{result.FileName} → {result.CorrectedLabel}",
-                "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            UpdateCorrectionCount();
-
-            PopulateGrid(_results.Where(r =>
+            try
             {
-                var subSel = cbFolderFilter.SelectedItem?.ToString();
-                var predSel = cbPredFilter.SelectedItem?.ToString();
-                return (subSel == "All" || subSel == null || r.Subfolder == subSel) &&
-                       (predSel == "All" || predSel == null || r.PredictedLabel == predSel);
-            }).ToList());
+                // Use CorrectionManager with retry logic
+                bool success = _correctionManager.SaveCorrection(
+                    result.ImagePath,
+                    result.PredictedLabel,
+                    result.Confidence,
+                    newLabel,
+                    out string errorMessage);
+
+                if (success)
+                {
+                    // Update the result
+                    result.CorrectedLabel = newLabel;
+
+                    // Show success message
+                    lblStatus.Text = $"✅ Correction saved: {result.FileName} → {newLabel}";
+                    MessageBox.Show($"✅ Correction saved successfully!\n\n" +
+                                  $"File: {result.FileName}\n" +
+                                  $"Original: {result.PredictedLabel} ({result.Confidence:P2})\n" +
+                                  $"Corrected to: {newLabel}",
+                        "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                    // Update UI
+                    UpdateCorrectionCount();
+
+                    // Refresh grid to show corrected label
+                    PopulateGrid(_results.Where(r =>
+                    {
+                        var subSel = cbFolderFilter.SelectedItem?.ToString();
+                        var predSel = cbPredFilter.SelectedItem?.ToString();
+                        return (subSel == "All" || subSel == null || r.Subfolder == subSel) &&
+                               (predSel == "All" || predSel == null || r.PredictedLabel == predSel);
+                    }).ToList());
+                }
+                else
+                {
+                    // Show error message with retry info
+                    lblStatus.Text = "❌ Failed to save correction";
+                    MessageBox.Show($"Failed to save correction:\n\n{errorMessage}\n\n" +
+                                  "Possible causes:\n" +
+                                  "• The corrections.csv file is open in Excel or another program\n" +
+                                  "• The file is being used by another process\n" +
+                                  "• Insufficient disk space or permissions\n\n" +
+                                  "Please close any programs using the file and try again.",
+                        "Save Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                lblStatus.Text = "❌ Unexpected error during correction save";
+                MessageBox.Show($"Unexpected error while saving correction:\n\n{ex.Message}\n\n" +
+                              "Please check the application logs for more details.",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                // Re-enable button
+                btnCorrect.Enabled = true;
+                btnCorrect.Text = "Save Correction";
+            }
         }
 
         private void UpdateCorrectionCount()
         {
-            if (string.IsNullOrEmpty(_basePath))
-                return;
-
-            var correctionPath = Path.Combine(_basePath, "corrections.csv");
-            if (File.Exists(correctionPath))
+            if (_correctionManager == null)
             {
-                int count = File.ReadLines(correctionPath).Count() - 1;
+                lblCorrectionCount.Text = "Corrections pending: N/A";
+                lblCorrectionCount.BackColor = Color.LightGray;
+                return;
+            }
+
+            try
+            {
+                int count = _correctionManager.GetCorrectionCount();
                 lblCorrectionCount.Text = $"Corrections pending: {count}";
                 lblCorrectionCount.BackColor = count > 0
-                    ? Color.FromArgb(255, 248, 220)
-                    : Color.FromArgb(220, 255, 220);
+                    ? Color.FromArgb(255, 248, 220) // Light yellow
+                    : Color.FromArgb(220, 255, 220); // Light green
             }
-            else
+            catch (Exception ex)
             {
-                lblCorrectionCount.Text = "Corrections pending: 0";
-                lblCorrectionCount.BackColor = Color.FromArgb(220, 255, 220);
+                lblCorrectionCount.Text = "Corrections pending: Error";
+                lblCorrectionCount.BackColor = Color.FromArgb(255, 220, 220); // Light red
+                Console.WriteLine($"Error updating correction count: {ex.Message}");
             }
         }
 
         // === Quick Incremental Update ===
         private async void BtnQuickUpdate_Click(object sender, EventArgs e)
         {
-            if (_incrementalTrainer == null)
+            if (_incrementalTrainer == null || _correctionManager == null)
             {
                 MessageBox.Show("Trainer not initialized. Please configure base path.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
@@ -425,7 +492,29 @@ namespace Image_Checker.WinForm
             }
 
             // Count corrections
-            int correctionCount = File.ReadLines(correctionPath).Count() - 1;
+            int correctionCount = _correctionManager.GetCorrectionCount();
+
+            if (correctionCount == 0)
+            {
+                MessageBox.Show("No corrections to apply.", "No Corrections", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            var confirmResult = MessageBox.Show(
+                $"Apply {correctionCount} correction(s) and update the model?\n\n" +
+                "This will:\n" +
+                "• Train the model on the corrections\n" +
+                "• Create a new model file\n" +
+                "• Archive the corrections\n" +
+                "• Reload the updated model\n\n" +
+                "Continue?",
+                "Confirm Incremental Update",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+
+            if (confirmResult != DialogResult.Yes)
+                return;
+
             lblStatus.Text = $"⚡ Starting incremental update with {correctionCount} corrections...";
             Application.DoEvents();
 
@@ -433,6 +522,7 @@ namespace Image_Checker.WinForm
             progressBar.Style = ProgressBarStyle.Marquee;
             btnQuickUpdate.Enabled = false;
             btnRetrain.Enabled = false;
+            btnCorrect.Enabled = false;
 
             // Capture console output
             var consoleOutput = new System.Text.StringBuilder();
@@ -455,9 +545,12 @@ namespace Image_Checker.WinForm
 
                 LoadModel();
 
+                // Archive corrections
                 var archivePath = Path.Combine(_basePath, $"corrections_archive_{DateTime.Now:yyyyMMddHHmmss}.csv");
                 File.Copy(correctionPath, archivePath);
-                File.Delete(correctionPath);
+
+                // Clear corrections using CorrectionManager
+                _correctionManager.ClearCorrections(createBackup: false, out string clearError);
 
                 lblStatus.Text = $"✅ Incremental update completed!\n" +
                                $"   Model: {Path.GetFileName(newModelPath)}\n" +
@@ -467,7 +560,7 @@ namespace Image_Checker.WinForm
                 MessageBox.Show($"Quick update completed successfully!\n\n" +
                               $"• Corrections applied: {correctionCount}\n" +
                               $"• New model: {Path.GetFileName(newModelPath)}\n" +
-                              $"• Training log has been captured",
+                              $"• Corrections archived to: {Path.GetFileName(archivePath)}",
                               "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
                 // Optionally show detailed log
@@ -496,7 +589,9 @@ namespace Image_Checker.WinForm
             catch (Exception ex)
             {
                 lblStatus.Text = $"❌ Incremental update failed: {ex.Message}";
-                MessageBox.Show($"Update failed:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Update failed:\n\n{ex.Message}\n\n" +
+                              "The corrections have been preserved and you can try again.",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
@@ -505,6 +600,7 @@ namespace Image_Checker.WinForm
                 progressBar.Visible = false;
                 btnQuickUpdate.Enabled = true;
                 btnRetrain.Enabled = true;
+                btnCorrect.Enabled = true;
             }
         }
 
@@ -558,6 +654,7 @@ namespace Image_Checker.WinForm
             progressBar.Style = ProgressBarStyle.Marquee;
             btnQuickUpdate.Enabled = false;
             btnRetrain.Enabled = false;
+            btnCorrect.Enabled = false;
 
             await Task.Run(() =>
             {
@@ -580,6 +677,7 @@ namespace Image_Checker.WinForm
             lblStatus.Text = "✅ Full retrain completed! Reloading model...";
             btnQuickUpdate.Enabled = true;
             btnRetrain.Enabled = true;
+            btnCorrect.Enabled = true;
 
             LoadModel();
             MessageBox.Show("Full retrain completed successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -593,5 +691,6 @@ namespace Image_Checker.WinForm
         public string? Subfolder { get; set; }
         public string? PredictedLabel { get; set; }
         public string? CorrectedLabel { get; set; }
+        public float Confidence { get; set; }
     }
 }

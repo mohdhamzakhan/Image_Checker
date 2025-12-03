@@ -24,14 +24,19 @@ namespace Image_Checker.Services
             int cvFolds = 2,
             int seed = 42,
             string logPath = null,
-            double sampleFraction = 0.5)
+            double sampleFraction = 0.5,
+            CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var totalRows = data.GetColumn<float[]>(data.Schema["Features"]).Count();
             var sampleSize = (int)(totalRows * sampleFraction);
 
             Console.WriteLine($"   📊 Sampling {sampleFraction:P0} of data for hyperparameter tuning...");
             var sampledData = mlContext.Data.TakeRows(data, sampleSize);
             Console.WriteLine($"   ✅ Using {sampleSize} of {totalRows} samples for tuning");
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             var rnd = new Random(seed);
             var log = new List<string> { "Trial,Trees,Leaves,LR,MinDocs,Score,Duration_Sec" };
@@ -48,6 +53,8 @@ namespace Image_Checker.Services
 
             for (int i = 0; i < nTrials; i++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 var tree = trees[rnd.Next(trees.Length)];
                 var leaf = leaves[rnd.Next(leaves.Length)];
                 var lr = lrs[rnd.Next(lrs.Length)];
@@ -71,6 +78,8 @@ namespace Image_Checker.Services
 
                     var results = mlContext.MulticlassClassification.CrossValidate(sampledData, est, cvFolds, seed: seed);
 
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     var duration = DateTime.Now - startTime;
                     var avg = results.Average(r => r.Metrics.MacroAccuracy);
 
@@ -90,6 +99,12 @@ namespace Image_Checker.Services
                         };
                         Console.WriteLine($"      🏆 New best score!");
                     }
+                }
+                catch (OperationCanceledException)
+                {
+                    Console.WriteLine($"      ⚠️ Trial {i + 1} cancelled");
+                    log.Add($"{i + 1},{tree},{leaf},{lr},{minDoc},CANCELLED,0");
+                    throw;
                 }
                 catch (Exception ex)
                 {

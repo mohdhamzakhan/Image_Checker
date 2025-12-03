@@ -24,9 +24,11 @@ namespace Image_Checker.Services
             int cvFolds = 3,
             int seed = 42,
             string logPath = null,
-            double sampleFraction = 0.5) // Sample the data for faster tuning
+            double sampleFraction = 0.5,
+            CancellationToken cancellationToken = default)
         {
-            // Get row count by reading the Features column (which is always float[])
+            cancellationToken.ThrowIfCancellationRequested();
+
             var totalRows = data.GetColumn<float[]>(data.Schema["Features"]).Count();
             var sampleSize = (int)(totalRows * sampleFraction);
 
@@ -34,14 +36,16 @@ namespace Image_Checker.Services
             var sampledData = mlContext.Data.TakeRows(data, sampleSize);
             Console.WriteLine($"   ✅ Using {sampleSize} of {totalRows} samples for tuning");
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             var rnd = new Random(seed);
             var log = new List<string> { "Trial,Leaves,MinData,LR,Iter,Score,Duration_Sec" };
 
             // Reduced parameter ranges for faster exploration
-            var leaves = new[] { 16, 31, 50 };  // Reduced from 5 to 3 options
-            var mins = new[] { 5, 20 };          // Reduced from 5 to 2 options
-            var lrs = new[] { 0.01f, 0.03f };    // Reduced from 5 to 2 options
-            var iters = new[] { 100, 300 };      // Reduced from 5 to 2 options
+            var leaves = new[] { 16, 31, 50 };
+            var mins = new[] { 5, 20 };
+            var lrs = new[] { 0.01f, 0.03f };
+            var iters = new[] { 100, 300 };
 
             double bestScore = double.NegativeInfinity;
             IEstimator<ITransformer> bestEstimator = null;
@@ -49,6 +53,8 @@ namespace Image_Checker.Services
 
             for (int i = 0; i < nTrials; i++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 var leaf = leaves[rnd.Next(leaves.Length)];
                 var min = mins[rnd.Next(mins.Length)];
                 var lr = lrs[rnd.Next(lrs.Length)];
@@ -71,6 +77,8 @@ namespace Image_Checker.Services
 
                     var results = mlContext.MulticlassClassification.CrossValidate(sampledData, est, cvFolds, seed: seed);
 
+                    cancellationToken.ThrowIfCancellationRequested();
+
                     var duration = DateTime.Now - startTime;
                     var avg = results.Average(r => r.Metrics.MacroAccuracy);
 
@@ -90,6 +98,12 @@ namespace Image_Checker.Services
                         };
                         Console.WriteLine($"      🏆 New best score!");
                     }
+                }
+                catch (OperationCanceledException)
+                {
+                    Console.WriteLine($"      ⚠️ Trial {i + 1} cancelled");
+                    log.Add($"{i + 1},{leaf},{min},{lr},{it},CANCELLED,0");
+                    throw;
                 }
                 catch (Exception ex)
                 {

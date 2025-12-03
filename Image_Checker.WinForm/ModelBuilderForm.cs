@@ -4,6 +4,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
@@ -14,11 +15,14 @@ namespace Image_Checker.WinForm
         private string _datasetPath;
         private string _outputPath;
         private ConsoleRedirector _consoleRedirector;
+        private CancellationTokenSource _cancellationTokenSource;
+        private bool _isTraining;
 
         public ModelBuilderForm()
         {
             InitializeComponent();
             _consoleRedirector = new ConsoleRedirector(txtTrainingLog);
+            _isTraining = false;
         }
 
         private void BtnSelectDataset_Click(object sender, EventArgs e)
@@ -34,6 +38,20 @@ namespace Image_Checker.WinForm
                 txtDatasetPath.Text = _datasetPath;
                 LogMessage($"📁 Dataset path selected: {_datasetPath}");
                 ValidateDataset();
+            }
+        }
+
+        private void BtnStopTraining_Click(object sender, EventArgs e)
+        {
+            if (_cancellationTokenSource != null && _isTraining)
+            {
+                LogMessage("", System.Drawing.Color.White);
+                LogMessage("⚠️ STOP REQUESTED - Cancelling training...", System.Drawing.Color.Orange);
+                LogMessage("   Please wait while current operation completes...", System.Drawing.Color.Orange);
+
+                _cancellationTokenSource.Cancel();
+                btnStopTraining.Enabled = false;
+                btnStopTraining.Text = "Stopping...";
             }
         }
 
@@ -119,10 +137,17 @@ namespace Image_Checker.WinForm
                 LogMessage($"💾 Output path not specified, using dataset folder: {_outputPath}");
             }
 
-            // Disable controls
+            // Create new cancellation token
+            _cancellationTokenSource?.Dispose();
+            _cancellationTokenSource = new CancellationTokenSource();
+            _isTraining = true;
+
+            // Update UI for training mode
             btnSelectDataset.Enabled = false;
             btnSelectOutput.Enabled = false;
             btnStartTraining.Enabled = false;
+            btnStopTraining.Enabled = true;
+            btnStopTraining.Text = "Stop Training";
             progressBar.Visible = true;
             progressBar.Style = ProgressBarStyle.Marquee;
 
@@ -131,9 +156,13 @@ namespace Image_Checker.WinForm
             LogMessage("🚀 STARTING MODEL TRAINING", System.Drawing.Color.Cyan);
             LogMessage("═══════════════════════════════════════════════", System.Drawing.Color.Cyan);
 
+            bool trainingCompleted = false;
+
             try
             {
-                await Task.Run(() => TrainModel());
+                await Task.Run(() => TrainModel(_cancellationTokenSource.Token), _cancellationTokenSource.Token);
+
+                trainingCompleted = true;
 
                 LogMessage("", System.Drawing.Color.White);
                 LogMessage("═══════════════════════════════════════════════", System.Drawing.Color.Green);
@@ -141,6 +170,15 @@ namespace Image_Checker.WinForm
                 LogMessage("═══════════════════════════════════════════════", System.Drawing.Color.Green);
 
                 MessageBox.Show("Model training completed successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (OperationCanceledException)
+            {
+                LogMessage("", System.Drawing.Color.White);
+                LogMessage("═══════════════════════════════════════════════", System.Drawing.Color.Orange);
+                LogMessage("⚠️ TRAINING CANCELLED BY USER", System.Drawing.Color.Orange);
+                LogMessage("═══════════════════════════════════════════════", System.Drawing.Color.Orange);
+
+                MessageBox.Show("Training was cancelled.", "Training Cancelled", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             catch (Exception ex)
             {
@@ -153,19 +191,47 @@ namespace Image_Checker.WinForm
             }
             finally
             {
+                _isTraining = false;
+
                 // Re-enable controls
                 btnSelectDataset.Enabled = true;
                 btnSelectOutput.Enabled = true;
                 btnStartTraining.Enabled = true;
+                btnStopTraining.Enabled = false;
+                btnStopTraining.Text = "Stop Training";
                 progressBar.Visible = false;
+
+                // Clean up cancellation token
+                _cancellationTokenSource?.Dispose();
+                _cancellationTokenSource = null;
             }
         }
 
-        private void TrainModel()
+        private void TrainModel(CancellationToken cancellationToken)
         {
+            // Get training parameters from UI
+            int cvFolds = 0, trials = 0;
+            bool useSDCA = false, useLBFGS = false, useFastTree = false, useLightGBM = false, useTransfer = false;
+
+            Invoke(new Action(() =>
+            {
+                cvFolds = (int)numCVFolds.Value;
+                trials = (int)numTrials.Value;
+                useSDCA = chkSDCA.Checked;
+                useLBFGS = chkLBFGS.Checked;
+                useFastTree = chkFastTree.Checked;
+                useLightGBM = chkLightGBM.Checked;
+                useTransfer = chkTransferLearning.Checked;
+            }));
+
+            // Check cancellation before each major step
+            cancellationToken.ThrowIfCancellationRequested();
+
             LogMessage("📝 Step 1: Creating CSV dataset from image folders...");
             DataValidator.CreateCsv(_datasetPath);
             LogMessage("✅ CSV dataset created successfully");
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             var csvPath = Path.Combine(_datasetPath, "images.csv");
             LogMessage($"📄 CSV file: {csvPath}");
@@ -174,14 +240,32 @@ namespace Image_Checker.WinForm
             LogMessage("📊 Step 2: Analyzing dataset distribution...");
             DataValidator.PrintLabelDistribution(csvPath);
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             LogMessage("");
             LogMessage("🧠 Step 3: Initializing ML.NET context...");
             var mlContext = new MLContext(seed: 42);
             LogMessage("✅ ML Context initialized with seed=42");
 
+            cancellationToken.ThrowIfCancellationRequested();
+
+            LogMessage("");
+            LogMessage("⚙️ Training Configuration:");
+            LogMessage($"   • Cross-Validation Folds: {cvFolds}");
+            LogMessage($"   • Tuning Trials: {trials}");
+            LogMessage($"   • Selected Algorithms:");
+            if (useSDCA) LogMessage("      - SDCA MaxEnt");
+            if (useLBFGS) LogMessage("      - L-BFGS MaxEnt");
+            if (useFastTree) LogMessage("      - FastTree");
+            if (useLightGBM) LogMessage("      - LightGBM");
+            if (useTransfer) LogMessage("      - Transfer Learning (MobileNetV2)");
+
+            cancellationToken.ThrowIfCancellationRequested();
+
             LogMessage("");
             LogMessage("🔧 Step 4: Building and training models...");
             LogMessage("   This may take several minutes depending on dataset size...");
+            LogMessage("   Press 'Stop Training' button to cancel at any time.");
 
             // Redirect console output to capture training details
             _consoleRedirector.Start();
@@ -189,7 +273,19 @@ namespace Image_Checker.WinForm
             try
             {
                 var trainer = new ModelTrainer(mlContext, _datasetPath);
-                trainer.TrainAndEvaluate();
+
+                trainer.TrainAndEvaluate(
+                    cvFolds: cvFolds,
+                    trials: trials,
+                    useSDCA: useSDCA,
+                    useLBFGS: useLBFGS,
+                    useFastTree: useFastTree,
+                    useLightGBM: useLightGBM,
+                    useTransferLearning: useTransfer,
+                    cancellationToken: cancellationToken
+                );
+
+                cancellationToken.ThrowIfCancellationRequested();
             }
             finally
             {
@@ -224,6 +320,7 @@ namespace Image_Checker.WinForm
             LogMessage("");
             LogMessage("🎉 All steps completed successfully!");
         }
+
 
         private void LogMessage(string message, System.Drawing.Color? color = null)
         {
@@ -261,7 +358,26 @@ namespace Image_Checker.WinForm
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            // Stop training if in progress
+            if (_isTraining)
+            {
+                var result = MessageBox.Show(
+                    "Training is in progress. Are you sure you want to close?",
+                    "Training In Progress",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning);
+
+                if (result == DialogResult.No)
+                {
+                    e.Cancel = true;
+                    return;
+                }
+
+                _cancellationTokenSource?.Cancel();
+            }
+
             _consoleRedirector?.Stop();
+            _cancellationTokenSource?.Dispose();
             base.OnFormClosing(e);
         }
     }

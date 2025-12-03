@@ -39,6 +39,7 @@
             this.chkLBFGS = new System.Windows.Forms.CheckBox();
             this.chkSDCA = new System.Windows.Forms.CheckBox();
             this.btnStartTraining = new System.Windows.Forms.Button();
+            this.btnStopTraining = new System.Windows.Forms.Button();
             this.progressBar = new System.Windows.Forms.ProgressBar();
             this.groupBoxLog = new System.Windows.Forms.GroupBox();
             this.txtTrainingLog = new System.Windows.Forms.RichTextBox();
@@ -312,11 +313,26 @@
             this.btnStartTraining.ForeColor = System.Drawing.Color.White;
             this.btnStartTraining.Location = new System.Drawing.Point(20, 530);
             this.btnStartTraining.Name = "btnStartTraining";
-            this.btnStartTraining.Size = new System.Drawing.Size(960, 50);
+            this.btnStartTraining.Size = new System.Drawing.Size(760, 50);
             this.btnStartTraining.TabIndex = 4;
             this.btnStartTraining.Text = "🚀 Start Training";
             this.btnStartTraining.UseVisualStyleBackColor = false;
             this.btnStartTraining.Click += new System.EventHandler(this.BtnStartTraining_Click);
+            // 
+            // btnStopTraining
+            // 
+            this.btnStopTraining.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(220)))), ((int)(((byte)(53)))), ((int)(((byte)(69)))));
+            this.btnStopTraining.Enabled = false;
+            this.btnStopTraining.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnStopTraining.Font = new System.Drawing.Font("Segoe UI", 12F, System.Drawing.FontStyle.Bold);
+            this.btnStopTraining.ForeColor = System.Drawing.Color.White;
+            this.btnStopTraining.Location = new System.Drawing.Point(800, 530);
+            this.btnStopTraining.Name = "btnStopTraining";
+            this.btnStopTraining.Size = new System.Drawing.Size(180, 50);
+            this.btnStopTraining.TabIndex = 5;
+            this.btnStopTraining.Text = "🛑 Stop";
+            this.btnStopTraining.UseVisualStyleBackColor = false;
+            this.btnStopTraining.Click += new System.EventHandler(this.BtnStopTraining_Click);
             // 
             // progressBar
             // 
@@ -324,7 +340,7 @@
             this.progressBar.Name = "progressBar";
             this.progressBar.Size = new System.Drawing.Size(960, 25);
             this.progressBar.Style = System.Windows.Forms.ProgressBarStyle.Marquee;
-            this.progressBar.TabIndex = 5;
+            this.progressBar.TabIndex = 6;
             this.progressBar.Visible = false;
             // 
             // groupBoxLog
@@ -334,7 +350,7 @@
             this.groupBoxLog.Location = new System.Drawing.Point(20, 630);
             this.groupBoxLog.Name = "groupBoxLog";
             this.groupBoxLog.Size = new System.Drawing.Size(960, 250);
-            this.groupBoxLog.TabIndex = 6;
+            this.groupBoxLog.TabIndex = 7;
             this.groupBoxLog.TabStop = false;
             this.groupBoxLog.Text = "Training Log";
             // 
@@ -360,6 +376,7 @@
             this.ClientSize = new System.Drawing.Size(1000, 900);
             this.Controls.Add(this.groupBoxLog);
             this.Controls.Add(this.progressBar);
+            this.Controls.Add(this.btnStopTraining);
             this.Controls.Add(this.btnStartTraining);
             this.Controls.Add(this.groupBoxTraining);
             this.Controls.Add(this.groupBoxOutput);
@@ -410,6 +427,7 @@
         private System.Windows.Forms.CheckBox chkLBFGS;
         private System.Windows.Forms.CheckBox chkSDCA;
         private System.Windows.Forms.Button btnStartTraining;
+        private System.Windows.Forms.Button btnStopTraining;
         private System.Windows.Forms.ProgressBar progressBar;
         private System.Windows.Forms.GroupBox groupBoxLog;
         private System.Windows.Forms.RichTextBox txtTrainingLog;
