@@ -1,0 +1,905 @@
+﻿using Microsoft.ML;
+using Microsoft.ML.Data;
+using Microsoft.ML.Transforms.Image;
+using Microsoft.ML.Vision;
+using System.IO;
+using System.Linq;
+internal class Program1
+{
+    private static string pathDirectory = @"D:\Laptop\Code\Image_Checker\Image_Checker\";
+    private static void Main(string[] args)
+    {
+        if (!File.Exists($"{pathDirectory}images.csv"))
+        {
+            csvMaker();
+        }
+        CheckDataDistribution();
+        //TestModel($"{pathDirectory}Sample");
+        TrainModel();
+    }
+
+    private static void csvMaker()
+    {
+        var okFiles = Directory.GetFiles($"{pathDirectory}OK").Select(p => new { ImagePath = p, Label = "OK" });
+        var ngFiles = Directory.GetFiles($"{pathDirectory}NG").Select(p => new { ImagePath = p, Label = "NG" });
+        var allData = okFiles.Concat(ngFiles);
+        File.WriteAllLines($"{pathDirectory}images.csv", allData.Select(d => $"{d.ImagePath},{d.Label}"));
+    }
+
+    public static (IEstimator<ITransformer> BestEstimator, IDictionary<string, object> BestParams, double BestScore)
+    TuneLightGbm(
+        MLContext mlContext,
+        IDataView data,                          // expects preprocessed data that already contains a "Features" column and a "Label" column
+        string labelColumnName = "Label",
+        int nTrials = 24,                        // number of random trials
+        int cvFolds = 3,                         // cross-validation folds
+        int seed = 0,
+        string csvLogPath = null                 // optional path to save CSV with tried combos
+    )
+    {
+        // Ensure LightGBM is available by trying to construct a basic trainer
+        try
+        {
+            var test = mlContext.MulticlassClassification.Trainers.LightGbm(
+                labelColumnName: labelColumnName,
+                featureColumnName: "Features",
+                numberOfLeaves: 31,
+                numberOfIterations: 10);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"LightGBM trainer not available: {ex.Message}");
+            return (null, null, double.NaN);
+        }
+
+        var rnd = new Random(seed);
+
+        // Sampling spaces (customize these if you want)
+        int[] possibleLeaves = new int[] { 16, 31, 50, 80, 120 };
+        int[] possibleMinData = new int[] { 1, 5, 10, 20, 50 };
+        float[] possibleLr = new float[] { 0.005f, 0.01f, 0.02f, 0.03f, 0.05f };
+        int[] possibleIters = new int[] { 100, 300, 500, 700, 1000 };
+
+        var logRows = new List<string>();
+        logRows.Add("Trial,NumLeaves,MinDataInLeaf,LearningRate,NumIterations,AvgMacroAccuracy");
+
+        double bestScore = double.NegativeInfinity;
+        IEstimator<ITransformer> bestEstimator = null;
+        Dictionary<string, object> bestParams = null;
+
+        Console.WriteLine($"Starting LightGBM random-search: {nTrials} trials, {cvFolds}-fold CV (seed={seed})");
+
+        for (int t = 0; t < nTrials; t++)
+        {
+            // Randomly sample hyperparams
+            var numLeaves = possibleLeaves[rnd.Next(possibleLeaves.Length)];
+            var minData = possibleMinData[rnd.Next(possibleMinData.Length)];
+            var lr = possibleLr[rnd.Next(possibleLr.Length)];
+            var iters = possibleIters[rnd.Next(possibleIters.Length)];
+
+            // Build estimator (expects "Features" already present in the IDataView)
+            var estimator = mlContext.MulticlassClassification.Trainers.LightGbm(
+                                labelColumnName: labelColumnName,
+                                featureColumnName: "Features",
+                                numberOfLeaves: numLeaves,
+                                minimumExampleCountPerLeaf: minData,
+                                learningRate: lr,
+                                numberOfIterations: iters);
+
+            // Evaluate via CV
+            double avgMacro = double.NaN;
+            try
+            {
+                var cvResults = mlContext.MulticlassClassification.CrossValidate(
+                                    data: data,
+                                    estimator: estimator,
+                                    numberOfFolds: cvFolds,
+                                    labelColumnName: labelColumnName);
+
+                avgMacro = cvResults.Average(r => r.Metrics.MacroAccuracy);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  Trial {t + 1}: CV failed for params L{numLeaves}_min{minData}_lr{lr}_it{iters}: {ex.Message}");
+                logRows.Add($"{t + 1},{numLeaves},{minData},{lr},{iters},NaN");
+                continue;
+            }
+
+            Console.WriteLine($"Trial {t + 1}/{nTrials}: Leaves={numLeaves}, MinData={minData}, LR={lr}, Iter={iters} => AvgMacro={avgMacro:P4}");
+            logRows.Add($"{t + 1},{numLeaves},{minData},{lr},{iters},{avgMacro}");
+
+            if (avgMacro > bestScore)
+            {
+                bestScore = avgMacro;
+                bestEstimator = estimator;
+                bestParams = new Dictionary<string, object>()
+                {
+                    ["numberOfLeaves"] = numLeaves,
+                    ["minimumExampleCountPerLeaf"] = minData,
+                    ["learningRate"] = lr,
+                    ["numberOfIterations"] = iters
+                };
+            }
+        } // trials loop
+
+        // Save CSV log if requested
+        if (!string.IsNullOrEmpty(csvLogPath))
+        {
+            try
+            {
+                File.WriteAllLines(csvLogPath, logRows);
+                Console.WriteLine($"Saved hyperparameter log to: {csvLogPath}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to save CSV log: {ex.Message}");
+            }
+        }
+
+        if (bestEstimator == null)
+        {
+            Console.WriteLine("Tuning finished but no valid LightGBM estimator found.");
+            return (null, null, double.NaN);
+        }
+
+        Console.WriteLine("Tuning complete. Best params:");
+        foreach (var kv in bestParams) Console.WriteLine($"  {kv.Key} = {kv.Value}");
+        Console.WriteLine($"Best CV MacroAccuracy = {bestScore:P4}");
+
+        return (bestEstimator, bestParams, bestScore);
+    }
+
+    private static void TrainModel()
+    {
+        var mlContext = new MLContext(seed: 0);
+
+        // ---------- Config ----------
+        string csvFile = Path.Combine(pathDirectory, "images.csv");
+        int imageWidth = 150;
+        int imageHeight = 150;
+        int cvFolds = 3;                        // set to 3 for faster runs
+        double minMacroAccThreshold = 0.80;     // drop trainers below this after the run
+        bool runHyperparameterSearch = true;    // small grid search enabled
+        bool runCrossValidation = true;
+        bool verbose = true;
+        // ----------------------------
+
+        Console.WriteLine("=== TrainModel: Beginning ===\n");
+        if (!File.Exists(csvFile))
+        {
+            Console.WriteLine($"ERROR: CSV file not found: {csvFile}");
+            return;
+        }
+
+        // ----------------- 1) CSV & Image validation --------------------------------
+        Console.WriteLine("1) Validating CSV and images...");
+        var lines = File.ReadAllLines(csvFile)
+                        .Select(l => l?.Trim())
+                        .Where(l => !string.IsNullOrWhiteSpace(l)).ToList();
+
+        var parsedRows = new List<(int Line, string ImgPath, string Label)>();
+        for (int i = 0; i < lines.Count; i++)
+        {
+            var parts = lines[i].Split(new[] { ',' }, 2);
+            if (parts.Length < 2)
+            {
+                Console.WriteLine($"  [CSV parse] Line {i + 1} invalid: '{lines[i]}'");
+                continue;
+            }
+            var img = parts[0].Trim().Trim('"');
+            var label = parts[1].Trim().Trim('"');
+            parsedRows.Add((i + 1, img, label));
+        }
+
+        var badRows = new List<(int Line, string Reason)>();
+        var validRows = new List<ImageData>();
+
+        foreach (var r in parsedRows)
+        {
+            var fullPath = Path.IsPathRooted(r.ImgPath) ? r.ImgPath : Path.Combine(pathDirectory, r.ImgPath);
+            if (!File.Exists(fullPath))
+            {
+                badRows.Add((r.Line, $"Missing file: {fullPath}"));
+                continue;
+            }
+            try
+            {
+                using (var fs = File.OpenRead(fullPath))
+                {
+                    if (fs.Length == 0) { badRows.Add((r.Line, $"Zero-length file: {fullPath}")); continue; }
+                    // don't fully decode the image - just ensure readable
+                    // for thorough check you could use System.Drawing or SixLabors.ImageSharp
+                }
+            }
+            catch (Exception ex)
+            {
+                badRows.Add((r.Line, $"Unreadable image: {fullPath} ({ex.Message})"));
+                continue;
+            }
+            if (string.IsNullOrWhiteSpace(r.Label)) { badRows.Add((r.Line, "Empty label")); continue; }
+            // store the original path as in CSV so LoadImages(imageFolder, inputColumnName) can resolve it
+            validRows.Add(new ImageData { ImagePath = r.ImgPath, Label = r.Label });
+        }
+
+        Console.WriteLine($"CSV rows: {lines.Count}, valid: {validRows.Count}, bad: {badRows.Count}");
+        if (badRows.Any())
+        {
+            Console.WriteLine("Sample bad rows (first 25):");
+            foreach (var b in badRows.Take(25)) Console.WriteLine($"  Line {b.Line}: {b.Reason}");
+        }
+        if (validRows.Count == 0) { Console.WriteLine("No valid rows to train on. Fix CSV / images and retry."); return; }
+
+        // Create IDataView from validated rows (ensures ML.NET uses exactly these rows)
+        var data = mlContext.Data.LoadFromEnumerable(validRows);
+
+        // Print class distribution
+        var labels = data.GetColumn<string>(nameof(ImageData.Label)).ToList();
+        var distribution = labels.GroupBy(x => x).Select(g => new { Label = g.Key, Count = g.Count() }).ToList();
+        Console.WriteLine("\nDataset distribution:");
+        foreach (var d in distribution) Console.WriteLine($"  {d.Label}: {d.Count}");
+        Console.WriteLine($"  Total: {labels.Count}\n");
+
+        // ----------------- 2) Train/test split -------------------------------------
+        var split = mlContext.Data.TrainTestSplit(data, testFraction: 0.2, seed: 0);
+
+        // ----------------- 3) Common preprocessing pipeline ------------------------
+        // NOTE: ImageClassification trainer (transfer learning) expects raw InputImage and different sizing,
+        // so we build a separate pipeline for it when available.
+        var preprocess = mlContext.Transforms.LoadImages(
+                                outputColumnName: "InputImage",
+                                imageFolder: pathDirectory,
+                                inputColumnName: nameof(ImageData.ImagePath))
+                            .Append(mlContext.Transforms.ResizeImages(
+                                outputColumnName: "ResizedImage",
+                                imageWidth: imageWidth, imageHeight: imageHeight,
+                                inputColumnName: "InputImage",
+                                resizing: ImageResizingEstimator.ResizingKind.IsoPad))
+                            .Append(mlContext.Transforms.ConvertToGrayscale(
+                                outputColumnName: "GrayscaleImage", inputColumnName: "ResizedImage"))
+                            .Append(mlContext.Transforms.ExtractPixels(
+                                outputColumnName: "Features", inputColumnName: "GrayscaleImage",
+                                interleavePixelColors: false, offsetImage: 128f, scaleImage: 1f / 128f))
+                            .Append(mlContext.Transforms.Conversion.MapValueToKey(
+                                outputColumnName: "Label", inputColumnName: nameof(ImageData.Label)));
+
+
+        // ----------------- 4) Build trainers list ----------------------------------
+        Console.WriteLine("Building trainers...");
+        var trainers = new List<(string Name, IEstimator<ITransformer> Estimator, bool isFullPipeline)>();
+
+        #region Other Techniques Tried
+
+        // LBFGS (linear / fast)
+        //trainers.Add(("LBFGS_MaxEnt", mlContext.MulticlassClassification.Trainers.LbfgsMaximumEntropy(
+        //                    labelColumnName: "Label", featureColumnName: "Features", l1Regularization: 0.1f, l2Regularization: 0.1f, historySize: 20), false));
+
+        // SDCA
+        //trainers.Add(("SDCA_MaxEnt", mlContext.MulticlassClassification.Trainers.SdcaMaximumEntropy(
+        //                    labelColumnName: "Label", featureColumnName: "Features", maximumNumberOfIterations: 200), false));
+
+        // One-vs-All FastTree (Good tree baseline)
+        //trainers.Add(("FastTree_OneVsAll", mlContext.MulticlassClassification.Trainers.OneVersusAll(
+        //                    mlContext.BinaryClassification.Trainers.FastTree(
+        //                        labelColumnName: "Label", featureColumnName: "Features",
+        //                        numberOfLeaves: 50, numberOfTrees: 150, minimumExampleCountPerLeaf: 10, learningRate: 0.1)), false));
+
+        // One-vs-All FastForest (Random forest via OVA)
+        //trainers.Add(("FastForest_OneVsAll", mlContext.MulticlassClassification.Trainers.OneVersusAll(
+        //                    mlContext.BinaryClassification.Trainers.FastForest(
+        //                        labelColumnName: "Label", featureColumnName: "Features",
+        //                        numberOfLeaves: 20, numberOfTrees: 200, minimumExampleCountPerLeaf: 5)), false));
+
+        // One-vs-All LinearSvm
+        //trainers.Add(("OneVsAll_LinearSvm", mlContext.MulticlassClassification.Trainers.OneVersusAll(
+        //                    mlContext.BinaryClassification.Trainers.LinearSvm(
+        //                        labelColumnName: "Label", featureColumnName: "Features", numberOfIterations: 100)), false));
+
+        #endregion
+
+        // Try LightGBM (if package available) - small default parameters, tuning below
+        //try
+        //{
+        //    var lgb = mlContext.MulticlassClassification.Trainers.LightGbm(
+        //labelColumnName: "Label",
+        //featureColumnName: "Features",
+        //numberOfLeaves: 50,
+        //minimumExampleCountPerLeaf: 10,
+        //learningRate: 0.03f,
+        //numberOfIterations: 700);
+
+        //    trainers.Add(("LightGBM", lgb, false));
+        //}
+        //catch (Exception)
+        //{
+        //    Console.WriteLine("  LightGBM not available, skipping LightGBM trainer.");
+        //}
+
+        Console.WriteLine("\nRunning LightGBM Hyperparameter Tuning...");
+
+        // Fit preprocess and transform full data → creates Features + Label (key)
+        var preprocessModel = preprocess.Fit(data);
+        var dataForTuning = preprocessModel.Transform(data);
+
+        // Run the tuner (20 trials recommended)
+        var (bestEstimator, bestParams, bestScore) =
+            TuneLightGbm(
+                mlContext,
+                dataForTuning,
+                labelColumnName: "Label",
+                nTrials: 20,
+                cvFolds: 3,
+                seed: 42,
+                csvLogPath: Path.Combine(pathDirectory, "lgb_tune_log.csv")
+            );
+
+        // Prepare trainer list
+        Console.WriteLine("Building trainers...");
+
+        // If tuner returned a good estimator → use it
+        if (bestEstimator != null)
+        {
+            trainers.Add(("LightGBM_Tuned", bestEstimator, false));
+            Console.WriteLine("Added tuned LightGBM trainer.");
+        }
+        else
+        {
+            Console.WriteLine("Tuner returned null; using default LightGBM.");
+        }
+
+        // Try ImageClassification (transfer learning) - this is a full pipeline and must be added as-is
+        try
+        {
+            var imageOptions = new Microsoft.ML.Vision.ImageClassificationTrainer.Options()
+            {
+                FeatureColumnName = "InputImage",
+                LabelColumnName = "Label",
+                Arch = Microsoft.ML.Vision.ImageClassificationTrainer.Architecture.MobilenetV2,
+                Epoch = 15,
+                BatchSize = 16,
+                LearningRate = 0.01f,
+                MetricsCallback = (metrics) => { if (verbose) Console.WriteLine($"  [ImgClf] {metrics}"); },
+                ValidationSet = null // we'll evaluate using our split
+            };
+
+            // Build full pipeline for ImageClassification: Load+Resize(InputImage) + MapValueToKey + trainer + MapKeyToValue
+            var imgPipeline = mlContext.Transforms.LoadImages("InputImage", imageFolder: pathDirectory, inputColumnName: nameof(ImageData.ImagePath))
+                              .Append(mlContext.Transforms.ResizeImages("InputImage", 224, 224, "InputImage", ImageResizingEstimator.ResizingKind.Fill))
+                              .Append(mlContext.Transforms.Conversion.MapValueToKey("Label"))
+                              .Append(mlContext.MulticlassClassification.Trainers.ImageClassification(imageOptions))
+                              .Append(mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
+
+            trainers.Add(("ImageClassification_Transfer", imgPipeline, true));
+        }
+        catch (Exception)
+        {
+            Console.WriteLine("  ImageClassification (ML.Vision) not available or failed - skipping transfer trainer.");
+        }
+
+        // ----------------- 5) Optional Hyperparameter Search (tiny grid) -----------
+        // We'll run a small grid for LightGBM and FastTree (if present) — keep grid small to limit time.
+        Console.WriteLine($"Hyperparameter search enabled: {runHyperparameterSearch}");
+        var extraTrainersFromSearch = new List<(string Name, IEstimator<ITransformer> Estimator)>();
+        if (runHyperparameterSearch)
+        {
+            // LightGBM grid
+            var lgbTrainerInfo = trainers.FirstOrDefault(t => t.Name == "LightGBM");
+            if (lgbTrainerInfo.Name != null)
+            {
+                var lRates = new float[] { 0.01f, 0.03f };
+                var leaves = new int[] { 31, 50 };
+                var iters = new int[] { 200, 400 };
+                foreach (var lr in lRates)
+                    foreach (var lf in leaves)
+                        foreach (var it in iters)
+                        {
+                            var optName = $"LightGBM_lr{lr}_leaf{lf}_it{it}";
+                            var t = mlContext.MulticlassClassification.Trainers.LightGbm(
+                                        labelColumnName: "Label", featureColumnName: "Features",
+                                        numberOfLeaves: lf, learningRate: lr, numberOfIterations: it, minimumExampleCountPerLeaf: 10);
+                            extraTrainersFromSearch.Add((optName, t));
+                        }
+            }
+
+            // FastTree grid (via OneVsAll wrapper)
+            var ftName = "FastTree_OneVsAll";
+            if (trainers.Any(t => t.Name == ftName))
+            {
+                var trees = new int[] { 50, 100 };
+                var leaves = new int[] { 20, 50 };
+                foreach (var nt in trees)
+                    foreach (var nl in leaves)
+                    {
+                        var optName = $"FastTree_OneVsAll_t{nt}_leaf{nl}";
+                        var inner = mlContext.BinaryClassification.Trainers.FastTree(
+                                        labelColumnName: "Label", featureColumnName: "Features",
+                                        numberOfLeaves: nl, numberOfTrees: nt, minimumExampleCountPerLeaf: 10, learningRate: 0.1);
+                        var ova = mlContext.MulticlassClassification.Trainers.OneVersusAll(inner);
+                        extraTrainersFromSearch.Add((optName, ova));
+                    }
+            }
+        }
+
+        // Merge the extra trainers (these are full estimator fragments that we will append to preprocess)
+        foreach (var et in extraTrainersFromSearch) trainers.Add((et.Name, et.Estimator, false));
+
+        // ----------------- 6) Training & Evaluation Loop --------------------------
+        Console.WriteLine("\nStarting training & evaluation for all trainers...");
+        var results = new List<(
+            string Name,
+            MulticlassClassificationMetrics Metrics,
+            TimeSpan TrainTime,
+            ITransformer Model,
+            bool UsedFullPipeline
+        )>();
+
+        foreach (var (Name, Estimator, isFullPipeline) in trainers)
+        {
+            Console.WriteLine($"\n--- Trainer: {Name} ---");
+            IEstimator<ITransformer> pipelineToFit = null;
+            if (isFullPipeline)
+            {
+                // Already a complete pipeline (ImageClassification pipeline was built as full)
+                pipelineToFit = (IEstimator<ITransformer>)Estimator;
+            }
+            else
+            {
+                // append trainer to the standard preprocessing
+                pipelineToFit = preprocess.Append(Estimator)
+                                          .Append(mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel", "PredictedLabel"));
+            }
+
+            // Fit & evaluate
+            ITransformer model = null;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                model = pipelineToFit.Fit(split.TrainSet);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  Failed to Fit(): {ex.Message}");
+                continue;
+            }
+            sw.Stop();
+
+            IDataView predictions = null;
+            MulticlassClassificationMetrics metrics = null;
+            try
+            {
+                predictions = model.Transform(split.TestSet);
+                metrics = mlContext.MulticlassClassification.Evaluate(predictions, labelColumnName: "Label");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  Failed to Evaluate(): {ex.Message}");
+                continue;
+            }
+
+            Console.WriteLine($"  Train time: {sw.Elapsed.TotalSeconds:F2}s");
+            Console.WriteLine($"  MacroAccuracy: {metrics.MacroAccuracy:P4}");
+            Console.WriteLine($"  MicroAccuracy: {metrics.MicroAccuracy:P4}");
+            Console.WriteLine($"  LogLoss: {metrics.LogLoss:F4}, LogLossReduction: {metrics.LogLossReduction:F4}");
+
+            // Per-class P/R/F1 computed from confusion matrix
+            var cm = metrics.ConfusionMatrix.Counts;
+            Console.WriteLine("  Per-class P/R/F1:");
+            for (int c = 0; c < cm.Count; c++)
+            {
+                double tp = cm[c][c];
+                double fn = cm[c].Sum() - tp;
+                double fp = Enumerable.Range(0, cm.Count).Sum(r => cm[r][c]) - tp;
+                double precision = (tp + fp) == 0 ? 0.0 : tp / (tp + fp);
+                double recall = (tp + fn) == 0 ? 0.0 : tp / (tp + fn);
+                double f1 = (precision + recall) == 0 ? 0.0 : 2 * (precision * recall) / (precision + recall);
+                Console.WriteLine($"    Class {c}: P={precision:P4}, R={recall:P4}, F1={f1:P4}");
+            }
+
+            Console.WriteLine("  Confusion matrix:");
+            Console.WriteLine(metrics.ConfusionMatrix.GetFormattedConfusionTable());
+
+            // Optionally run cross-validation for this pipeline (this repeats training cvFolds times)
+            if (runCrossValidation)
+            {
+                try
+                {
+                    Console.WriteLine($"  Running {cvFolds}-fold cross-validation (this takes longer)...");
+                    var cvResults = mlContext.MulticlassClassification.CrossValidate(data, pipelineToFit, numberOfFolds: cvFolds, labelColumnName: "Label");
+                    var avgMacro = cvResults.Average(r => r.Metrics.MacroAccuracy);
+                    var stdMacro = Math.Sqrt(cvResults.Average(r => Math.Pow(r.Metrics.MacroAccuracy - avgMacro, 2)));
+                    var avgLog = cvResults.Average(r => r.Metrics.LogLoss);
+                    Console.WriteLine($"    CV MacroAccuracy: {avgMacro:P4} (±{stdMacro:P4}), AvgLogLoss: {avgLog:F4}");
+                    for (int i = 0; i < cvResults.Count; i++)
+                    {
+                        Console.WriteLine($"      Fold {i + 1}: MicroAcc={cvResults[i].Metrics.MicroAccuracy:P4}, LogLoss={cvResults[i].Metrics.LogLoss:F4}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"    Cross-validation failed for {Name}: {ex.Message}");
+                }
+            }
+
+            results.Add((Name, metrics, sw.Elapsed, model, isFullPipeline));
+        }
+
+        if (!results.Any())
+        {
+            Console.WriteLine("No successful trainers completed.");
+            return;
+        }
+
+        // ----------------- 7) Comparison table & drop poor performers ------------
+        var sorted = results.OrderByDescending(r => r.Metrics.MacroAccuracy).ToList();
+        Console.WriteLine("\n=== Overall comparison (sorted by MacroAccuracy) ===");
+        Console.WriteLine($"{"Model",-40} {"Macro",10} {"Micro",10} {"LogLoss",10} {"Time(s)",10}");
+        foreach (var r in sorted)
+        {
+            Console.WriteLine($"{r.Name,-40} {r.Metrics.MacroAccuracy,10:P4} {r.Metrics.MicroAccuracy,10:P4} {r.Metrics.LogLoss,10:F4} {r.TrainTime.TotalSeconds,10:F2}");
+        }
+
+        var keepers = sorted.Where(r => r.Metrics.MacroAccuracy >= minMacroAccThreshold).ToList();
+        Console.WriteLine($"\nKeepers (MacroAccuracy >= {minMacroAccThreshold:P2}): {keepers.Count} kept, {sorted.Count - keepers.Count} dropped.");
+
+        // Save the best keeper model
+        var best = keepers.FirstOrDefault();
+        if (best.Model != null)
+        {
+            var safeName = SanitizeFileName(best.Name);
+            var modelPath = Path.Combine(pathDirectory, $"bestModel-{safeName}.zip");
+            mlContext.Model.Save(best.Model, split.TrainSet.Schema, modelPath);
+            Console.WriteLine($"Saved best model: {best.Name} -> {modelPath}");
+
+            // Optionally retrain the best pipeline on the full dataset (uncomment to enable)
+
+            Console.WriteLine("Retraining best pipeline on the entire dataset (train+test) for production...");
+            IEstimator<ITransformer> bestPipeline;
+            if (best.UsedFullPipeline)
+                bestPipeline = trainers.First(t => t.Name == best.Name).Estimator as IEstimator<ITransformer>;
+            else
+                bestPipeline = preprocess.Append(trainers.First(t => t.Name == best.Name).Estimator)
+                                         .Append(mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel", "PredictedLabel"));
+
+            var finalModel = bestPipeline.Fit(data); // fit on entire dataset
+            var finalPath = Path.Combine(pathDirectory, $"finalModel-{safeName}.zip");
+            mlContext.Model.Save(finalModel, data.Schema, finalPath);
+            Console.WriteLine($"Final model trained on full data saved: {finalPath}");
+
+        }
+        else
+        {
+            Console.WriteLine("No keeper model found to save.");
+        }
+
+        Console.WriteLine("\n=== TrainModel: Complete ===");
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        var invalids = Path.GetInvalidFileNameChars();
+        return string.Concat(name.Select(c => invalids.Contains(c) ? '_' : c));
+    }
+
+
+    private static void TrainModelWithLightBGM()
+    {
+        var mlContext = new MLContext(seed: 0);
+
+        Console.WriteLine("Loading data...");
+        var data = mlContext.Data.LoadFromTextFile<ImageData>(
+            Path.Combine(pathDirectory, "images.csv"),
+            hasHeader: false,
+            separatorChar: ',');
+
+        // Correct way to count rows
+        var rowCount = data.GetColumn<string>(nameof(ImageData.Label)).Count();
+        Console.WriteLine($"Total images loaded: {rowCount}");
+
+        var split = mlContext.Data.TrainTestSplit(data, testFraction: 0.2);
+
+        Console.WriteLine("Building pipeline...");
+        var pipeline =
+            mlContext.Transforms.LoadImages(
+                    outputColumnName: "InputImage",
+                    imageFolder: "",
+                    inputColumnName: nameof(ImageData.ImagePath))
+            .Append(mlContext.Transforms.ResizeImages(
+                    outputColumnName: "ResizedImage",
+                    imageWidth: 100,
+                    imageHeight: 100,
+                    inputColumnName: "InputImage"))
+            .Append(mlContext.Transforms.ConvertToGrayscale(
+                    outputColumnName: "GrayscaleImage",
+                    inputColumnName: "ResizedImage"))
+            .Append(mlContext.Transforms.ExtractPixels(
+                    outputColumnName: "Features",
+                    inputColumnName: "GrayscaleImage",
+                    interleavePixelColors: false,
+                    scaleImage: 1f / 255f))
+            .Append(mlContext.Transforms.Conversion.MapValueToKey(
+                    outputColumnName: "Label",
+                    inputColumnName: nameof(ImageData.Label)))
+            .Append(mlContext.MulticlassClassification.Trainers.LightGbm(
+                    labelColumnName: "Label",
+                    featureColumnName: "Features",
+                    numberOfLeaves: 30,
+                    minimumExampleCountPerLeaf: 20,
+                    learningRate: 0.05,
+                    numberOfIterations: 300))
+            .Append(mlContext.Transforms.Conversion.MapKeyToValue(
+                    outputColumnName: "PredictedLabel",
+                    inputColumnName: "PredictedLabel"));
+
+        Console.WriteLine("Training model (this may take a few minutes)...");
+        var model = pipeline.Fit(split.TrainSet);
+
+        Console.WriteLine("\nEvaluating model...");
+        var predictions = model.Transform(split.TestSet);
+        var metrics = mlContext.MulticlassClassification.Evaluate(predictions,
+            labelColumnName: "Label");
+
+        Console.WriteLine($"\n=== Model Performance ===");
+        Console.WriteLine($"Macro Accuracy: {metrics.MacroAccuracy:P2}");
+        Console.WriteLine($"Micro Accuracy: {metrics.MicroAccuracy:P2}");
+        Console.WriteLine($"Log Loss: {metrics.LogLoss:F4}");
+        Console.WriteLine($"Log Loss Reduction: {metrics.LogLossReduction:F4}");
+
+        Console.WriteLine("\n=== Per-Class Metrics ===");
+        for (int i = 0; i < metrics.PerClassLogLoss.Count; i++)
+        {
+            Console.WriteLine($"Class {i}: LogLoss = {metrics.PerClassLogLoss[i]:F4}");
+        }
+
+        Console.WriteLine("\n=== Confusion Matrix ===");
+        Console.WriteLine(metrics.ConfusionMatrix.GetFormattedConfusionTable());
+
+        Console.WriteLine("\nSaving model...");
+        mlContext.Model.Save(model, split.TrainSet.Schema,
+            Path.Combine(pathDirectory, "imageClassificationModel.zip"));
+
+        Console.WriteLine("Model saved successfully!");
+    }
+
+    private static void TrainModelWithCheck()
+    {
+        var mlContext = new MLContext(seed: 0);
+
+        Console.WriteLine("=== Starting Model Training ===\n");
+        Console.WriteLine("Loading data...");
+        var data = mlContext.Data.LoadFromTextFile<ImageData>(
+            Path.Combine(pathDirectory, "images.csv"),
+            hasHeader: false,
+            separatorChar: ',');
+
+        var rowCount = data.GetColumn<string>(nameof(ImageData.Label)).Count();
+        Console.WriteLine($"Total images loaded: {rowCount}");
+
+        // Check class distribution
+        var labels = data.GetColumn<string>(nameof(ImageData.Label)).ToList();
+        var distribution = labels.GroupBy(l => l).Select(g => new { Label = g.Key, Count = g.Count() });
+        Console.WriteLine("\nClass Distribution:");
+        foreach (var item in distribution)
+        {
+            Console.WriteLine($"  {item.Label}: {item.Count} images ({(item.Count * 100.0 / rowCount):F2}%)");
+        }
+
+        Console.WriteLine("\nPerforming train/test split (80/20)...");
+        var split = mlContext.Data.TrainTestSplit(data, testFraction: 0.2);
+
+        Console.WriteLine("Building enhanced pipeline...");
+        var pipeline =
+            mlContext.Transforms.LoadImages(
+                    outputColumnName: "InputImage",
+                    imageFolder: "",
+                    inputColumnName: nameof(ImageData.ImagePath))
+            .Append(mlContext.Transforms.ResizeImages(
+                    outputColumnName: "ResizedImage",
+                    imageWidth: 150,
+                    imageHeight: 150,
+                    inputColumnName: "InputImage",
+                    resizing: ImageResizingEstimator.ResizingKind.IsoPad))
+            .Append(mlContext.Transforms.ConvertToGrayscale(
+                    outputColumnName: "GrayscaleImage",
+                    inputColumnName: "ResizedImage"))
+            .Append(mlContext.Transforms.ExtractPixels(
+                    outputColumnName: "Features",
+                    inputColumnName: "GrayscaleImage",
+                    interleavePixelColors: false,
+                    offsetImage: 128f,
+                    scaleImage: 1f / 128f))
+            .Append(mlContext.Transforms.Conversion.MapValueToKey(
+                    outputColumnName: "Label",
+                    inputColumnName: nameof(ImageData.Label)))
+            .Append(mlContext.MulticlassClassification.Trainers.LightGbm(
+                    labelColumnName: "Label",
+                    featureColumnName: "Features",
+                    numberOfLeaves: 50,
+                    minimumExampleCountPerLeaf: 10,
+                    learningRate: 0.03f,
+                    numberOfIterations: 500))
+            .Append(mlContext.Transforms.Conversion.MapKeyToValue(
+                    outputColumnName: "PredictedLabel",
+                    inputColumnName: "PredictedLabel"));
+
+        Console.WriteLine("\nTraining model (this may take a few minutes)...");
+        var startTime = DateTime.Now;
+        var model = pipeline.Fit(split.TrainSet);
+        var trainingTime = DateTime.Now - startTime;
+        Console.WriteLine($"Training completed in {trainingTime.TotalSeconds:F2} seconds");
+
+        Console.WriteLine("\nEvaluating model on test set...");
+        var predictions = model.Transform(split.TestSet);
+        var metrics = mlContext.MulticlassClassification.Evaluate(predictions,
+            labelColumnName: "Label");
+
+        Console.WriteLine("\n=== Model Performance Metrics ===");
+        Console.WriteLine($"Macro Accuracy:        {metrics.MacroAccuracy:P2}");
+        Console.WriteLine($"Micro Accuracy:        {metrics.MicroAccuracy:P2}");
+        Console.WriteLine($"Log Loss:              {metrics.LogLoss:F4}");
+        Console.WriteLine($"Log Loss Reduction:    {metrics.LogLossReduction:F4}");
+
+        Console.WriteLine("\n=== Per-Class Metrics ===");
+        for (int i = 0; i < metrics.PerClassLogLoss.Count; i++)
+        {
+            var className = i == 0 ? "NG" : "OK";  // Adjust based on your label order
+            Console.WriteLine($"{className}: LogLoss = {metrics.PerClassLogLoss[i]:F4}");
+        }
+
+        Console.WriteLine("\n=== Confusion Matrix ===");
+        Console.WriteLine(metrics.ConfusionMatrix.GetFormattedConfusionTable());
+
+        // Additional detailed metrics
+        var confusionMatrix = metrics.ConfusionMatrix;
+        double totalTestSamples = 0;
+        foreach (var row in confusionMatrix.Counts)
+        {
+            foreach (var count in row)
+            {
+                totalTestSamples += count;
+            }
+        }
+
+        Console.WriteLine($"\nTotal test samples: {totalTestSamples}");
+        Console.WriteLine($"Correctly classified: {(int)(metrics.MicroAccuracy * totalTestSamples)}");
+        Console.WriteLine($"Misclassified: {(int)((1 - metrics.MicroAccuracy) * totalTestSamples)}");
+
+        // Save the model
+        Console.WriteLine("\nSaving model...");
+        var modelPath = Path.Combine(pathDirectory, "imageClassificationModel.zip");
+        mlContext.Model.Save(model, split.TrainSet.Schema, modelPath);
+        Console.WriteLine($"Model saved to: {modelPath}");
+
+        // Perform cross-validation for additional validation
+        Console.WriteLine("\n=== Running 5-Fold Cross-Validation ===");
+        var cvResults = mlContext.MulticlassClassification.CrossValidate(
+            data: data,
+            estimator: pipeline,
+            numberOfFolds: 5,
+            labelColumnName: "Label");
+
+        var avgAccuracy = cvResults.Average(r => r.Metrics.MicroAccuracy);
+        var stdDevAccuracy = Math.Sqrt(cvResults.Average(r => Math.Pow(r.Metrics.MicroAccuracy - avgAccuracy, 2)));
+        var avgLogLoss = cvResults.Average(r => r.Metrics.LogLoss);
+
+        Console.WriteLine($"\nCross-Validation Results:");
+        Console.WriteLine($"Average Accuracy:   {avgAccuracy:P2} (±{stdDevAccuracy:P2})");
+        Console.WriteLine($"Average Log Loss:   {avgLogLoss:F4}");
+        Console.WriteLine($"\nIndividual Folds:");
+        for (int i = 0; i < cvResults.Count; i++)
+        {
+            Console.WriteLine($"  Fold {i + 1}: Accuracy = {cvResults[i].Metrics.MicroAccuracy:P2}, LogLoss = {cvResults[i].Metrics.LogLoss:F4}");
+        }
+
+        Console.WriteLine("\n=== Training Complete ===");
+        Console.WriteLine("Model is ready for predictions!");
+    }
+
+    private static void TestModel(string testImagesFolderPath)
+    {
+        var mlContext = new MLContext(seed: 0);
+
+        Console.WriteLine("Loading trained model...");
+        ITransformer model;
+        DataViewSchema modelSchema;
+
+        using (var stream = File.OpenRead(Path.Combine(pathDirectory, "imageClassificationModel.zip")))
+        {
+            model = mlContext.Model.Load(stream, out modelSchema);
+        }
+
+        var predictionEngine = mlContext.Model.CreatePredictionEngine<ImageData, ImagePrediction>(model);
+
+        // Get all image files from the test folder
+        var imageFiles = Directory.GetFiles(testImagesFolderPath, "*.*", SearchOption.TopDirectoryOnly)
+            .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+                        f.EndsWith(".bmp", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        Console.WriteLine($"\nFound {imageFiles.Count} images to test\n");
+        Console.WriteLine("=== Prediction Results ===\n");
+
+        int okCount = 0;
+        int ngCount = 0;
+
+        foreach (var imagePath in imageFiles)
+        {
+            var imageData = new ImageData { ImagePath = imagePath };
+            var prediction = predictionEngine.Predict(imageData);
+
+            var fileName = Path.GetFileName(imagePath);
+            var confidence = prediction.Score.Max() * 100;
+
+            Console.WriteLine($"Image: {fileName}");
+            Console.WriteLine($"  Prediction: {prediction.PredictedLabel}");
+            Console.WriteLine($"  Confidence: {confidence:F2}%");
+            Console.WriteLine($"  Scores - OK: {prediction.Score[0]:F4}, NG: {prediction.Score[1]:F4}");
+            Console.WriteLine();
+
+            if (prediction.PredictedLabel == "OK")
+                okCount++;
+            else
+                ngCount++;
+        }
+
+        Console.WriteLine("=== Summary ===");
+        Console.WriteLine($"Total images tested: {imageFiles.Count}");
+        Console.WriteLine($"Predicted as OK: {okCount}");
+        Console.WriteLine($"Predicted as NG: {ngCount}");
+    }
+
+    private static void TestSingleImage(string imagePath)
+    {
+        var mlContext = new MLContext(seed: 0);
+
+        Console.WriteLine("Loading trained model...");
+        ITransformer model;
+        using (var stream = File.OpenRead(Path.Combine(pathDirectory, "imageClassificationModel.zip")))
+        {
+            model = mlContext.Model.Load(stream, out _);
+        }
+
+        var predictionEngine = mlContext.Model.CreatePredictionEngine<ImageData, ImagePrediction>(model);
+
+        var imageData = new ImageData { ImagePath = imagePath };
+        var prediction = predictionEngine.Predict(imageData);
+
+        Console.WriteLine($"\n=== Prediction for: {Path.GetFileName(imagePath)} ===");
+        Console.WriteLine($"Predicted Label: {prediction.PredictedLabel}");
+        Console.WriteLine($"Confidence: {prediction.Score.Max() * 100:F2}%");
+        Console.WriteLine($"OK Score: {prediction.Score[0]:F4}");
+        Console.WriteLine($"NG Score: {prediction.Score[1]:F4}");
+    }
+    private static void CheckDataDistribution()
+    {
+        var lines = File.ReadAllLines(Path.Combine(pathDirectory, "images.csv"));
+        var labelCounts = lines
+            .Select(line => line.Split(',')[1])
+            .GroupBy(label => label)
+            .Select(g => new { Label = g.Key, Count = g.Count() })
+            .ToList();
+
+        Console.WriteLine("=== Dataset Distribution ===");
+        foreach (var item in labelCounts)
+        {
+            Console.WriteLine($"{item.Label}: {item.Count} images");
+        }
+
+        Console.WriteLine($"\nTotal images: {lines.Length}");
+    }
+    public class ImageData
+    {
+        [LoadColumn(0)]
+        public string ImagePath { get; set; } = string.Empty;
+        [LoadColumn(1)]
+        public string Label { get; set; } = string.Empty;  // Fixed
+    }
+
+    public class ImagePrediction
+    {
+        public string PredictedLabel { get; set; }
+
+        [ColumnName("Score")]
+        public float[] Score { get; set; }
+    }
+}
