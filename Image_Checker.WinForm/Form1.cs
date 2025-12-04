@@ -1,5 +1,6 @@
 ﻿using Image_Checker.DataModels;
 using Image_Checker.Services;
+using ImageChecker.Services;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -478,22 +479,19 @@ namespace Image_Checker.WinForm
         // === Quick Incremental Update ===
         private async void BtnQuickUpdate_Click(object sender, EventArgs e)
         {
-            if (_incrementalTrainer == null || _correctionManager == null)
+            if (_predictor == null || string.IsNullOrEmpty(_basePath))
             {
-                MessageBox.Show("Trainer not initialized. Please configure base path.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Please load a model first (select base folder).", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
-            var correctionPath = Path.Combine(_basePath, "corrections.csv");
-            if (!File.Exists(correctionPath))
+            if (_correctionManager == null)
             {
-                MessageBox.Show("No corrections to apply.", "No Corrections", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("Correction manager not initialized.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
-            // Count corrections
             int correctionCount = _correctionManager.GetCorrectionCount();
-
             if (correctionCount == 0)
             {
                 MessageBox.Show("No corrections to apply.", "No Corrections", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -501,21 +499,18 @@ namespace Image_Checker.WinForm
             }
 
             var confirmResult = MessageBox.Show(
-                $"Apply {correctionCount} correction(s) and update the model?\n\n" +
-                "This will:\n" +
-                "• Train the model on the corrections\n" +
-                "• Create a new model file\n" +
-                "• Archive the corrections\n" +
-                "• Reload the updated model\n\n" +
-                "Continue?",
-                "Confirm Incremental Update",
+                $"🚀 TRUE INCREMENTAL UPDATE\n\n" +
+                $"Apply {correctionCount} corrections to current model?\n\n" +
+                $"Current model: {Path.GetFileName(_predictor.ModelPath)}\n" +
+                $"This will create: incrementalModel-*.zip\n\n" +
+                $"Continue?",
+                "Confirm True Incremental Update",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question);
 
-            if (confirmResult != DialogResult.Yes)
-                return;
+            if (confirmResult != DialogResult.Yes) return;
 
-            lblStatus.Text = $"⚡ Starting incremental update with {correctionCount} corrections...";
+            lblStatus.Text = $"⚡ True incremental training ({correctionCount} corrections)...";
             Application.DoEvents();
 
             progressBar.Visible = true;
@@ -524,79 +519,43 @@ namespace Image_Checker.WinForm
             btnRetrain.Enabled = false;
             btnCorrect.Enabled = false;
 
-            // Capture console output
-            var consoleOutput = new System.Text.StringBuilder();
-            var originalOut = Console.Out;
-            var stringWriter = new StringWriter(consoleOutput);
-            var multiWriter = new MultiTextWriter(originalOut, stringWriter);
-
             try
             {
-                Console.SetOut(multiWriter);
-
+                // NEW: Use TrueIncrementalTrainer
+                var trueTrainer = new TrueIncrementalTrainer(new Microsoft.ML.MLContext(), _basePath);
                 string newModelPath = await Task.Run(() =>
-                    _incrementalTrainer.IncrementalTrain(_modelPath));
+                    trueTrainer.IncrementalUpdate(_predictor.ModelPath));
 
-                _modelPath = newModelPath;
-                SaveConfiguration();
-
-                lblStatus.Text = "📥 Reloading updated model...";
-                Application.DoEvents();
-
-                LoadModel();
+                // NEW: Auto-reload latest model
+                _predictor.ReloadLatestModel();
 
                 // Archive corrections
+                var correctionPath = Path.Combine(_basePath, "corrections.csv");
                 var archivePath = Path.Combine(_basePath, $"corrections_archive_{DateTime.Now:yyyyMMddHHmmss}.csv");
-                File.Copy(correctionPath, archivePath);
+                if (File.Exists(correctionPath)) File.Copy(correctionPath, archivePath, true);
 
-                // Clear corrections using CorrectionManager
-                _correctionManager.ClearCorrections(createBackup: false, out string clearError);
+                // Clear corrections
+                _correctionManager.ClearCorrections(createBackup: false, out _);
 
-                lblStatus.Text = $"✅ Incremental update completed!\n" +
-                               $"   Model: {Path.GetFileName(newModelPath)}\n" +
-                               $"   Applied {correctionCount} corrections";
+                lblStatus.Text = $"✅ True incremental update complete!\n" +
+                               $"   New model: {Path.GetFileName(_predictor.ModelPath)}\n" +
+                               $"   Total learning: Original + {correctionCount} corrections";
+               // lblModelInfo.Text = _predictor.GetModelInfo();
                 UpdateCorrectionCount();
 
-                MessageBox.Show($"Quick update completed successfully!\n\n" +
-                              $"• Corrections applied: {correctionCount}\n" +
-                              $"• New model: {Path.GetFileName(newModelPath)}\n" +
-                              $"• Corrections archived to: {Path.GetFileName(archivePath)}",
+                MessageBox.Show($"🎉 True Incremental Update Success!\n\n" +
+                              $"• Corrections: {correctionCount}\n" +
+                              $"• New model: {Path.GetFileName(_predictor.ModelPath)}\n" +
+                              $"• Archived: {Path.GetFileName(archivePath)}",
                               "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-                // Optionally show detailed log
-                if (MessageBox.Show("Would you like to see the detailed training log?",
-                    "Training Log", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
-                {
-                    var logForm = new Form
-                    {
-                        Text = "Incremental Training Log",
-                        Width = 800,
-                        Height = 600,
-                        StartPosition = FormStartPosition.CenterParent
-                    };
-                    var txtLog = new TextBox
-                    {
-                        Multiline = true,
-                        ScrollBars = ScrollBars.Vertical,
-                        Dock = DockStyle.Fill,
-                        Font = new Font("Consolas", 9),
-                        Text = consoleOutput.ToString()
-                    };
-                    logForm.Controls.Add(txtLog);
-                    logForm.ShowDialog();
-                }
             }
             catch (Exception ex)
             {
-                lblStatus.Text = $"❌ Incremental update failed: {ex.Message}";
-                MessageBox.Show($"Update failed:\n\n{ex.Message}\n\n" +
-                              "The corrections have been preserved and you can try again.",
-                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                lblStatus.Text = $"❌ Update failed: {ex.Message}";
+                MessageBox.Show($"True incremental update failed:\n\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
-                Console.SetOut(originalOut);
-                stringWriter.Dispose();
                 progressBar.Visible = false;
                 btnQuickUpdate.Enabled = true;
                 btnRetrain.Enabled = true;

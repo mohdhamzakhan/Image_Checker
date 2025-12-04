@@ -28,332 +28,364 @@
         /// </summary>
         private void InitializeComponent()
         {
-            this.menuStrip = new System.Windows.Forms.MenuStrip();
-            this.menuFile = new System.Windows.Forms.ToolStripMenuItem();
-            this.menuBuildModel = new System.Windows.Forms.ToolStripMenuItem();
-            this.menuSelectModel = new System.Windows.Forms.ToolStripMenuItem();
-            this.menuSeparator = new System.Windows.Forms.ToolStripSeparator();
-            this.menuChangeBasePath = new System.Windows.Forms.ToolStripMenuItem();
-            this.btnSelectFolder = new System.Windows.Forms.Button();
-            this.cbFolderFilter = new System.Windows.Forms.ComboBox();
-            this.cbPredFilter = new System.Windows.Forms.ComboBox();
-            this.grid = new System.Windows.Forms.DataGridView();
-            this.pictureBox = new System.Windows.Forms.PictureBox();
-            this.lblInfo = new System.Windows.Forms.Label();
-            this.cbCorrection = new System.Windows.Forms.ComboBox();
-            this.btnCorrect = new System.Windows.Forms.Button();
-            this.btnQuickUpdate = new System.Windows.Forms.Button();
-            this.btnRetrain = new System.Windows.Forms.Button();
-            this.lblCorrectionCount = new System.Windows.Forms.Label();
-            this.progressBar = new System.Windows.Forms.ProgressBar();
-            this.lblStatus = new System.Windows.Forms.Label();
-            this.lblFolderFilter = new System.Windows.Forms.Label();
-            this.lblPredFilter = new System.Windows.Forms.Label();
-            this.lblSelectLabel = new System.Windows.Forms.Label();
-            ((System.ComponentModel.ISupportInitialize)(this.grid)).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)(this.pictureBox)).BeginInit();
-            this.menuStrip.SuspendLayout();
-            this.SuspendLayout();
+            DataGridViewCellStyle dataGridViewCellStyle1 = new DataGridViewCellStyle();
+            DataGridViewCellStyle dataGridViewCellStyle2 = new DataGridViewCellStyle();
+            menuStrip = new MenuStrip();
+            menuFile = new ToolStripMenuItem();
+            menuBuildModel = new ToolStripMenuItem();
+            menuSelectModel = new ToolStripMenuItem();
+            menuSeparator = new ToolStripSeparator();
+            menuChangeBasePath = new ToolStripMenuItem();
+            btnSelectFolder = new Button();
+            lblFolderFilter = new Label();
+            cbFolderFilter = new ComboBox();
+            lblPredFilter = new Label();
+            cbPredFilter = new ComboBox();
+            lblModelInfo = new Label();
+            grid = new DataGridView();
+            pictureBox = new PictureBox();
+            lblInfo = new Label();
+            lblSelectLabel = new Label();
+            cbCorrection = new ComboBox();
+            btnCorrect = new Button();
+            btnQuickUpdate = new Button();
+            btnRetrain = new Button();
+            lblCorrectionCount = new Label();
+            progressBar = new ProgressBar();
+            lblStatus = new Label();
+            menuStrip.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)grid).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)pictureBox).BeginInit();
+            SuspendLayout();
             // 
             // menuStrip
             // 
-            this.menuStrip.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
-            this.menuFile});
-            this.menuStrip.Location = new System.Drawing.Point(0, 0);
-            this.menuStrip.Name = "menuStrip";
-            this.menuStrip.Size = new System.Drawing.Size(1330, 24);
-            this.menuStrip.TabIndex = 16;
-            this.menuStrip.Text = "menuStrip1";
+            menuStrip.ImageScalingSize = new Size(24, 24);
+            menuStrip.Items.AddRange(new ToolStripItem[] { menuFile });
+            menuStrip.Location = new Point(0, 0);
+            menuStrip.Name = "menuStrip";
+            menuStrip.Padding = new Padding(9, 3, 0, 3);
+            menuStrip.Size = new Size(1900, 35);
+            menuStrip.TabIndex = 16;
+            menuStrip.Text = "menuStrip1";
             // 
             // menuFile
             // 
-            this.menuFile.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
-            this.menuBuildModel,
-            this.menuSelectModel,
-            this.menuSeparator,
-            this.menuChangeBasePath});
-            this.menuFile.Name = "menuFile";
-            this.menuFile.Size = new System.Drawing.Size(61, 20);
-            this.menuFile.Text = "Settings";
+            menuFile.DropDownItems.AddRange(new ToolStripItem[] { menuBuildModel, menuSelectModel, menuSeparator, menuChangeBasePath });
+            menuFile.Name = "menuFile";
+            menuFile.Size = new Size(92, 29);
+            menuFile.Text = "Settings";
             // 
             // menuBuildModel
             // 
-            this.menuBuildModel.Name = "menuBuildModel";
-            this.menuBuildModel.Size = new System.Drawing.Size(200, 22);
-            this.menuBuildModel.Text = "🤖 Build New Model...";
-            this.menuBuildModel.Click += new System.EventHandler(this.MenuBuildModel_Click);
+            menuBuildModel.Name = "menuBuildModel";
+            menuBuildModel.Size = new Size(298, 34);
+            menuBuildModel.Text = "🤖 Build New Model...";
+            menuBuildModel.Click += MenuBuildModel_Click;
             // 
             // menuSelectModel
             // 
-            this.menuSelectModel.Name = "menuSelectModel";
-            this.menuSelectModel.Size = new System.Drawing.Size(200, 22);
-            this.menuSelectModel.Text = "📂 Select Existing Model...";
-            this.menuSelectModel.Click += new System.EventHandler(this.MenuSelectModel_Click);
+            menuSelectModel.Name = "menuSelectModel";
+            menuSelectModel.Size = new Size(298, 34);
+            menuSelectModel.Text = "📂 Select Base Folder...";
+            menuSelectModel.Click += MenuSelectModel_Click;
             // 
             // menuSeparator
             // 
-            this.menuSeparator.Name = "menuSeparator";
-            this.menuSeparator.Size = new System.Drawing.Size(197, 6);
+            menuSeparator.Name = "menuSeparator";
+            menuSeparator.Size = new Size(295, 6);
             // 
             // menuChangeBasePath
             // 
-            this.menuChangeBasePath.Name = "menuChangeBasePath";
-            this.menuChangeBasePath.Size = new System.Drawing.Size(200, 22);
-            this.menuChangeBasePath.Text = "📁 Change Base Path...";
-            this.menuChangeBasePath.Click += new System.EventHandler(this.MenuChangeBasePath_Click);
+            menuChangeBasePath.Name = "menuChangeBasePath";
+            menuChangeBasePath.Size = new Size(298, 34);
+            menuChangeBasePath.Text = "📁 Change Base Path...";
+            menuChangeBasePath.Click += MenuChangeBasePath_Click;
             // 
             // btnSelectFolder
             // 
-            this.btnSelectFolder.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(120)))), ((int)(((byte)(215)))));
-            this.btnSelectFolder.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnSelectFolder.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Bold);
-            this.btnSelectFolder.ForeColor = System.Drawing.Color.White;
-            this.btnSelectFolder.Location = new System.Drawing.Point(20, 35);
-            this.btnSelectFolder.Name = "btnSelectFolder";
-            this.btnSelectFolder.Size = new System.Drawing.Size(160, 40);
-            this.btnSelectFolder.TabIndex = 0;
-            this.btnSelectFolder.Text = "📁 Select Folder";
-            this.btnSelectFolder.UseVisualStyleBackColor = false;
-            this.btnSelectFolder.Click += new System.EventHandler(this.BtnSelectFolder_Click);
+            btnSelectFolder.BackColor = Color.FromArgb(0, 120, 215);
+            btnSelectFolder.FlatStyle = FlatStyle.Flat;
+            btnSelectFolder.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            btnSelectFolder.ForeColor = Color.White;
+            btnSelectFolder.Location = new Point(29, 58);
+            btnSelectFolder.Margin = new Padding(4, 5, 4, 5);
+            btnSelectFolder.Name = "btnSelectFolder";
+            btnSelectFolder.Size = new Size(229, 67);
+            btnSelectFolder.TabIndex = 0;
+            btnSelectFolder.Text = "📁 Select Folder";
+            btnSelectFolder.UseVisualStyleBackColor = false;
+            btnSelectFolder.Click += BtnSelectFolder_Click;
             // 
             // lblFolderFilter
             // 
-            this.lblFolderFilter.AutoSize = true;
-            this.lblFolderFilter.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.lblFolderFilter.Location = new System.Drawing.Point(200, 23);
-            this.lblFolderFilter.Name = "lblFolderFilter";
-            this.lblFolderFilter.Size = new System.Drawing.Size(79, 15);
-            this.lblFolderFilter.TabIndex = 1;
-            this.lblFolderFilter.Text = "Filter by Folder:";
+            lblFolderFilter.AutoSize = true;
+            lblFolderFilter.Font = new Font("Segoe UI", 9F);
+            lblFolderFilter.Location = new Point(286, 47);
+            lblFolderFilter.Margin = new Padding(4, 0, 4, 0);
+            lblFolderFilter.Name = "lblFolderFilter";
+            lblFolderFilter.Size = new Size(134, 25);
+            lblFolderFilter.TabIndex = 1;
+            lblFolderFilter.Text = "Filter by Folder:";
             // 
             // cbFolderFilter
             // 
-            this.cbFolderFilter.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this.cbFolderFilter.Font = new System.Drawing.Font("Segoe UI", 10F);
-            this.cbFolderFilter.FormattingEnabled = true;
-            this.cbFolderFilter.Location = new System.Drawing.Point(200, 43);
-            this.cbFolderFilter.Name = "cbFolderFilter";
-            this.cbFolderFilter.Size = new System.Drawing.Size(200, 25);
-            this.cbFolderFilter.TabIndex = 2;
-            this.cbFolderFilter.SelectedIndexChanged += new System.EventHandler(this.ApplyFilters);
+            cbFolderFilter.DropDownStyle = ComboBoxStyle.DropDownList;
+            cbFolderFilter.Font = new Font("Segoe UI", 10F);
+            cbFolderFilter.FormattingEnabled = true;
+            cbFolderFilter.Location = new Point(286, 81);
+            cbFolderFilter.Margin = new Padding(4, 5, 4, 5);
+            cbFolderFilter.Name = "cbFolderFilter";
+            cbFolderFilter.Size = new Size(284, 36);
+            cbFolderFilter.TabIndex = 2;
+            cbFolderFilter.SelectedIndexChanged += ApplyFilters;
             // 
             // lblPredFilter
             // 
-            this.lblPredFilter.AutoSize = true;
-            this.lblPredFilter.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.lblPredFilter.Location = new System.Drawing.Point(420, 23);
-            this.lblPredFilter.Name = "lblPredFilter";
-            this.lblPredFilter.Size = new System.Drawing.Size(105, 15);
-            this.lblPredFilter.TabIndex = 3;
-            this.lblPredFilter.Text = "Filter by Prediction:";
+            lblPredFilter.AutoSize = true;
+            lblPredFilter.Font = new Font("Segoe UI", 9F);
+            lblPredFilter.Location = new Point(600, 47);
+            lblPredFilter.Margin = new Padding(4, 0, 4, 0);
+            lblPredFilter.Name = "lblPredFilter";
+            lblPredFilter.Size = new Size(163, 25);
+            lblPredFilter.TabIndex = 3;
+            lblPredFilter.Text = "Filter by Prediction:";
             // 
             // cbPredFilter
             // 
-            this.cbPredFilter.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this.cbPredFilter.Font = new System.Drawing.Font("Segoe UI", 10F);
-            this.cbPredFilter.FormattingEnabled = true;
-            this.cbPredFilter.Location = new System.Drawing.Point(420, 43);
-            this.cbPredFilter.Name = "cbPredFilter";
-            this.cbPredFilter.Size = new System.Drawing.Size(200, 25);
-            this.cbPredFilter.TabIndex = 4;
-            this.cbPredFilter.SelectedIndexChanged += new System.EventHandler(this.ApplyFilters);
+            cbPredFilter.DropDownStyle = ComboBoxStyle.DropDownList;
+            cbPredFilter.Font = new Font("Segoe UI", 10F);
+            cbPredFilter.FormattingEnabled = true;
+            cbPredFilter.Location = new Point(600, 81);
+            cbPredFilter.Margin = new Padding(4, 5, 4, 5);
+            cbPredFilter.Name = "cbPredFilter";
+            cbPredFilter.Size = new Size(284, 36);
+            cbPredFilter.TabIndex = 4;
+            cbPredFilter.SelectedIndexChanged += ApplyFilters;
+            // 
+            // lblModelInfo
+            // 
+            lblModelInfo.AutoSize = true;
+            lblModelInfo.Font = new Font("Segoe UI", 9F, FontStyle.Italic);
+            lblModelInfo.ForeColor = Color.FromArgb(0, 120, 215);
+            lblModelInfo.Location = new Point(908, 92);
+            lblModelInfo.Name = "lblModelInfo";
+            lblModelInfo.Size = new Size(149, 25);
+            lblModelInfo.TabIndex = 17;
+            lblModelInfo.Text = "No model loaded";
             // 
             // grid
             // 
-            this.grid.AllowUserToAddRows = false;
-            this.grid.AllowUserToDeleteRows = false;
-            this.grid.AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill;
-            this.grid.BackgroundColor = System.Drawing.Color.White;
-            this.grid.BorderStyle = System.Windows.Forms.BorderStyle.Fixed3D;
-            this.grid.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            this.grid.Location = new System.Drawing.Point(20, 90);
-            this.grid.MultiSelect = false;
-            this.grid.Name = "grid";
-            this.grid.ReadOnly = true;
-            this.grid.RowHeadersWidth = 51;
-            this.grid.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
-            this.grid.Size = new System.Drawing.Size(800, 600);
-            this.grid.TabIndex = 5;
-            this.grid.SelectionChanged += new System.EventHandler(this.Grid_SelectionChanged);
+            grid.AllowUserToAddRows = false;
+            grid.AllowUserToDeleteRows = false;
+            grid.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+            grid.BackgroundColor = Color.White;
+            grid.BorderStyle = BorderStyle.Fixed3D;
+            dataGridViewCellStyle1.Alignment = DataGridViewContentAlignment.MiddleLeft;
+            dataGridViewCellStyle1.BackColor = SystemColors.Control;
+            dataGridViewCellStyle1.Font = new Font("Segoe UI", 9F);
+            dataGridViewCellStyle1.ForeColor = SystemColors.WindowText;
+            dataGridViewCellStyle1.SelectionBackColor = SystemColors.Highlight;
+            dataGridViewCellStyle1.SelectionForeColor = SystemColors.HighlightText;
+            dataGridViewCellStyle1.WrapMode = DataGridViewTriState.True;
+            grid.ColumnHeadersDefaultCellStyle = dataGridViewCellStyle1;
+            grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            dataGridViewCellStyle2.Alignment = DataGridViewContentAlignment.MiddleLeft;
+            dataGridViewCellStyle2.BackColor = SystemColors.Window;
+            dataGridViewCellStyle2.Font = new Font("Segoe UI", 9F);
+            dataGridViewCellStyle2.ForeColor = SystemColors.ControlText;
+            dataGridViewCellStyle2.SelectionBackColor = SystemColors.Highlight;
+            dataGridViewCellStyle2.SelectionForeColor = SystemColors.HighlightText;
+            dataGridViewCellStyle2.WrapMode = DataGridViewTriState.False;
+            grid.DefaultCellStyle = dataGridViewCellStyle2;
+            grid.Location = new Point(29, 150);
+            grid.Margin = new Padding(4, 5, 4, 5);
+            grid.MultiSelect = false;
+            grid.Name = "grid";
+            grid.ReadOnly = true;
+            grid.RowHeadersWidth = 51;
+            grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            grid.Size = new Size(1177, 1146);
+            grid.TabIndex = 5;
+            grid.SelectionChanged += Grid_SelectionChanged;
             // 
             // pictureBox
             // 
-            this.pictureBox.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.pictureBox.Location = new System.Drawing.Point(850, 90);
-            this.pictureBox.Name = "pictureBox";
-            this.pictureBox.Size = new System.Drawing.Size(450, 400);
-            this.pictureBox.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
-            this.pictureBox.TabIndex = 6;
-            this.pictureBox.TabStop = false;
+            pictureBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Right;
+            pictureBox.BorderStyle = BorderStyle.FixedSingle;
+            pictureBox.Location = new Point(1214, 150);
+            pictureBox.Margin = new Padding(4, 5, 4, 5);
+            pictureBox.Name = "pictureBox";
+            pictureBox.Size = new Size(673, 691);
+            pictureBox.SizeMode = PictureBoxSizeMode.Zoom;
+            pictureBox.TabIndex = 6;
+            pictureBox.TabStop = false;
             // 
             // lblInfo
             // 
-            this.lblInfo.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(240)))), ((int)(((byte)(240)))), ((int)(((byte)(240)))));
-            this.lblInfo.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.lblInfo.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.lblInfo.Location = new System.Drawing.Point(850, 490);
-            this.lblInfo.Name = "lblInfo";
-            this.lblInfo.Size = new System.Drawing.Size(450, 30);
-            this.lblInfo.TabIndex = 7;
-            this.lblInfo.Text = "Select an image row to preview";
-            this.lblInfo.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            lblInfo.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            lblInfo.BackColor = Color.FromArgb(240, 240, 240);
+            lblInfo.BorderStyle = BorderStyle.FixedSingle;
+            lblInfo.Font = new Font("Segoe UI", 9F);
+            lblInfo.Location = new Point(1214, 846);
+            lblInfo.Margin = new Padding(4, 0, 4, 0);
+            lblInfo.Name = "lblInfo";
+            lblInfo.Size = new Size(673, 49);
+            lblInfo.TabIndex = 7;
+            lblInfo.Text = "Select an image row to preview";
+            lblInfo.TextAlign = ContentAlignment.MiddleCenter;
             // 
             // lblSelectLabel
             // 
-            this.lblSelectLabel.AutoSize = true;
-            this.lblSelectLabel.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.lblSelectLabel.Location = new System.Drawing.Point(850, 530);
-            this.lblSelectLabel.Name = "lblSelectLabel";
-            this.lblSelectLabel.Size = new System.Drawing.Size(125, 15);
-            this.lblSelectLabel.TabIndex = 8;
-            this.lblSelectLabel.Text = "Correct Classification:";
+            lblSelectLabel.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            lblSelectLabel.AutoSize = true;
+            lblSelectLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            lblSelectLabel.Location = new Point(1214, 910);
+            lblSelectLabel.Margin = new Padding(4, 0, 4, 0);
+            lblSelectLabel.Name = "lblSelectLabel";
+            lblSelectLabel.Size = new Size(196, 25);
+            lblSelectLabel.TabIndex = 8;
+            lblSelectLabel.Text = "Correct Classification:";
             // 
             // cbCorrection
             // 
-            this.cbCorrection.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this.cbCorrection.Font = new System.Drawing.Font("Segoe UI", 10F);
-            this.cbCorrection.FormattingEnabled = true;
-            this.cbCorrection.Items.AddRange(new object[] {
-            "OK",
-            "NG"});
-            this.cbCorrection.Location = new System.Drawing.Point(850, 550);
-            this.cbCorrection.Name = "cbCorrection";
-            this.cbCorrection.Size = new System.Drawing.Size(150, 25);
-            this.cbCorrection.TabIndex = 9;
+            cbCorrection.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            cbCorrection.DropDownStyle = ComboBoxStyle.DropDownList;
+            cbCorrection.Font = new Font("Segoe UI", 10F);
+            cbCorrection.FormattingEnabled = true;
+            cbCorrection.Items.AddRange(new object[] { "OK", "NG" });
+            cbCorrection.Location = new Point(1214, 940);
+            cbCorrection.Margin = new Padding(4, 5, 4, 5);
+            cbCorrection.Name = "cbCorrection";
+            cbCorrection.Size = new Size(180, 36);
+            cbCorrection.TabIndex = 9;
             // 
             // btnCorrect
             // 
-            this.btnCorrect.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(140)))), ((int)(((byte)(0)))));
-            this.btnCorrect.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnCorrect.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.btnCorrect.ForeColor = System.Drawing.Color.White;
-            this.btnCorrect.Location = new System.Drawing.Point(1020, 550);
-            this.btnCorrect.Name = "btnCorrect";
-            this.btnCorrect.Size = new System.Drawing.Size(280, 35);
-            this.btnCorrect.TabIndex = 10;
-            this.btnCorrect.Text = "✏️ Save Correction";
-            this.btnCorrect.UseVisualStyleBackColor = false;
-            this.btnCorrect.Click += new System.EventHandler(this.BtnCorrect_Click);
+            btnCorrect.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            btnCorrect.BackColor = Color.FromArgb(255, 140, 0);
+            btnCorrect.FlatStyle = FlatStyle.Flat;
+            btnCorrect.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            btnCorrect.ForeColor = Color.White;
+            btnCorrect.Location = new Point(1410, 933);
+            btnCorrect.Margin = new Padding(4, 5, 4, 5);
+            btnCorrect.Name = "btnCorrect";
+            btnCorrect.Size = new Size(477, 50);
+            btnCorrect.TabIndex = 10;
+            btnCorrect.Text = "✏️ Save Correction";
+            btnCorrect.UseVisualStyleBackColor = false;
+            btnCorrect.Click += BtnCorrect_Click;
             // 
             // btnQuickUpdate
             // 
-            this.btnQuickUpdate.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(76)))), ((int)(((byte)(175)))), ((int)(((byte)(80)))));
-            this.btnQuickUpdate.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnQuickUpdate.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Bold);
-            this.btnQuickUpdate.ForeColor = System.Drawing.Color.White;
-            this.btnQuickUpdate.Location = new System.Drawing.Point(850, 600);
-            this.btnQuickUpdate.Name = "btnQuickUpdate";
-            this.btnQuickUpdate.Size = new System.Drawing.Size(210, 40);
-            this.btnQuickUpdate.TabIndex = 11;
-            this.btnQuickUpdate.Text = "⚡ Quick Update (Fast)";
-            this.btnQuickUpdate.UseVisualStyleBackColor = false;
-            this.btnQuickUpdate.Click += new System.EventHandler(this.BtnQuickUpdate_Click);
+            btnQuickUpdate.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            btnQuickUpdate.BackColor = Color.FromArgb(76, 175, 80);
+            btnQuickUpdate.FlatStyle = FlatStyle.Flat;
+            btnQuickUpdate.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            btnQuickUpdate.ForeColor = Color.White;
+            btnQuickUpdate.Location = new Point(1214, 1000);
+            btnQuickUpdate.Margin = new Padding(4, 5, 4, 5);
+            btnQuickUpdate.Name = "btnQuickUpdate";
+            btnQuickUpdate.Size = new Size(330, 67);
+            btnQuickUpdate.TabIndex = 11;
+            btnQuickUpdate.Text = "⚡ Quick Update (Fast)";
+            btnQuickUpdate.UseVisualStyleBackColor = false;
+            btnQuickUpdate.Click += BtnQuickUpdate_Click;
             // 
             // btnRetrain
             // 
-            this.btnRetrain.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(156)))), ((int)(((byte)(39)))), ((int)(((byte)(176)))));
-            this.btnRetrain.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnRetrain.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Bold);
-            this.btnRetrain.ForeColor = System.Drawing.Color.White;
-            this.btnRetrain.Location = new System.Drawing.Point(1090, 600);
-            this.btnRetrain.Name = "btnRetrain";
-            this.btnRetrain.Size = new System.Drawing.Size(210, 40);
-            this.btnRetrain.TabIndex = 12;
-            this.btnRetrain.Text = "🔄 Full Retrain (Slow)";
-            this.btnRetrain.UseVisualStyleBackColor = false;
-            this.btnRetrain.Click += new System.EventHandler(this.BtnRetrain_Click);
+            btnRetrain.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            btnRetrain.BackColor = Color.FromArgb(156, 39, 176);
+            btnRetrain.FlatStyle = FlatStyle.Flat;
+            btnRetrain.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            btnRetrain.ForeColor = Color.White;
+            btnRetrain.Location = new Point(1557, 1000);
+            btnRetrain.Margin = new Padding(4, 5, 4, 5);
+            btnRetrain.Name = "btnRetrain";
+            btnRetrain.Size = new Size(330, 67);
+            btnRetrain.TabIndex = 12;
+            btnRetrain.Text = "🔄 Full Retrain (Slow)";
+            btnRetrain.UseVisualStyleBackColor = false;
+            btnRetrain.Click += BtnRetrain_Click;
             // 
             // lblCorrectionCount
             // 
-            this.lblCorrectionCount.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(255)))), ((int)(((byte)(248)))), ((int)(((byte)(220)))));
-            this.lblCorrectionCount.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.lblCorrectionCount.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.lblCorrectionCount.Location = new System.Drawing.Point(850, 650);
-            this.lblCorrectionCount.Name = "lblCorrectionCount";
-            this.lblCorrectionCount.Size = new System.Drawing.Size(450, 25);
-            this.lblCorrectionCount.TabIndex = 13;
-            this.lblCorrectionCount.Text = "Corrections pending: 0";
-            this.lblCorrectionCount.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            lblCorrectionCount.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            lblCorrectionCount.BackColor = Color.FromArgb(255, 248, 220);
+            lblCorrectionCount.BorderStyle = BorderStyle.FixedSingle;
+            lblCorrectionCount.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            lblCorrectionCount.Location = new Point(1214, 1083);
+            lblCorrectionCount.Margin = new Padding(4, 0, 4, 0);
+            lblCorrectionCount.Name = "lblCorrectionCount";
+            lblCorrectionCount.Size = new Size(673, 40);
+            lblCorrectionCount.TabIndex = 13;
+            lblCorrectionCount.Text = "Corrections pending: 0";
+            lblCorrectionCount.TextAlign = ContentAlignment.MiddleCenter;
             // 
             // progressBar
             // 
-            this.progressBar.Location = new System.Drawing.Point(850, 685);
-            this.progressBar.Name = "progressBar";
-            this.progressBar.Size = new System.Drawing.Size(450, 23);
-            this.progressBar.Style = System.Windows.Forms.ProgressBarStyle.Marquee;
-            this.progressBar.TabIndex = 14;
-            this.progressBar.Visible = false;
+            progressBar.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            progressBar.Location = new Point(1214, 1142);
+            progressBar.Margin = new Padding(4, 5, 4, 5);
+            progressBar.Name = "progressBar";
+            progressBar.Size = new Size(673, 38);
+            progressBar.Style = ProgressBarStyle.Marquee;
+            progressBar.TabIndex = 14;
+            progressBar.Visible = false;
             // 
             // lblStatus
             // 
-            this.lblStatus.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(245)))), ((int)(((byte)(245)))), ((int)(((byte)(245)))));
-            this.lblStatus.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.lblStatus.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Italic);
-            this.lblStatus.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(64)))), ((int)(((byte)(64)))), ((int)(((byte)(64)))));
-            this.lblStatus.Location = new System.Drawing.Point(850, 718);
-            this.lblStatus.Name = "lblStatus";
-            this.lblStatus.Size = new System.Drawing.Size(450, 60);
-            this.lblStatus.TabIndex = 15;
-            this.lblStatus.Text = "Model status will appear here";
-            this.lblStatus.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
-
-
-            // Grid - should expand with form
-            this.grid.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom)
-                | System.Windows.Forms.AnchorStyles.Left)
-                | System.Windows.Forms.AnchorStyles.Right)));
-
-            // PictureBox - should stay on right and expand vertically
-            this.pictureBox.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom)
-                | System.Windows.Forms.AnchorStyles.Right)));
-
-            // Right panel controls - anchor to right
-            this.lblInfo.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
-            this.lblSelectLabel.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
-            this.cbCorrection.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
-            this.btnCorrect.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
-            this.btnQuickUpdate.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
-            this.btnRetrain.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
-            this.lblCorrectionCount.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
-            this.progressBar.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
-            this.lblStatus.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
-
+            lblStatus.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            lblStatus.BackColor = Color.FromArgb(245, 245, 245);
+            lblStatus.BorderStyle = BorderStyle.FixedSingle;
+            lblStatus.Font = new Font("Segoe UI", 9F, FontStyle.Italic);
+            lblStatus.ForeColor = Color.FromArgb(64, 64, 64);
+            lblStatus.Location = new Point(1214, 1197);
+            lblStatus.Margin = new Padding(4, 0, 4, 0);
+            lblStatus.Name = "lblStatus";
+            lblStatus.Size = new Size(673, 99);
+            lblStatus.TabIndex = 15;
+            lblStatus.Text = "Model status will appear here";
+            lblStatus.TextAlign = ContentAlignment.MiddleLeft;
             // 
             // Form1
             // 
-            this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
-            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.BackColor = System.Drawing.Color.White;
-            this.ClientSize = new System.Drawing.Size(1330, 800);
-            this.Controls.Add(this.lblStatus);
-            this.Controls.Add(this.progressBar);
-            this.Controls.Add(this.lblCorrectionCount);
-            this.Controls.Add(this.btnRetrain);
-            this.Controls.Add(this.btnQuickUpdate);
-            this.Controls.Add(this.btnCorrect);
-            this.Controls.Add(this.cbCorrection);
-            this.Controls.Add(this.lblSelectLabel);
-            this.Controls.Add(this.lblInfo);
-            this.Controls.Add(this.pictureBox);
-            this.Controls.Add(this.grid);
-            this.Controls.Add(this.cbPredFilter);
-            this.Controls.Add(this.lblPredFilter);
-            this.Controls.Add(this.cbFolderFilter);
-            this.Controls.Add(this.lblFolderFilter);
-            this.Controls.Add(this.btnSelectFolder);
-            this.Controls.Add(this.menuStrip);
-            this.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.MainMenuStrip = this.menuStrip;
-            this.Name = "Form1";
-            this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-            this.Text = "Image Checker - Incremental Learning System";
-            ((System.ComponentModel.ISupportInitialize)(this.grid)).EndInit();
-            ((System.ComponentModel.ISupportInitialize)(this.pictureBox)).EndInit();
-            this.menuStrip.ResumeLayout(false);
-            this.menuStrip.PerformLayout();
-            this.ResumeLayout(false);
-            this.PerformLayout();
-
+            AutoScaleDimensions = new SizeF(10F, 25F);
+            AutoScaleMode = AutoScaleMode.Font;
+            BackColor = Color.White;
+            ClientSize = new Size(1900, 1333);
+            Controls.Add(lblModelInfo);
+            Controls.Add(lblStatus);
+            Controls.Add(progressBar);
+            Controls.Add(lblCorrectionCount);
+            Controls.Add(btnRetrain);
+            Controls.Add(btnQuickUpdate);
+            Controls.Add(btnCorrect);
+            Controls.Add(cbCorrection);
+            Controls.Add(lblSelectLabel);
+            Controls.Add(lblInfo);
+            Controls.Add(pictureBox);
+            Controls.Add(grid);
+            Controls.Add(cbPredFilter);
+            Controls.Add(lblPredFilter);
+            Controls.Add(cbFolderFilter);
+            Controls.Add(lblFolderFilter);
+            Controls.Add(btnSelectFolder);
+            Controls.Add(menuStrip);
+            Font = new Font("Segoe UI", 9F);
+            MainMenuStrip = menuStrip;
+            Margin = new Padding(4, 5, 4, 5);
+            MinimumSize = new Size(1920, 1080);
+            Name = "Form1";
+            StartPosition = FormStartPosition.CenterScreen;
+            Text = "Image Checker - True Incremental Learning System";
+            menuStrip.ResumeLayout(false);
+            menuStrip.PerformLayout();
+            ((System.ComponentModel.ISupportInitialize)grid).EndInit();
+            ((System.ComponentModel.ISupportInitialize)pictureBox).EndInit();
+            ResumeLayout(false);
+            PerformLayout();
         }
 
         #endregion
@@ -380,5 +412,6 @@
         private System.Windows.Forms.Label lblFolderFilter;
         private System.Windows.Forms.Label lblPredFilter;
         private System.Windows.Forms.Label lblSelectLabel;
+        private Label lblModelInfo;
     }
 }
