@@ -1,6 +1,7 @@
 ﻿using Image_Checker.Services;
 using Microsoft.ML;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -17,6 +18,7 @@ namespace Image_Checker.WinForm
         private ConsoleRedirector _consoleRedirector;
         private CancellationTokenSource _cancellationTokenSource;
         private bool _isTraining;
+        private List<string> _detectedLabels = new List<string>();
 
         public ModelBuilderForm()
         {
@@ -29,7 +31,7 @@ namespace Image_Checker.WinForm
         {
             using var dialog = new FolderBrowserDialog
             {
-                Description = "Select dataset folder containing OK and NG subfolders"
+                Description = "Select dataset folder containing subfolders for each class (e.g., OK/NG, Cats/Dogs, etc.)"
             };
 
             if (dialog.ShowDialog() == DialogResult.OK)
@@ -77,49 +79,78 @@ namespace Image_Checker.WinForm
 
             LogMessage("🔍 Validating dataset structure...");
 
-            var okDir = Path.Combine(_datasetPath, "OK");
-            var ngDir = Path.Combine(_datasetPath, "NG");
+            // Get all subdirectories as potential class labels
+            var subdirectories = Directory.GetDirectories(_datasetPath)
+                .Select(d => new DirectoryInfo(d).Name)
+                .ToList();
 
-            bool hasOK = Directory.Exists(okDir);
-            bool hasNG = Directory.Exists(ngDir);
+            _detectedLabels.Clear();
 
-            if (hasOK && hasNG)
-            {
-                LogMessage("✅ Found OK and NG folders");
-
-                int okCount = Directory.GetFiles(okDir, "*.*", SearchOption.TopDirectoryOnly)
-                    .Count(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
-                               f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
-                               f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase));
-
-                int ngCount = Directory.GetFiles(ngDir, "*.*", SearchOption.TopDirectoryOnly)
-                    .Count(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
-                               f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
-                               f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase));
-
-                LogMessage($"📊 OK folder: {okCount} images");
-                LogMessage($"📊 NG folder: {ngCount} images");
-                LogMessage($"📊 Total: {okCount + ngCount} images");
-
-                lblDatasetInfo.Text = $"✅ Valid dataset\nOK: {okCount} images | NG: {ngCount} images | Total: {okCount + ngCount}";
-                lblDatasetInfo.ForeColor = System.Drawing.Color.Green;
-                btnStartTraining.Enabled = true;
-
-                if (okCount < 10 || ngCount < 10)
-                {
-                    LogMessage("⚠️ Warning: Less than 10 images per class. More data recommended for better accuracy.", System.Drawing.Color.Orange);
-                }
-            }
-            else
+            if (subdirectories.Count < 2)
             {
                 LogMessage($"❌ Invalid dataset structure", System.Drawing.Color.Red);
-                LogMessage($"   Expected: OK/ and NG/ subfolders", System.Drawing.Color.Red);
-                LogMessage($"   Found: OK={hasOK}, NG={hasNG}", System.Drawing.Color.Red);
+                LogMessage($"   Expected: At least 2 class folders", System.Drawing.Color.Red);
+                LogMessage($"   Found: {subdirectories.Count} folder(s)", System.Drawing.Color.Red);
+                LogMessage($"   Example structure: Dataset/Class1/, Dataset/Class2/, etc.", System.Drawing.Color.Red);
 
-                lblDatasetInfo.Text = $"❌ Invalid dataset\nRequired: 'OK' and 'NG' subfolders\nFound: OK={hasOK}, NG={hasNG}";
+                lblDatasetInfo.Text = $"❌ Invalid dataset\nRequired: At least 2 class folders\nFound: {subdirectories.Count} folder(s)";
                 lblDatasetInfo.ForeColor = System.Drawing.Color.Red;
                 btnStartTraining.Enabled = false;
+                return;
             }
+
+            LogMessage($"✅ Found {subdirectories.Count} class folders:");
+
+            var classInfo = new Dictionary<string, int>();
+            int totalImages = 0;
+            bool hasInvalidClass = false;
+
+            foreach (var className in subdirectories)
+            {
+                var classPath = Path.Combine(_datasetPath, className);
+
+                int imageCount = Directory.GetFiles(classPath, "*.*", SearchOption.TopDirectoryOnly)
+                    .Count(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                               f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+                               f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase));
+
+                classInfo[className] = imageCount;
+                totalImages += imageCount;
+                _detectedLabels.Add(className);
+
+                LogMessage($"   📊 {className}: {imageCount} images");
+
+                if (imageCount < 5)
+                {
+                    LogMessage($"      ⚠️ Warning: Very few images ({imageCount}). Recommend at least 10 per class.", System.Drawing.Color.Orange);
+                    hasInvalidClass = true;
+                }
+            }
+
+            LogMessage($"📊 Total: {totalImages} images across {subdirectories.Count} classes");
+
+            // Build info text
+            var infoBuilder = new StringBuilder();
+            infoBuilder.AppendLine($"✅ Valid dataset - {subdirectories.Count} classes");
+            foreach (var kvp in classInfo.OrderBy(x => x.Key))
+            {
+                infoBuilder.AppendLine($"{kvp.Key}: {kvp.Value} images");
+            }
+            infoBuilder.AppendLine($"Total: {totalImages} images");
+
+            lblDatasetInfo.Text = infoBuilder.ToString().TrimEnd();
+            lblDatasetInfo.ForeColor = hasInvalidClass ? System.Drawing.Color.Orange : System.Drawing.Color.Green;
+            btnStartTraining.Enabled = true;
+
+            if (hasInvalidClass)
+            {
+                LogMessage("⚠️ Warning: Some classes have very few images. More data recommended for better accuracy.", System.Drawing.Color.Orange);
+            }
+
+            // Show detected classes summary
+            LogMessage("");
+            LogMessage($"🏷️ Detected Classes: {string.Join(", ", _detectedLabels)}");
+            LogMessage($"   The model will be trained to classify images into these {_detectedLabels.Count} categories.");
         }
 
         private async void BtnStartTraining_Click(object sender, EventArgs e)
@@ -130,12 +161,30 @@ namespace Image_Checker.WinForm
                 return;
             }
 
+            if (_detectedLabels.Count < 2)
+            {
+                MessageBox.Show("Dataset must have at least 2 class folders.", "Invalid Dataset", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
             if (string.IsNullOrEmpty(_outputPath))
             {
                 _outputPath = _datasetPath;
                 txtOutputPath.Text = _outputPath;
                 LogMessage($"💾 Output path not specified, using dataset folder: {_outputPath}");
             }
+
+            // Show confirmation with detected classes
+            var confirmMessage = $"Ready to train model with the following classes:\n\n" +
+                               $"{string.Join("\n", _detectedLabels.Select(l => $"• {l}"))}\n\n" +
+                               $"Total: {_detectedLabels.Count} classes\n\n" +
+                               $"Continue?";
+
+            var confirmResult = MessageBox.Show(confirmMessage, "Confirm Training",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+
+            if (confirmResult != DialogResult.Yes)
+                return;
 
             // Create new cancellation token
             _cancellationTokenSource?.Dispose();
@@ -154,6 +203,7 @@ namespace Image_Checker.WinForm
             LogMessage("", System.Drawing.Color.White);
             LogMessage("═══════════════════════════════════════════════", System.Drawing.Color.Cyan);
             LogMessage("🚀 STARTING MODEL TRAINING", System.Drawing.Color.Cyan);
+            LogMessage($"   Classes: {string.Join(", ", _detectedLabels)}", System.Drawing.Color.Cyan);
             LogMessage("═══════════════════════════════════════════════", System.Drawing.Color.Cyan);
 
             bool trainingCompleted = false;
@@ -169,7 +219,11 @@ namespace Image_Checker.WinForm
                 LogMessage("✅ MODEL TRAINING COMPLETED SUCCESSFULLY!", System.Drawing.Color.Green);
                 LogMessage("═══════════════════════════════════════════════", System.Drawing.Color.Green);
 
-                MessageBox.Show("Model training completed successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(
+                    $"Model training completed successfully!\n\n" +
+                    $"The model can now classify images into:\n" +
+                    $"{string.Join("\n", _detectedLabels.Select(l => $"• {l}"))}",
+                    "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (OperationCanceledException)
             {
@@ -228,6 +282,7 @@ namespace Image_Checker.WinForm
             cancellationToken.ThrowIfCancellationRequested();
 
             LogMessage("📝 Step 1: Creating CSV dataset from image folders...");
+            LogMessage($"   Detected classes: {string.Join(", ", _detectedLabels)}");
             DataValidator.CreateCsv(_datasetPath);
             LogMessage("✅ CSV dataset created successfully");
 
@@ -251,6 +306,7 @@ namespace Image_Checker.WinForm
 
             LogMessage("");
             LogMessage("⚙️ Training Configuration:");
+            LogMessage($"   • Classes: {string.Join(", ", _detectedLabels)}");
             LogMessage($"   • Cross-Validation Folds: {cvFolds}");
             LogMessage($"   • Tuning Trials: {trials}");
             LogMessage($"   • Selected Algorithms:");
@@ -319,8 +375,9 @@ namespace Image_Checker.WinForm
 
             LogMessage("");
             LogMessage("🎉 All steps completed successfully!");
+            LogMessage($"   Model can classify: {string.Join(", ", _detectedLabels)}");
+            PreserveTrainingData();
         }
-
 
         private void LogMessage(string message, System.Drawing.Color? color = null)
         {
@@ -354,6 +411,24 @@ namespace Image_Checker.WinForm
             // Scroll to end
             txtTrainingLog.SelectionStart = txtTrainingLog.TextLength;
             txtTrainingLog.ScrollToCaret();
+        }
+
+        private void PreserveTrainingData()
+        {
+            var csvPath = Path.Combine(_datasetPath, "images.csv");
+
+            if (File.Exists(csvPath))
+            {
+                MessageBox.Show(
+                    "✅ Training data preserved!\n\n" +
+                    $"File: {csvPath}\n" +
+                    $"Classes: {string.Join(", ", _detectedLabels)}\n\n" +
+                    "IMPORTANT: Keep this file to enable True Incremental Learning.\n" +
+                    "Without it, incremental updates will cause catastrophic forgetting.",
+                    "Training Data Preserved",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)

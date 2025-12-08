@@ -18,14 +18,47 @@ namespace Image_Checker.Services
             _basePath = basePath;
         }
 
+        /// <summary>
+        /// Gets all class folders dynamically from the dataset
+        /// </summary>
+        private List<string> GetClassFolders()
+        {
+            return Directory.GetDirectories(_basePath)
+                .Select(d => new DirectoryInfo(d).Name)
+                .Where(name => !name.StartsWith(".")) // Ignore hidden folders
+                .OrderBy(name => name)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Detects if images are grayscale or RGB by sampling
+        /// </summary>
         private bool IsGrayscaleDataset()
         {
             Console.WriteLine("🔍 Detecting image color format...");
-            var sample = Directory.GetFiles(Path.Combine(_basePath, "OK"))
-                .Concat(Directory.GetFiles(Path.Combine(_basePath, "NG")))
-                .FirstOrDefault();
 
-            if (sample == null)
+            var classFolders = GetClassFolders();
+
+            if (!classFolders.Any())
+            {
+                Console.WriteLine("⚠️ No class folders found, assuming grayscale");
+                return true;
+            }
+
+            // Sample images from all class folders
+            var sampleImages = classFolders
+                .SelectMany(folder =>
+                {
+                    var folderPath = Path.Combine(_basePath, folder);
+                    return Directory.GetFiles(folderPath, "*.*", SearchOption.TopDirectoryOnly)
+                        .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                                   f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+                                   f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase));
+                })
+                .Take(5) // Sample first 5 images
+                .ToList();
+
+            if (!sampleImages.Any())
             {
                 Console.WriteLine("⚠️ No sample images found, assuming grayscale");
                 return true;
@@ -33,9 +66,10 @@ namespace Image_Checker.Services
 
             try
             {
-                using var bmp = Image.FromFile(sample);
+                using var bmp = Image.FromFile(sampleImages.First());
                 bool isGray = bmp.PixelFormat == System.Drawing.Imaging.PixelFormat.Format8bppIndexed;
                 Console.WriteLine($"   Format detected: {(isGray ? "Grayscale (8bpp)" : "RGB (Color)")}");
+                Console.WriteLine($"   Sampled from: {Path.GetFileName(sampleImages.First())}");
                 return isGray;
             }
             catch (Exception ex)
@@ -63,19 +97,24 @@ namespace Image_Checker.Services
             foreach (var line in lines)
             {
                 if (string.IsNullOrWhiteSpace(line)) continue;
+
+                // CHANGE: Split by comma and handle quotes properly
                 var parts = line.Split(',', 2);
                 if (parts.Length < 2) continue;
 
-                var path = parts[0].Trim('"');
-                var label = parts[1].Trim();
+                // CHANGE: Remove ALL quotes from path and label
+                var path = parts[0].Trim().Trim('"').Trim();
+                var label = parts[1].Trim().Trim('"').Trim();
 
-                var idx = path.IndexOf(@"D:\", 3, StringComparison.OrdinalIgnoreCase);
+                // Fix double drive paths (e.g., D:\D:\folder)
+                var idx = path.IndexOf(@":\", 3, StringComparison.OrdinalIgnoreCase);
                 if (idx > 2)
                 {
-                    path = path.Substring(idx);
+                    path = path.Substring(idx - 1);
                     fixedCount++;
                 }
 
+                // CHANGE: Write WITHOUT quotes
                 fixedLines.Add($"{path},{label}");
             }
 
@@ -90,6 +129,7 @@ namespace Image_Checker.Services
         {
             Console.WriteLine("\n🔍 Validating image files...");
             int missing = 0, unreadable = 0, total = 0;
+            var missingFiles = new List<string>();
 
             foreach (var line in File.ReadLines(csvPath))
             {
@@ -103,7 +143,9 @@ namespace Image_Checker.Services
                 if (!File.Exists(img))
                 {
                     missing++;
-                    Console.WriteLine($"   ❌ Missing: {Path.GetFileName(img)}");
+                    missingFiles.Add(Path.GetFileName(img));
+                    if (missing <= 5) // Only show first 5 missing files
+                        Console.WriteLine($"   ❌ Missing: {Path.GetFileName(img)}");
                     continue;
                 }
 
@@ -113,21 +155,33 @@ namespace Image_Checker.Services
                     if (fs.Length == 0)
                     {
                         unreadable++;
-                        Console.WriteLine($"   ⚠️ Empty file: {Path.GetFileName(img)}");
+                        if (unreadable <= 5)
+                            Console.WriteLine($"   ⚠️ Empty file: {Path.GetFileName(img)}");
                     }
                 }
                 catch
                 {
                     unreadable++;
-                    Console.WriteLine($"   ⚠️ Corrupted: {Path.GetFileName(img)}");
+                    if (unreadable <= 5)
+                        Console.WriteLine($"   ⚠️ Corrupted: {Path.GetFileName(img)}");
                 }
             }
 
             Console.WriteLine($"   Validation complete:");
             Console.WriteLine($"   • Total: {total} files");
             Console.WriteLine($"   • Valid: {total - missing - unreadable} files");
-            if (missing > 0) Console.WriteLine($"   • Missing: {missing} files");
-            if (unreadable > 0) Console.WriteLine($"   • Unreadable: {unreadable} files");
+            if (missing > 0)
+            {
+                Console.WriteLine($"   • Missing: {missing} files");
+                if (missing > 5)
+                    Console.WriteLine($"     (and {missing - 5} more...)");
+            }
+            if (unreadable > 0)
+            {
+                Console.WriteLine($"   • Unreadable: {unreadable} files");
+                if (unreadable > 5)
+                    Console.WriteLine($"     (and {unreadable - 5} more...)");
+            }
             Console.WriteLine();
         }
 
@@ -147,6 +201,16 @@ namespace Image_Checker.Services
             if (!File.Exists(csvPath))
             {
                 Console.WriteLine("❌ CSV file not found.");
+                return;
+            }
+
+            // Get class labels from CSV
+            var classLabels = DataValidator.GetClassLabels(csvPath);
+            Console.WriteLine($"\n🏷️ Detected {classLabels.Count} classes: {string.Join(", ", classLabels)}");
+
+            if (classLabels.Count < 2)
+            {
+                Console.WriteLine("❌ At least 2 classes required for training.");
                 return;
             }
 
@@ -182,26 +246,26 @@ namespace Image_Checker.Services
             Console.WriteLine("\n🔧 Building preprocessing pipeline...");
             var preprocess = _mlContext.Transforms.LoadImages(
                     outputColumnName: "InputImage",
-                    imageFolder: absolutePaths ? null : _basePath,
+                    imageFolder: null,
                     inputColumnName: nameof(ImageData.ImagePath))
                 .Append(_mlContext.Transforms.ResizeImages(
                     outputColumnName: "ResizedImage",
                     imageWidth: 150,
                     imageHeight: 150,
                     inputColumnName: "InputImage",
-                    resizing: Microsoft.ML.Transforms.Image.ImageResizingEstimator.ResizingKind.Fill))
+                    resizing: Microsoft.ML.Transforms.Image.ImageResizingEstimator.ResizingKind.IsoCrop))
                 .Append(_mlContext.Transforms.ExtractPixels(
                     outputColumnName: "Features",
                     inputColumnName: "ResizedImage",
-                    interleavePixelColors: true,
-                    offsetImage: 128f,
-                    scaleImage: 1f / 128f))
+                    interleavePixelColors: !isGray,  // ← Use detected format
+                    offsetImage: isGray ? 0f : 128f,
+                    scaleImage: isGray ? 1f / 255f : 1f / 128f))
                 .Append(_mlContext.Transforms.Conversion.MapValueToKey("Label", nameof(ImageData.Label)));
 
             Console.WriteLine("   • Image loading");
             Console.WriteLine("   • Resize to 150x150");
             Console.WriteLine("   • Feature extraction (RGB, normalized)");
-            Console.WriteLine("   • Label encoding");
+            Console.WriteLine($"   • Label encoding ({classLabels.Count} classes)");
 
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -447,6 +511,7 @@ namespace Image_Checker.Services
             Console.WriteLine("\n\n");
             Console.WriteLine("═══════════════════════════════════════════════");
             Console.WriteLine("📊 FINAL MODEL COMPARISON");
+            Console.WriteLine($"   Training Dataset: {classLabels.Count} classes ({string.Join(", ", classLabels)})");
             Console.WriteLine("═══════════════════════════════════════════════");
             Console.WriteLine($"{"Model",-35} {"Macro Acc",12} {"Micro Acc",12} {"Log Loss",10}");
             Console.WriteLine("───────────────────────────────────────────────────────────────────");
@@ -461,6 +526,7 @@ namespace Image_Checker.Services
             Console.WriteLine($"   • Macro Accuracy: {best.Macro:P2}");
             Console.WriteLine($"   • Micro Accuracy: {best.Micro:P2}");
             Console.WriteLine($"   • Log Loss: {best.LogLoss:F4}");
+            Console.WriteLine($"   • Can classify: {string.Join(", ", classLabels)}");
 
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -471,6 +537,7 @@ namespace Image_Checker.Services
             _mlContext.Model.Save(best.Model, split.TrainSet.Schema, modelPath);
             Console.WriteLine($"✅ Model saved: {Path.GetFileName(modelPath)}");
             Console.WriteLine($"   Location: {modelPath}");
+            Console.WriteLine($"   Classes: {string.Join(", ", classLabels)}");
         }
     }
 }

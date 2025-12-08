@@ -1,13 +1,6 @@
-﻿using Image_Checker.DataModels;
-using Image_Checker.Services;
-using ImageChecker.Services;
-using System;
-using System.Collections.Generic;
-using System.Drawing;
+﻿using Image_Checker.Services;
 using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
-using System.Windows.Forms;
+using System.Text;
 
 namespace Image_Checker.WinForm
 {
@@ -20,13 +13,88 @@ namespace Image_Checker.WinForm
         private IncrementalModelTrainer _incrementalTrainer;
         private CorrectionManager _correctionManager;
         private const string CONFIG_FILE = "app_config.txt";
-
+        private Button btnManageCorrections;
+        private SingleImagePredictor _singlePredictor;
+        private FileSystemWatcher _folderWatcher;
+        private string _monitoredFolder;
+        private System.Windows.Forms.Timer _processingTimer;
+        private Queue<string> _newImageQueue = new Queue<string>();
+        private bool _isProcessingQueue = false;
         public Form1()
         {
             InitializeComponent();
             LoadConfiguration();
         }
 
+        private void MenuCorrections_Click(object? sender, EventArgs e)
+        {
+            throw new NotImplementedException();
+        }
+
+        private void MenuManageCorrections_Click(object sender, EventArgs e)
+        {
+            OpenCorrectionsManager();
+        }
+
+        private void BtnManageCorrections_Click(object sender, EventArgs e)
+        {
+            OpenCorrectionsManager();
+        }
+
+        private void OpenCorrectionsManager()
+        {
+            if (string.IsNullOrEmpty(_basePath))
+            {
+                MessageBox.Show(
+                    "Base path not configured.\n\n" +
+                    "Please load a model or configure the base path from the Settings menu.",
+                    "Configuration Required",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
+            var correctionsPath = Path.Combine(_basePath, "corrections.csv");
+            if (!File.Exists(correctionsPath))
+            {
+                var result = MessageBox.Show(
+                    "No corrections file found.\n\n" +
+                    "Would you like to create an empty corrections file?",
+                    "No Corrections",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+
+                if (result == DialogResult.Yes)
+                {
+                    try
+                    {
+                        File.WriteAllLines(correctionsPath, new[]
+                        {
+                    "Timestamp,ImagePath,OriginalLabel,Confidence,CorrectedLabel"
+                });
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Failed to create corrections file:\n{ex.Message}",
+                            "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+                }
+                else
+                {
+                    return;
+                }
+            }
+
+            // Open the Corrections Manager form
+            var managerForm = new CorrectionsManagerForm(_basePath);
+            managerForm.FormClosed += (s, e) =>
+            {
+                // Refresh correction count after closing the manager
+                UpdateCorrectionCount();
+            };
+            managerForm.ShowDialog(this);
+        }
         private void LoadConfiguration()
         {
             try
@@ -63,6 +131,59 @@ namespace Image_Checker.WinForm
             }
         }
 
+        private void MenuVerifySetup_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(_basePath))
+            {
+                MessageBox.Show("Base path not configured.", "Setup Check",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var checks = new StringBuilder();
+            checks.AppendLine("🔍 TRUE INCREMENTAL LEARNING SETUP CHECK\n");
+
+            // Check 1: Model exists
+            bool hasModel = !string.IsNullOrEmpty(_modelPath) && File.Exists(_modelPath);
+            checks.AppendLine(hasModel
+                ? "✅ Model loaded: " + Path.GetFileName(_modelPath)
+                : "❌ No model loaded");
+
+            // Check 2: images.csv exists
+            var csvPath = Path.Combine(_basePath, "images.csv");
+            bool hasCsv = File.Exists(csvPath);
+            checks.AppendLine(hasCsv
+                ? "✅ Original training data found (images.csv)"
+                : "❌ Missing images.csv - True incremental will not work!");
+
+            // Check 3: corrections.csv exists
+            var correctionsPath = Path.Combine(_basePath, "corrections.csv");
+            bool hasCorrections = File.Exists(correctionsPath);
+            int correctionCount = hasCorrections ? _correctionManager.GetCorrectionCount() : 0;
+            checks.AppendLine(hasCorrections
+                ? $"✅ Corrections file exists ({correctionCount} pending)"
+                : "ℹ️ No corrections yet");
+
+            // Overall status
+            checks.AppendLine();
+            if (hasModel && hasCsv)
+            {
+                checks.AppendLine("✅ READY FOR TRUE INCREMENTAL LEARNING!");
+            }
+            else if (hasModel && !hasCsv)
+            {
+                checks.AppendLine("⚠️ WARNING: Missing original training data");
+                checks.AppendLine($"\nTo fix: Copy images.csv to:\n{_basePath}");
+            }
+            else
+            {
+                checks.AppendLine("❌ Setup incomplete - load a model first");
+            }
+
+            MessageBox.Show(checks.ToString(), "Setup Verification",
+                MessageBoxButtons.OK,
+                hasModel && hasCsv ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+        }
         private void ShowSetupDialog()
         {
             var result = MessageBox.Show(
@@ -198,7 +319,6 @@ namespace Image_Checker.WinForm
                 ProcessImages(dialog.SelectedPath);
             }
         }
-
         private void ProcessImages(string rootFolder)
         {
             if (_predictor == null)
@@ -238,13 +358,16 @@ namespace Image_Checker.WinForm
                 // Use PredictWithConfidence to get both label and confidence
                 var (pred, confidence) = _predictor.PredictWithConfidence(file);
 
+                // Clean the prediction label - remove any quotes
+                string cleanPred = pred?.Trim().Trim('"') ?? "Unknown";
+
                 _results.Add(new ImageResult
                 {
                     FileName = Path.GetFileName(file),
                     ImagePath = file,
                     Subfolder = subfolder,
-                    PredictedLabel = pred,
-                    CorrectedLabel = pred,
+                    PredictedLabel = cleanPred,
+                    CorrectedLabel = cleanPred,
                     Confidence = confidence
                 });
 
@@ -263,6 +386,7 @@ namespace Image_Checker.WinForm
             SaveResults(rootFolder);
             PopulateGrid(_results);
             PopulateFilters();
+            PopulateCorrectionComboBox(); // ← Add this line
             UpdateCorrectionCount();
 
             var okCount = _results.Count(r => r.PredictedLabel == "OK");
@@ -272,13 +396,46 @@ namespace Image_Checker.WinForm
                            $"   OK: {okCount} | NG: {ngCount}";
         }
 
+
+
         private void SaveResults(string folder)
         {
             string csvPath = Path.Combine(folder, "predictions.csv");
             using var sw = new StreamWriter(csvPath);
             sw.WriteLine("FileName,ImagePath,SubFolder,Prediction,Confidence");
+
             foreach (var r in _results)
-                sw.WriteLine($"{r.FileName},{r.ImagePath},{r.Subfolder},{r.PredictedLabel},{r.Confidence:F4}");
+            {
+                // Escape CSV values properly - only wrap in quotes if they contain commas
+                string fileName = EscapeCsvValue(r.FileName);
+                string imagePath = EscapeCsvValue(r.ImagePath);
+                string subfolder = EscapeCsvValue(r.Subfolder);
+                string prediction = r.PredictedLabel; // No quotes needed for OK/NG
+
+                sw.WriteLine($"{fileName},{imagePath},{subfolder},{prediction},{r.Confidence:F4}");
+            }
+        }
+
+        /// <summary>
+        /// Escapes a CSV value by wrapping it in quotes only if it contains commas, quotes, or newlines
+        /// </summary>
+        private string EscapeCsvValue(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return value;
+
+            // Remove any existing quotes from the value first
+            value = value.Trim('"');
+
+            // Only wrap in quotes if the value contains commas, quotes, or newlines
+            if (value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
+            {
+                // Escape any internal quotes by doubling them
+                value = value.Replace("\"", "\"\"");
+                return $"\"{value}\"";
+            }
+
+            return value;
         }
 
         // === Filtering ===
@@ -314,14 +471,30 @@ namespace Image_Checker.WinForm
             cbFolderFilter.Items.Clear();
             cbPredFilter.Items.Clear();
 
+            // Folder filter
             cbFolderFilter.Items.Add("All");
-            foreach (var f in _results.Select(r => r.Subfolder).Distinct())
+            var uniqueFolders = _results
+                .Select(r => r.Subfolder)
+                .Where(s => !string.IsNullOrEmpty(s))
+                .Distinct()
+                .OrderBy(s => s);
+
+            foreach (var f in uniqueFolders)
                 cbFolderFilter.Items.Add(f);
+
             cbFolderFilter.SelectedIndex = 0;
 
+            // Prediction filter - FIXED: Remove duplicates
             cbPredFilter.Items.Add("All");
-            foreach (var p in _results.Select(r => r.PredictedLabel).Distinct())
+            var uniquePredictions = _results
+                .Select(r => r.PredictedLabel)
+                .Where(s => !string.IsNullOrEmpty(s))
+                .Distinct()                    // ← This removes duplicates
+                .OrderBy(s => s);              // ← Optional: sort alphabetically
+
+            foreach (var p in uniquePredictions)
                 cbPredFilter.Items.Add(p);
+
             cbPredFilter.SelectedIndex = 0;
         }
 
@@ -333,7 +506,12 @@ namespace Image_Checker.WinForm
                 if (File.Exists(path))
                 {
                     pictureBox.Image?.Dispose();
-                    pictureBox.Image = Image.FromFile(path);
+
+                    // Load image without locking the file
+                    using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    {
+                        pictureBox.Image = Image.FromStream(fs);
+                    }
 
                     var result = _results.FirstOrDefault(r => r.ImagePath == path);
                     if (result != null)
@@ -348,7 +526,6 @@ namespace Image_Checker.WinForm
             }
         }
 
-        // === Correction with CorrectionManager ===
         private void BtnCorrect_Click(object sender, EventArgs e)
         {
             if (_correctionManager == null)
@@ -367,7 +544,13 @@ namespace Image_Checker.WinForm
             var row = grid.SelectedRows[0];
             var path = row.Cells["ImagePath"].Value.ToString();
             var result = _results.FirstOrDefault(r => r.ImagePath == path);
+
+            // Get the label and remove any quotes
             var newLabel = cbCorrection.SelectedItem?.ToString();
+            if (!string.IsNullOrEmpty(newLabel))
+            {
+                newLabel = newLabel.Trim().Trim('"');
+            }
 
             if (result == null || string.IsNullOrEmpty(newLabel))
             {
@@ -390,7 +573,6 @@ namespace Image_Checker.WinForm
 
             try
             {
-                // Use CorrectionManager with retry logic
                 bool success = _correctionManager.SaveCorrection(
                     result.ImagePath,
                     result.PredictedLabel,
@@ -400,7 +582,7 @@ namespace Image_Checker.WinForm
 
                 if (success)
                 {
-                    // Update the result
+                    // Update the result in memory
                     result.CorrectedLabel = newLabel;
 
                     // Show success message
@@ -414,18 +596,33 @@ namespace Image_Checker.WinForm
                     // Update UI
                     UpdateCorrectionCount();
 
-                    // Refresh grid to show corrected label
-                    PopulateGrid(_results.Where(r =>
+                    // Refresh grid to show updated actual classification
+                    var currentFilter = new
                     {
-                        var subSel = cbFolderFilter.SelectedItem?.ToString();
-                        var predSel = cbPredFilter.SelectedItem?.ToString();
-                        return (subSel == "All" || subSel == null || r.Subfolder == subSel) &&
-                               (predSel == "All" || predSel == null || r.PredictedLabel == predSel);
-                    }).ToList());
+                        Subfolder = cbFolderFilter.SelectedItem?.ToString(),
+                        Prediction = cbPredFilter.SelectedItem?.ToString()
+                    };
+
+                    var filtered = _results.Where(r =>
+                        (currentFilter.Subfolder == "All" || string.IsNullOrEmpty(currentFilter.Subfolder) || r.Subfolder == currentFilter.Subfolder) &&
+                        (currentFilter.Prediction == "All" || string.IsNullOrEmpty(currentFilter.Prediction) || r.PredictedLabel == currentFilter.Prediction)
+                    ).ToList();
+
+                    PopulateGrid(filtered);
+
+                    // Re-select the same row if possible
+                    foreach (DataGridViewRow gridRow in grid.Rows)
+                    {
+                        if (gridRow.Cells["ImagePath"].Value?.ToString() == path)
+                        {
+                            gridRow.Selected = true;
+                            grid.FirstDisplayedScrollingRowIndex = gridRow.Index;
+                            break;
+                        }
+                    }
                 }
                 else
                 {
-                    // Show error message with retry info
                     lblStatus.Text = "❌ Failed to save correction";
                     MessageBox.Show($"Failed to save correction:\n\n{errorMessage}\n\n" +
                                   "Possible causes:\n" +
@@ -445,11 +642,89 @@ namespace Image_Checker.WinForm
             }
             finally
             {
-                // Re-enable button
                 btnCorrect.Enabled = true;
                 btnCorrect.Text = "Save Correction";
             }
         }
+        // === BONUS: Add visual indicator for corrected items ===
+
+        private void Grid_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
+        {
+            if (grid.Columns[e.ColumnIndex].Name == "ActualClass" ||
+                grid.Columns[e.ColumnIndex].Name == "ActualLabel")
+            {
+                var row = grid.Rows[e.RowIndex];
+                var imagePath = row.Cells["ImagePath"].Value?.ToString();
+                var result = _results.FirstOrDefault(r => r.ImagePath == imagePath);
+
+                if (result != null && result.CorrectedLabel != result.PredictedLabel)
+                {
+                    // Highlight corrected rows
+                    e.CellStyle.BackColor = Color.FromArgb(255, 248, 220); // Light yellow
+                    e.CellStyle.ForeColor = Color.DarkOrange;
+                    e.CellStyle.Font = new Font(e.CellStyle.Font, FontStyle.Bold);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Safely reads all lines from a file with retry logic
+        /// </summary>
+        private List<string> ReadFileWithRetry(string filePath, int maxRetries = 3, int delayMs = 500)
+        {
+            for (int i = 0; i < maxRetries; i++)
+            {
+                try
+                {
+                    using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    using (var sr = new StreamReader(fs))
+                    {
+                        var lines = new List<string>();
+                        while (!sr.EndOfStream)
+                        {
+                            lines.Add(sr.ReadLine());
+                        }
+                        return lines;
+                    }
+                }
+                catch (IOException) when (i < maxRetries - 1)
+                {
+                    Console.WriteLine($"⏳ File is locked, retrying in {delayMs}ms... (attempt {i + 1}/{maxRetries})");
+                    Thread.Sleep(delayMs);
+                }
+            }
+            throw new IOException($"Could not access file after {maxRetries} attempts: {filePath}");
+        }
+
+        /// <summary>
+        /// Safely writes all lines to a file with retry logic
+        /// </summary>
+        private void WriteFileWithRetry(string filePath, IEnumerable<string> lines, int maxRetries = 3, int delayMs = 500)
+        {
+            for (int i = 0; i < maxRetries; i++)
+            {
+                try
+                {
+                    using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None))
+                    using (var sw = new StreamWriter(fs))
+                    {
+                        foreach (var line in lines)
+                        {
+                            sw.WriteLine(line);
+                        }
+                    }
+                    return;
+                }
+                catch (IOException) when (i < maxRetries - 1)
+                {
+                    Console.WriteLine($"⏳ File is locked, retrying in {delayMs}ms... (attempt {i + 1}/{maxRetries})");
+                    Thread.Sleep(delayMs);
+                }
+            }
+            throw new IOException($"Could not write to file after {maxRetries} attempts: {filePath}");
+        }
+
+
 
         private void UpdateCorrectionCount()
         {
@@ -476,92 +751,589 @@ namespace Image_Checker.WinForm
             }
         }
 
-        // === Quick Incremental Update ===
-        private async void BtnQuickUpdate_Click(object sender, EventArgs e)
+        /// <summary>
+        /// Moves corrected images to their designated folders based on corrections.csv
+        /// </summary>
+        private bool MoveCorrectionsToFolders(out string statusMessage)
         {
+            statusMessage = "";
+            var correctionPath = Path.Combine(_basePath, "corrections.csv");
+
+            if (!File.Exists(correctionPath))
+            {
+                statusMessage = "No corrections file found.";
+                return false;
+            }
+
+            List<string> lines;
+            try
+            {
+                lines = ReadFileWithRetry(correctionPath);
+                if (lines.Count <= 1) // Only header or empty
+                {
+                    statusMessage = "No corrections to move.";
+                    return true;
+                }
+                lines = lines.Skip(1).ToList(); // Skip header
+            }
+            catch (Exception ex)
+            {
+                statusMessage = $"Failed to read corrections file: {ex.Message}";
+                return false;
+            }
+
+            int movedCount = 0;
+            int skippedCount = 0;
+            int errorCount = 0;
+            var errorMessages = new List<string>();
+            var movedFiles = new List<(string oldPath, string newPath)>();
+
+            Console.WriteLine($"\n📦 Moving {lines.Count} corrected images to designated folders...\n");
+
+            foreach (var line in lines)
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+
+                try
+                {
+                    var parts = line.Split(',');
+                    if (parts.Length < 5)
+                    {
+                        Console.WriteLine($"⚠️  Invalid line format, skipping");
+                        skippedCount++;
+                        continue;
+                    }
+
+                    var imagePath = parts[1].Trim().Trim('"');
+                    var correctedLabel = parts[4].Trim().Trim('"');
+
+                    if (!File.Exists(imagePath))
+                    {
+                        Console.WriteLine($"⚠️  File not found: {Path.GetFileName(imagePath)}");
+                        skippedCount++;
+                        continue;
+                    }
+
+                    // Get current folder and target folder
+                    var currentFolder = Path.GetDirectoryName(imagePath);
+                    var parentFolder = Directory.GetParent(currentFolder)?.FullName;
+
+                    if (string.IsNullOrEmpty(parentFolder))
+                    {
+                        Console.WriteLine($"⚠️  Cannot determine parent folder for: {imagePath}");
+                        skippedCount++;
+                        continue;
+                    }
+
+                    var currentFolderName = new DirectoryInfo(currentFolder).Name;
+                    var targetFolder = Path.Combine(parentFolder, correctedLabel);
+
+                    // Check if already in correct folder
+                    if (currentFolderName.Equals(correctedLabel, StringComparison.OrdinalIgnoreCase))
+                    {
+                        Console.WriteLine($"✓  Already in correct folder: {Path.GetFileName(imagePath)} ({correctedLabel})");
+                        skippedCount++;
+                        continue;
+                    }
+
+                    // Create target folder if it doesn't exist
+                    if (!Directory.Exists(targetFolder))
+                    {
+                        Directory.CreateDirectory(targetFolder);
+                        Console.WriteLine($"📁 Created folder: {correctedLabel}");
+                    }
+
+                    // Move the file
+                    var fileName = Path.GetFileName(imagePath);
+                    var targetPath = Path.Combine(targetFolder, fileName);
+
+                    // Handle duplicate filenames
+                    if (File.Exists(targetPath))
+                    {
+                        var nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
+                        var extension = Path.GetExtension(fileName);
+                        var counter = 1;
+
+                        while (File.Exists(targetPath))
+                        {
+                            fileName = $"{nameWithoutExt}_corrected{counter}{extension}";
+                            targetPath = Path.Combine(targetFolder, fileName);
+                            counter++;
+                        }
+                        Console.WriteLine($"⚠️  Duplicate filename, renaming to: {fileName}");
+                    }
+
+                    // Ensure file is not locked before moving
+                    try
+                    {
+                        using (var fs = File.Open(imagePath, FileMode.Open, FileAccess.Read, FileShare.None))
+                        {
+                            // File is accessible
+                        }
+                    }
+                    catch (IOException)
+                    {
+                        Console.WriteLine($"⚠️  File is locked, skipping: {Path.GetFileName(imagePath)}");
+                        skippedCount++;
+                        continue;
+                    }
+
+                    File.Move(imagePath, targetPath);
+                    movedFiles.Add((imagePath, targetPath));
+
+                    Console.WriteLine($"✅ Moved: {Path.GetFileName(imagePath)}");
+                    Console.WriteLine($"   From: {currentFolderName} → To: {correctedLabel}");
+                    movedCount++;
+                }
+                catch (Exception ex)
+                {
+                    errorCount++;
+                    var fileName = "Unknown";
+                    try
+                    {
+                        var parts = line.Split(',');
+                        if (parts.Length > 1)
+                            fileName = Path.GetFileName(parts[1].Trim().Trim('"'));
+                    }
+                    catch { }
+
+                    errorMessages.Add($"{fileName}: {ex.Message}");
+                    Console.WriteLine($"❌ Error moving {fileName}: {ex.Message}");
+                }
+            }
+
+            // Update corrections.csv with new paths
+            if (movedFiles.Count > 0)
+            {
+                try
+                {
+                    UpdateCorrectionsWithNewPaths(movedFiles, correctionPath);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"⚠️  Warning: Could not update corrections.csv: {ex.Message}");
+                    Console.WriteLine($"   This won't affect training, but archive may have old paths.");
+                }
+            }
+
+            Console.WriteLine($"\n📊 Move Summary:");
+            Console.WriteLine($"   ✅ Moved: {movedCount}");
+            Console.WriteLine($"   ⚠️  Skipped: {skippedCount}");
+            Console.WriteLine($"   ❌ Errors: {errorCount}");
+
+            statusMessage = $"Moved: {movedCount}, Skipped: {skippedCount}, Errors: {errorCount}";
+
+            if (errorMessages.Any())
+            {
+                statusMessage += $"\n\nErrors:\n{string.Join("\n", errorMessages.Take(5))}";
+                if (errorMessages.Count > 5)
+                    statusMessage += $"\n... and {errorMessages.Count - 5} more";
+            }
+
+            return errorCount == 0;
+        }
+
+        /// <summary>
+        /// Updates corrections.csv with new file paths after moving
+        /// </summary>
+        private void UpdateCorrectionsWithNewPaths(List<(string oldPath, string newPath)> movedFiles, string correctionPath)
+        {
+            try
+            {
+                // Read current CSV with retry
+                var lines = ReadFileWithRetry(correctionPath);
+
+                if (lines.Count == 0)
+                {
+                    Console.WriteLine($"⚠️  Corrections file is empty, skipping update");
+                    return;
+                }
+
+                // Create a dictionary of old path -> new path
+                var pathMap = movedFiles.ToDictionary(
+                    f => f.oldPath,
+                    f => f.newPath,
+                    StringComparer.OrdinalIgnoreCase);
+
+                // Update paths in CSV (skip header at index 0)
+                for (int i = 1; i < lines.Count; i++)
+                {
+                    if (string.IsNullOrWhiteSpace(lines[i])) continue;
+
+                    var parts = lines[i].Split(',');
+                    if (parts.Length >= 2)
+                    {
+                        var oldPath = parts[1].Trim().Trim('"');
+                        if (pathMap.ContainsKey(oldPath))
+                        {
+                            // Update the path while preserving CSV format
+                            parts[1] = pathMap[oldPath].Contains(',')
+                                ? $"\"{pathMap[oldPath]}\""
+                                : pathMap[oldPath];
+                            lines[i] = string.Join(",", parts);
+                        }
+                    }
+                }
+
+                // Write updated CSV with retry
+                WriteFileWithRetry(correctionPath, lines);
+                Console.WriteLine($"✅ Updated corrections.csv with new paths ({movedFiles.Count} entries)");
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to update corrections.csv: {ex.Message}", ex);
+            }
+        }
+
+
+        /// <summary>
+        /// Updates corrections.csv with new file paths after moving
+        /// </summary>
+        private void UpdateCorrectionsWithNewPaths(List<string> movedFiles)
+        {
+            try
+            {
+                var correctionPath = Path.Combine(_basePath, "corrections.csv");
+                var lines = File.ReadAllLines(correctionPath).ToList();
+
+                // Create a dictionary of old path -> new path
+                var pathMap = movedFiles
+                    .Select(f => f.Split('|'))
+                    .Where(parts => parts.Length == 2)
+                    .ToDictionary(parts => parts[0], parts => parts[1]);
+
+                // Update paths in CSV
+                for (int i = 1; i < lines.Count; i++) // Skip header
+                {
+                    var parts = lines[i].Split(',');
+                    if (parts.Length >= 2)
+                    {
+                        var oldPath = parts[1].Trim();
+                        if (pathMap.ContainsKey(oldPath))
+                        {
+                            parts[1] = pathMap[oldPath];
+                            lines[i] = string.Join(",", parts);
+                        }
+                    }
+                }
+
+                // Write updated CSV
+                File.WriteAllLines(correctionPath, lines);
+                Console.WriteLine($"✅ Updated corrections.csv with new paths ({movedFiles.Count} entries)");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️  Failed to update corrections.csv: {ex.Message}");
+            }
+        }
+
+        // === UPDATED Quick Update Handler with Image Moving ===
+
+        private void BtnQuickUpdate_Click(object sender, EventArgs e)
+        {
+            // Validation
             if (_predictor == null || string.IsNullOrEmpty(_basePath))
             {
-                MessageBox.Show("Please load a model first (select base folder).", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Please load a model first.",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
             if (_correctionManager == null)
             {
-                MessageBox.Show("Correction manager not initialized.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Correction manager not initialized.",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
             int correctionCount = _correctionManager.GetCorrectionCount();
             if (correctionCount == 0)
             {
-                MessageBox.Show("No corrections to apply.", "No Corrections", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("No corrections to apply.",
+                    "No Corrections", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
+            // Check dataset size
+            var originalCsvPath = Path.Combine(_basePath, "images.csv");
+            bool hasOriginalData = File.Exists(originalCsvPath);
+            int originalCount = hasOriginalData ? File.ReadLines(originalCsvPath).Count() : 0;
+
+            // Build confirmation message
+            string confirmMessage;
+            string strategy;
+
+            if (!hasOriginalData)
+            {
+                confirmMessage =
+                    $"⚠️ WARNING: Original training data not found!\n\n" +
+                    $"Training will use ONLY {correctionCount} corrections.\n" +
+                    $"This will cause catastrophic forgetting.\n\n" +
+                    $"Continue anyway (NOT RECOMMENDED)?";
+                strategy = "Corrections Only";
+            }
+            else if (originalCount > 10000)
+            {
+                int estimatedSamples = Math.Min(3000, originalCount / 10) + correctionCount;
+                confirmMessage =
+                    $"🔄 IN-PLACE MODEL UPDATE\n\n" +
+                    $"Dataset: {originalCount:N0} original samples\n" +
+                    $"Corrections: {correctionCount}\n\n" +
+                    $"⚡ Strategy: Smart Sampling (Fast)\n" +
+                    $"• Training samples: ~{estimatedSamples:N0}\n" +
+                    $"• Estimated time: 2-4 minutes\n" +
+                    $"• Model file: {Path.GetFileName(_modelPath)}\n\n" +
+                    $"✅ Original model will be updated (not replaced)\n" +
+                    $"✅ Corrected images will be moved to proper folders\n" +
+                    $"✅ Backup created automatically\n" +
+                    $"✅ All corrections will be learned\n\n" +
+                    $"Continue?";
+                strategy = "Smart Sampling";
+            }
+            else if (originalCount > 1000)
+            {
+                int estimatedSamples = Math.Min(5000, originalCount / 2) + correctionCount;
+                confirmMessage =
+                    $"🔄 IN-PLACE MODEL UPDATE\n\n" +
+                    $"Dataset: {originalCount:N0} original samples\n" +
+                    $"Corrections: {correctionCount}\n\n" +
+                    $"📊 Strategy: Balanced Sampling\n" +
+                    $"• Training samples: ~{estimatedSamples:N0}\n" +
+                    $"• Estimated time: 1-2 minutes\n" +
+                    $"• Model file: {Path.GetFileName(_modelPath)}\n\n" +
+                    $"✅ Original model will be updated\n" +
+                    $"✅ Corrected images will be moved to proper folders\n" +
+                    $"✅ Backup created automatically\n\n" +
+                    $"Continue?";
+                strategy = "Balanced";
+            }
+            else
+            {
+                confirmMessage =
+                    $"🔄 IN-PLACE MODEL UPDATE\n\n" +
+                    $"Dataset: {originalCount:N0} original samples\n" +
+                    $"Corrections: {correctionCount}\n\n" +
+                    $"📊 Strategy: Full Dataset\n" +
+                    $"• Training samples: {originalCount + correctionCount:N0}\n" +
+                    $"• Estimated time: 30-60 seconds\n" +
+                    $"• Model file: {Path.GetFileName(_modelPath)}\n\n" +
+                    $"✅ Original model will be updated\n" +
+                    $"✅ Corrected images will be moved to proper folders\n" +
+                    $"✅ Backup created automatically\n\n" +
+                    $"Continue?";
+                strategy = "Full Dataset";
+            }
+
             var confirmResult = MessageBox.Show(
-                $"🚀 TRUE INCREMENTAL UPDATE\n\n" +
-                $"Apply {correctionCount} corrections to current model?\n\n" +
-                $"Current model: {Path.GetFileName(_predictor.ModelPath)}\n" +
-                $"This will create: incrementalModel-*.zip\n\n" +
-                $"Continue?",
-                "Confirm True Incremental Update",
+                confirmMessage,
+                "Confirm In-Place Update",
                 MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question);
+                hasOriginalData ? MessageBoxIcon.Question : MessageBoxIcon.Warning);
 
-            if (confirmResult != DialogResult.Yes) return;
+            if (confirmResult != DialogResult.Yes)
+                return;
 
-            lblStatus.Text = $"⚡ True incremental training ({correctionCount} corrections)...";
-            Application.DoEvents();
-
+            // Disable UI during training
             progressBar.Visible = true;
             progressBar.Style = ProgressBarStyle.Marquee;
             btnQuickUpdate.Enabled = false;
             btnRetrain.Enabled = false;
             btnCorrect.Enabled = false;
+            btnSelectFolder.Enabled = false;
 
             try
             {
-                // NEW: Use TrueIncrementalTrainer
-                var trueTrainer = new TrueIncrementalTrainer(new Microsoft.ML.MLContext(), _basePath);
-                string newModelPath = await Task.Run(() =>
-                    trueTrainer.IncrementalUpdate(_predictor.ModelPath));
+                // STEP 1: Move corrected images to proper folders
+                lblStatus.Text = $"📦 Step 1/3: Moving corrected images to proper folders...";
+                Application.DoEvents();
 
-                // NEW: Auto-reload latest model
-                _predictor.ReloadLatestModel();
+                if (MoveCorrectionsToFolders(out string moveStatus))
+                {
+                    lblStatus.Text = $"✅ Images moved successfully\n   {moveStatus}";
+                    Console.WriteLine($"✅ {moveStatus}");
+                }
+                else
+                {
+                    lblStatus.Text = $"⚠️ Some images could not be moved\n   {moveStatus}";
+                    Console.WriteLine($"⚠️ {moveStatus}");
+
+                    // Ask if user wants to continue
+                    var continueResult = MessageBox.Show(
+                        $"Some images could not be moved:\n\n{moveStatus}\n\n" +
+                        $"Continue with training anyway?",
+                        "Image Move Warning",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Warning);
+
+                    if (continueResult != DialogResult.Yes)
+                    {
+                        lblStatus.Text = "❌ Update cancelled by user";
+                        return;
+                    }
+                }
+
+                System.Threading.Thread.Sleep(1000); // Brief pause to show status
+
+                // STEP 2: Train model
+                lblStatus.Text = $"🔄 Step 2/3: Training model ({strategy})...\n" +
+                                $"   ⏳ This will take {EstimateTime(originalCount)}\n" +
+                                $"   Please wait, do not close the application.";
+                Application.DoEvents();
+
+                // Synchronous training
+                var trueTrainer = new TrueIncrementalTrainer(new Microsoft.ML.MLContext(), _basePath);
+                trueTrainer.IncrementalUpdateInPlace(_predictor.ModelPath);
+
+                // STEP 3: Reload model and cleanup
+                lblStatus.Text = $"📥 Step 3/3: Reloading updated model...";
+                Application.DoEvents();
+
+                // Reload the updated model (same path)
+                _predictor.Dispose(); // Release the old model
+                _predictor = new Predictor(_modelPath);
 
                 // Archive corrections
                 var correctionPath = Path.Combine(_basePath, "corrections.csv");
                 var archivePath = Path.Combine(_basePath, $"corrections_archive_{DateTime.Now:yyyyMMddHHmmss}.csv");
-                if (File.Exists(correctionPath)) File.Copy(correctionPath, archivePath, true);
+
+                if (File.Exists(correctionPath))
+                {
+                    File.Copy(correctionPath, archivePath, true);
+                }
 
                 // Clear corrections
                 _correctionManager.ClearCorrections(createBackup: false, out _);
 
-                lblStatus.Text = $"✅ True incremental update complete!\n" +
-                               $"   New model: {Path.GetFileName(_predictor.ModelPath)}\n" +
-                               $"   Total learning: Original + {correctionCount} corrections";
-               // lblModelInfo.Text = _predictor.GetModelInfo();
+                // Update UI
+                lblStatus.Text = $"✅ Model updated successfully!\n" +
+                                $"   Strategy: {strategy}\n" +
+                                $"   Corrections applied: {correctionCount}\n" +
+                                $"   Images moved to correct folders\n" +
+                                $"   Model: {Path.GetFileName(_modelPath)}";
+
                 UpdateCorrectionCount();
 
-                MessageBox.Show($"🎉 True Incremental Update Success!\n\n" +
-                              $"• Corrections: {correctionCount}\n" +
-                              $"• New model: {Path.GetFileName(_predictor.ModelPath)}\n" +
-                              $"• Archived: {Path.GetFileName(archivePath)}",
-                              "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                // Show detailed success message
+                MessageBox.Show(
+                    $"🎉 Model Updated Successfully!\n\n" +
+                    $"✅ Step 1: Images moved to correct folders\n" +
+                    $"   {moveStatus}\n\n" +
+                    $"✅ Step 2: Model trained\n" +
+                    $"   Strategy: {strategy}\n" +
+                    $"   Corrections applied: {correctionCount}\n\n" +
+                    $"✅ Step 3: Cleanup completed\n" +
+                    $"   Corrections archived: {Path.GetFileName(archivePath)}\n" +
+                    $"   Model file: {Path.GetFileName(_modelPath)}\n\n" +
+                    $"The model is ready to use!",
+                    "Success",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
                 lblStatus.Text = $"❌ Update failed: {ex.Message}";
-                MessageBox.Show($"True incremental update failed:\n\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+                MessageBox.Show(
+                    $"Model update failed:\n\n{ex.Message}\n\n" +
+                    $"Your original model has been restored from backup.\n\n" +
+                    $"Possible causes:\n" +
+                    $"• Not enough corrections (need both OK and NG)\n" +
+                    $"• Corrupted image files\n" +
+                    $"• Disk space issues\n" +
+                    $"• Model file locked by another process\n" +
+                    $"• Images locked by another program\n\n" +
+                    $"Try:\n" +
+                    $"1. Close any programs using the images or model\n" +
+                    $"2. Verify corrections are valid\n" +
+                    $"3. Check disk space\n" +
+                    $"4. Restart the application if needed",
+                    "Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
             }
             finally
             {
+                // Restore UI
                 progressBar.Visible = false;
                 btnQuickUpdate.Enabled = true;
                 btnRetrain.Enabled = true;
                 btnCorrect.Enabled = true;
+                btnSelectFolder.Enabled = true;
             }
         }
+
+        // Helper to estimate time based on dataset size
+        private string EstimateTime(int samples)
+        {
+            if (samples == 0) return "30 seconds";
+            if (samples < 1000) return "30-60 seconds";
+            if (samples < 5000) return "1-2 minutes";
+            if (samples < 10000) return "2-3 minutes";
+            return "2-4 minutes";
+        }
+
+
+
+        private class TextBoxWriter : TextWriter
+        {
+            private readonly RichTextBox _textBox;
+
+            public TextBoxWriter(RichTextBox textBox)
+            {
+                _textBox = textBox;
+            }
+
+            public override System.Text.Encoding Encoding => System.Text.Encoding.UTF8;
+
+            public override void Write(char value)
+            {
+                if (_textBox.InvokeRequired)
+                {
+                    _textBox.Invoke(new Action(() => Write(value)));
+                    return;
+                }
+                _textBox.AppendText(value.ToString());
+                _textBox.SelectionStart = _textBox.TextLength;
+                _textBox.ScrollToCaret();
+            }
+
+            public override void WriteLine(string value)
+            {
+                if (_textBox.InvokeRequired)
+                {
+                    _textBox.Invoke(new Action(() => WriteLine(value)));
+                    return;
+                }
+                _textBox.AppendText(value + Environment.NewLine);
+                _textBox.SelectionStart = _textBox.TextLength;
+                _textBox.ScrollToCaret();
+            }
+        }
+
+        private class MultiWriter : TextWriter
+        {
+            private readonly TextWriter[] _writers;
+
+            public MultiWriter(params TextWriter[] writers)
+            {
+                _writers = writers;
+            }
+
+            public override System.Text.Encoding Encoding => System.Text.Encoding.UTF8;
+
+            public override void Write(char value)
+            {
+                foreach (var writer in _writers)
+                    writer.Write(value);
+            }
+
+            public override void WriteLine(string value)
+            {
+                foreach (var writer in _writers)
+                    writer.WriteLine(value);
+            }
+        }
+
 
         // Helper class for capturing console output
         private class MultiTextWriter : TextWriter
@@ -641,15 +1413,389 @@ namespace Image_Checker.WinForm
             LoadModel();
             MessageBox.Show("Full retrain completed successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
-    }
 
-    public class ImageResult
-    {
-        public string? FileName { get; set; }
-        public string? ImagePath { get; set; }
-        public string? Subfolder { get; set; }
-        public string? PredictedLabel { get; set; }
-        public string? CorrectedLabel { get; set; }
-        public float Confidence { get; set; }
+
+        private void PopulateCorrectionComboBox()
+        {
+            cbCorrection.Items.Clear();
+
+            if (_results == null || !_results.Any())
+                return;
+
+            // Get unique prediction labels from results
+            var uniqueLabels = _results
+                .Select(r => r.PredictedLabel)
+                .Where(s => !string.IsNullOrEmpty(s))
+                .Distinct()
+                .OrderBy(s => s)
+                .ToList();
+
+            foreach (var label in uniqueLabels)
+            {
+                cbCorrection.Items.Add(label);
+            }
+
+            // Set default selection to first item if available
+            if (cbCorrection.Items.Count > 0)
+            {
+                cbCorrection.SelectedIndex = 0;
+            }
+        }
+
+        private void BtnSelectSingleImage_Click(object sender, EventArgs e)
+        {
+            if (_predictor == null)
+            {
+                MessageBox.Show("Model not loaded. Please configure a model first.",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            using var dialog = new OpenFileDialog
+            {
+                Filter = "Image Files (*.jpg;*.jpeg;*.png;*.bmp)|*.jpg;*.jpeg;*.png;*.bmp",
+                Title = "Select Image for Prediction"
+            };
+
+            if (dialog.ShowDialog() == DialogResult.OK)
+            {
+                PredictSingleImage(dialog.FileName);
+            }
+        }
+
+        private void PredictSingleImage(string imagePath)
+        {
+            try
+            {
+                lblSingleImageResult.Visible = true;
+                lblSingleImageResult.Text = "🔍 Analyzing image...";
+                lblSingleImageResult.BackColor = Color.FromArgb(255, 248, 220); // Light yellow
+                Application.DoEvents();
+
+                // Initialize single predictor if not already done
+                if (_singlePredictor == null)
+                {
+                    _singlePredictor = new SingleImagePredictor(_modelPath);
+                }
+
+                // Get prediction with confidence
+                var (label, confidence) = _singlePredictor.PredictWithConfidence(imagePath);
+
+                // Display the image
+                pictureBox.Image?.Dispose();
+                using (var fs = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    pictureBox.Image = Image.FromStream(fs);
+                }
+
+                // Update result label
+                string confidenceText = $"{confidence:P2}";
+                Color resultColor;
+                string emoji;
+
+                if (confidence >= 0.90f)
+                {
+                    resultColor = Color.FromArgb(232, 245, 233); // Light green
+                    emoji = "✅";
+                }
+                else if (confidence >= 0.70f)
+                {
+                    resultColor = Color.FromArgb(255, 248, 220); // Light yellow
+                    emoji = "⚠️";
+                }
+                else
+                {
+                    resultColor = Color.FromArgb(255, 235, 238); // Light red
+                    emoji = "❓";
+                }
+
+                lblSingleImageResult.BackColor = resultColor;
+                lblSingleImageResult.Text = $"{emoji} Prediction: {label} ({confidenceText} confidence)";
+                lblSingleImageResult.ForeColor = confidence >= 0.70f
+                    ? Color.FromArgb(46, 125, 50)
+                    : Color.FromArgb(211, 47, 47);
+
+                // Update info label
+                lblInfo.Text = $"{Path.GetFileName(imagePath)} | Prediction: {label} ({confidenceText})";
+
+                // Update status
+                lblStatus.Text = $"✅ Single image predicted: {label} ({confidenceText})";
+
+                // Show detailed scores if needed
+                var detailedResult = _singlePredictor.PredictWithAllScores(imagePath);
+                if (detailedResult.AllScores != null && detailedResult.AllScores.Length > 0)
+                {
+                    var scoresText = new StringBuilder();
+                    scoresText.AppendLine($"\nDetailed Scores:");
+                    for (int i = 0; i < detailedResult.AllScores.Length; i++)
+                    {
+                        scoresText.AppendLine($"  Class {i}: {detailedResult.AllScores[i]:P2}");
+                    }
+                    Console.WriteLine(scoresText.ToString());
+                }
+            }
+            catch (Exception ex)
+            {
+                lblSingleImageResult.Visible = true;
+                lblSingleImageResult.Text = $"❌ Prediction failed: {ex.Message}";
+                lblSingleImageResult.BackColor = Color.FromArgb(255, 235, 238); // Light red
+                lblSingleImageResult.ForeColor = Color.FromArgb(211, 47, 47);
+
+                lblStatus.Text = $"❌ Prediction failed: {ex.Message}";
+                MessageBox.Show($"Failed to predict image:\n\n{ex.Message}",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        // Add after BtnSelectSingleImage_Click method:
+
+        private void BtnMonitorFolder_Click(object sender, EventArgs e)
+        {
+            if (_folderWatcher == null)
+            {
+                // Start monitoring
+                StartFolderMonitoring();
+            }
+            else
+            {
+                // Stop monitoring
+                StopFolderMonitoring();
+            }
+        }
+
+        private void StartFolderMonitoring()
+        {
+            if (_predictor == null)
+            {
+                MessageBox.Show("Model not loaded. Please configure a model first.",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            using var dialog = new FolderBrowserDialog
+            {
+                Description = "Select root folder containing class subfolders (OK, NG, etc.)"
+            };
+
+            if (dialog.ShowDialog() != DialogResult.OK)
+                return;
+
+            _monitoredFolder = dialog.SelectedPath;
+
+            // Verify it has subfolders
+            var classFolders = Directory.GetDirectories(_monitoredFolder);
+            if (classFolders.Length == 0)
+            {
+                MessageBox.Show("Selected folder has no subfolders.\n\n" +
+                               "Please select a folder containing class subfolders like 'OK', 'NG', etc.",
+                    "No Class Folders", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            try
+            {
+                // Initialize timer for batch processing
+                _processingTimer = new System.Windows.Forms.Timer();
+                _processingTimer.Interval = 2000; // Process queue every 2 seconds
+                _processingTimer.Tick += ProcessImageQueue;
+                _processingTimer.Start();
+
+                // Setup FileSystemWatcher
+                _folderWatcher = new FileSystemWatcher(_monitoredFolder)
+                {
+                    IncludeSubdirectories = true,
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
+                    Filter = "*.*"
+                };
+
+                _folderWatcher.Created += OnNewImageDetected;
+                _folderWatcher.EnableRaisingEvents = true;
+
+                btnMonitorFolder.Text = "👁️ Monitor Folder (ON)";
+                btnMonitorFolder.BackColor = Color.FromArgb(76, 175, 80); // Green
+
+                lblStatus.Text = $"✅ Monitoring: {_monitoredFolder}\n" +
+                                $"   Class folders: {string.Join(", ", classFolders.Select(f => Path.GetFileName(f)))}";
+
+                MessageBox.Show($"Folder monitoring started!\n\n" +
+                               $"Monitoring: {_monitoredFolder}\n" +
+                               $"Class folders: {classFolders.Length}\n\n" +
+                               $"New images will be automatically predicted.",
+                    "Monitoring Active", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to start monitoring:\n{ex.Message}",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                StopFolderMonitoring();
+            }
+        }
+        
+        private void StopFolderMonitoring()
+        {
+            if (_folderWatcher != null)
+            {
+                _folderWatcher.EnableRaisingEvents = false;
+                _folderWatcher.Dispose();
+                _folderWatcher = null;
+            }
+
+            if (_processingTimer != null)
+            {
+                _processingTimer.Stop();
+                _processingTimer.Dispose();
+                _processingTimer = null;
+            }
+
+            _newImageQueue.Clear();
+            _monitoredFolder = null;
+
+            btnMonitorFolder.Text = "👁️ Monitor Folder (OFF)";
+            btnMonitorFolder.BackColor = Color.FromArgb(156, 39, 176); // Purple
+
+            lblStatus.Text = "⏹️ Folder monitoring stopped";
+        }
+
+        private void OnNewImageDetected(object sender, FileSystemEventArgs e)
+        {
+            var ext = Path.GetExtension(e.FullPath).ToLower();
+            if (ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".bmp")
+                return;
+
+            // Check if it's in a subfolder (class folder)
+            var parentFolder = Path.GetDirectoryName(e.FullPath);
+            if (parentFolder == _monitoredFolder)
+                return; // Ignore files in root, only process files in subfolders
+
+            // Wait a bit for file to be fully written
+            Thread.Sleep(500);
+
+            // Add to queue
+            lock (_newImageQueue)
+            {
+                if (!_newImageQueue.Contains(e.FullPath))
+                {
+                    _newImageQueue.Enqueue(e.FullPath);
+                    Console.WriteLine($"📥 New image detected: {Path.GetFileName(e.FullPath)}");
+                }
+            }
+        }
+
+        private void ProcessImageQueue(object sender, EventArgs e)
+        {
+            if (_isProcessingQueue || _predictor == null)
+                return;
+
+            string imagePath = null;
+            lock (_newImageQueue)
+            {
+                if (_newImageQueue.Count == 0)
+                    return;
+                imagePath = _newImageQueue.Dequeue();
+            }
+
+            _isProcessingQueue = true;
+
+            try
+            {
+                // Verify file still exists and is accessible
+                if (!File.Exists(imagePath))
+                {
+                    Console.WriteLine($"⚠️ File no longer exists: {Path.GetFileName(imagePath)}");
+                    return;
+                }
+
+                // Wait for file to be fully written
+                for (int i = 0; i < 3; i++)
+                {
+                    try
+                    {
+                        using (var fs = File.Open(imagePath, FileMode.Open, FileAccess.Read, FileShare.None))
+                        {
+                            break; // File is accessible
+                        }
+                    }
+                    catch (IOException)
+                    {
+                        if (i == 2) throw;
+                        Thread.Sleep(500);
+                    }
+                }
+
+                // Get class folder name
+                var classFolder = new DirectoryInfo(Path.GetDirectoryName(imagePath)).Name;
+
+                // Predict
+                var (label, confidence) = _predictor.PredictWithConfidence(imagePath);
+                string cleanLabel = label?.Trim().Trim('"') ?? "Unknown";
+
+                // Log to console
+                Console.WriteLine($"🔍 Auto-predicted: {Path.GetFileName(imagePath)}");
+                Console.WriteLine($"   Folder: {classFolder} | Prediction: {cleanLabel} ({confidence:P2})");
+
+                // Update status
+                string statusEmoji = classFolder.Equals(cleanLabel, StringComparison.OrdinalIgnoreCase) ? "✅" : "⚠️";
+                Invoke(new Action(() =>
+                {
+                    lblStatus.Text = $"{statusEmoji} Auto-prediction:\n" +
+                                   $"   File: {Path.GetFileName(imagePath)}\n" +
+                                   $"   Folder: {classFolder} → Predicted: {cleanLabel} ({confidence:P2})";
+                }));
+
+                // Add to results if mismatch detected
+                if (!classFolder.Equals(cleanLabel, StringComparison.OrdinalIgnoreCase))
+                {
+                    Invoke(new Action(() =>
+                    {
+                        _results.Add(new ImageResult
+                        {
+                            FileName = Path.GetFileName(imagePath),
+                            ImagePath = imagePath,
+                            Subfolder = classFolder,
+                            PredictedLabel = cleanLabel,
+                            CorrectedLabel = cleanLabel,
+                            Confidence = confidence
+                        });
+
+                        // Refresh grid
+                        PopulateGrid(_results);
+                        PopulateFilters();
+
+                        // Show notification for mismatches
+                        if (confidence > 0.7f)
+                        {
+                            MessageBox.Show(
+                                $"⚠️ Potential Mismatch Detected!\n\n" +
+                                $"File: {Path.GetFileName(imagePath)}\n" +
+                                $"Current Folder: {classFolder}\n" +
+                                $"Predicted: {cleanLabel} ({confidence:P2})\n\n" +
+                                $"Please review and correct if needed.",
+                                "Classification Mismatch",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Warning);
+                        }
+                    }));
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Failed to process {Path.GetFileName(imagePath)}: {ex.Message}");
+            }
+            finally
+            {
+                _isProcessingQueue = false;
+            }
+        }
+
+
+        public class ImageResult
+        {
+            public string? FileName { get; set; }
+            public string? ImagePath { get; set; }
+            public string? Subfolder { get; set; }
+            public string? PredictedLabel { get; set; }
+            public string? CorrectedLabel { get; set; }
+            public float Confidence { get; set; }
+        }
     }
 }

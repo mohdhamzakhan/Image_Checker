@@ -96,7 +96,7 @@ namespace Image_Checker.Services
                     imageWidth: 150,
                     imageHeight: 150,
                     inputColumnName: "InputImage",
-                    resizing: Microsoft.ML.Transforms.Image.ImageResizingEstimator.ResizingKind.Fill))
+                    resizing: Microsoft.ML.Transforms.Image.ImageResizingEstimator.ResizingKind.IsoCrop))
                 .Append(_mlContext.Transforms.ExtractPixels(
                     outputColumnName: "Features",
                     inputColumnName: "ResizedImage",
@@ -382,7 +382,7 @@ namespace Image_Checker.Services
                     imageWidth: 150,
                     imageHeight: 150,
                     inputColumnName: "InputImage",
-                    resizing: Microsoft.ML.Transforms.Image.ImageResizingEstimator.ResizingKind.Fill))
+                    resizing: Microsoft.ML.Transforms.Image.ImageResizingEstimator.ResizingKind.IsoCrop))
                 .Append(_mlContext.Transforms.ExtractPixels(
                     outputColumnName: "Features",
                     inputColumnName: "ResizedImage",

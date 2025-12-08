@@ -28,6 +28,7 @@
         /// </summary>
         private void InitializeComponent()
         {
+            components = new System.ComponentModel.Container();
             DataGridViewCellStyle dataGridViewCellStyle1 = new DataGridViewCellStyle();
             DataGridViewCellStyle dataGridViewCellStyle2 = new DataGridViewCellStyle();
             menuStrip = new MenuStrip();
@@ -36,7 +37,10 @@
             menuSelectModel = new ToolStripMenuItem();
             menuSeparator = new ToolStripSeparator();
             menuChangeBasePath = new ToolStripMenuItem();
+            verifyAllSettingToolStripMenuItem = new ToolStripMenuItem();
+            manageCorrectionsToolStripMenuItem = new ToolStripMenuItem();
             btnSelectFolder = new Button();
+            btnSelectSingleImage = new Button();
             lblFolderFilter = new Label();
             cbFolderFilter = new ComboBox();
             lblPredFilter = new Label();
@@ -53,6 +57,9 @@
             lblCorrectionCount = new Label();
             progressBar = new ProgressBar();
             lblStatus = new Label();
+            lblSingleImageResult = new Label();
+            btnMonitorFolder = new Button();
+            tooltip = new ToolTip(components);
             menuStrip.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)grid).BeginInit();
             ((System.ComponentModel.ISupportInitialize)pictureBox).BeginInit();
@@ -71,7 +78,7 @@
             // 
             // menuFile
             // 
-            menuFile.DropDownItems.AddRange(new ToolStripItem[] { menuBuildModel, menuSelectModel, menuSeparator, menuChangeBasePath });
+            menuFile.DropDownItems.AddRange(new ToolStripItem[] { menuBuildModel, menuSelectModel, menuSeparator, menuChangeBasePath, verifyAllSettingToolStripMenuItem, manageCorrectionsToolStripMenuItem });
             menuFile.Name = "menuFile";
             menuFile.Size = new Size(92, 29);
             menuFile.Text = "Settings";
@@ -79,28 +86,42 @@
             // menuBuildModel
             // 
             menuBuildModel.Name = "menuBuildModel";
-            menuBuildModel.Size = new Size(298, 34);
+            menuBuildModel.Size = new Size(303, 34);
             menuBuildModel.Text = "🤖 Build New Model...";
             menuBuildModel.Click += MenuBuildModel_Click;
             // 
             // menuSelectModel
             // 
             menuSelectModel.Name = "menuSelectModel";
-            menuSelectModel.Size = new Size(298, 34);
+            menuSelectModel.Size = new Size(303, 34);
             menuSelectModel.Text = "📂 Select Base Folder...";
             menuSelectModel.Click += MenuSelectModel_Click;
             // 
             // menuSeparator
             // 
             menuSeparator.Name = "menuSeparator";
-            menuSeparator.Size = new Size(295, 6);
+            menuSeparator.Size = new Size(300, 6);
             // 
             // menuChangeBasePath
             // 
             menuChangeBasePath.Name = "menuChangeBasePath";
-            menuChangeBasePath.Size = new Size(298, 34);
+            menuChangeBasePath.Size = new Size(303, 34);
             menuChangeBasePath.Text = "📁 Change Base Path...";
             menuChangeBasePath.Click += MenuChangeBasePath_Click;
+            // 
+            // verifyAllSettingToolStripMenuItem
+            // 
+            verifyAllSettingToolStripMenuItem.Name = "verifyAllSettingToolStripMenuItem";
+            verifyAllSettingToolStripMenuItem.Size = new Size(303, 34);
+            verifyAllSettingToolStripMenuItem.Text = "⚙️ Verify All Settings";
+            verifyAllSettingToolStripMenuItem.Click += MenuVerifySetup_Click;
+            // 
+            // manageCorrectionsToolStripMenuItem
+            // 
+            manageCorrectionsToolStripMenuItem.Name = "manageCorrectionsToolStripMenuItem";
+            manageCorrectionsToolStripMenuItem.Size = new Size(303, 34);
+            manageCorrectionsToolStripMenuItem.Text = "📝 Manage Corrections";
+            manageCorrectionsToolStripMenuItem.Click += MenuManageCorrections_Click;
             // 
             // btnSelectFolder
             // 
@@ -114,8 +135,25 @@
             btnSelectFolder.Size = new Size(229, 67);
             btnSelectFolder.TabIndex = 0;
             btnSelectFolder.Text = "📁 Select Folder";
+            tooltip.SetToolTip(btnSelectFolder, "Process multiple images from folder structure");
             btnSelectFolder.UseVisualStyleBackColor = false;
             btnSelectFolder.Click += BtnSelectFolder_Click;
+            // 
+            // btnSelectSingleImage
+            // 
+            btnSelectSingleImage.BackColor = Color.FromArgb(46, 125, 50);
+            btnSelectSingleImage.FlatStyle = FlatStyle.Flat;
+            btnSelectSingleImage.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            btnSelectSingleImage.ForeColor = Color.White;
+            btnSelectSingleImage.Location = new Point(1214, 58);
+            btnSelectSingleImage.Margin = new Padding(4, 5, 4, 5);
+            btnSelectSingleImage.Name = "btnSelectSingleImage";
+            btnSelectSingleImage.Size = new Size(300, 67);
+            btnSelectSingleImage.TabIndex = 18;
+            btnSelectSingleImage.Text = "🖼️ Predict Single Image";
+            tooltip.SetToolTip(btnSelectSingleImage, "Select and predict a single image file");
+            btnSelectSingleImage.UseVisualStyleBackColor = false;
+            btnSelectSingleImage.Click += BtnSelectSingleImage_Click;
             // 
             // lblFolderFilter
             // 
@@ -208,16 +246,17 @@
             grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             grid.Size = new Size(1177, 1146);
             grid.TabIndex = 5;
+            grid.CellFormatting += Grid_CellFormatting;
             grid.SelectionChanged += Grid_SelectionChanged;
             // 
             // pictureBox
             // 
             pictureBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Right;
             pictureBox.BorderStyle = BorderStyle.FixedSingle;
-            pictureBox.Location = new Point(1214, 150);
+            pictureBox.Location = new Point(1214, 195);
             pictureBox.Margin = new Padding(4, 5, 4, 5);
             pictureBox.Name = "pictureBox";
-            pictureBox.Size = new Size(673, 691);
+            pictureBox.Size = new Size(673, 646);
             pictureBox.SizeMode = PictureBoxSizeMode.Zoom;
             pictureBox.TabIndex = 6;
             pictureBox.TabStop = false;
@@ -254,7 +293,6 @@
             cbCorrection.DropDownStyle = ComboBoxStyle.DropDownList;
             cbCorrection.Font = new Font("Segoe UI", 10F);
             cbCorrection.FormattingEnabled = true;
-            cbCorrection.Items.AddRange(new object[] { "OK", "NG" });
             cbCorrection.Location = new Point(1214, 940);
             cbCorrection.Margin = new Padding(4, 5, 4, 5);
             cbCorrection.Name = "cbCorrection";
@@ -290,6 +328,7 @@
             btnQuickUpdate.Size = new Size(330, 67);
             btnQuickUpdate.TabIndex = 11;
             btnQuickUpdate.Text = "⚡ Quick Update (Fast)";
+            tooltip.SetToolTip(btnQuickUpdate, "True Incremental Learning:\n• Preserves original model knowledge\n• Learns from corrections\n• Fast (1-3 minutes)\n• Requires images.csv in base folder");
             btnQuickUpdate.UseVisualStyleBackColor = false;
             btnQuickUpdate.Click += BtnQuickUpdate_Click;
             // 
@@ -306,6 +345,7 @@
             btnRetrain.Size = new Size(330, 67);
             btnRetrain.TabIndex = 12;
             btnRetrain.Text = "🔄 Full Retrain (Slow)";
+            tooltip.SetToolTip(btnRetrain, "Full Retrain:\n• Rebuilds model from scratch\n• Most accurate\n• Slow (5-15 minutes)\n• Use when accumulated many corrections");
             btnRetrain.UseVisualStyleBackColor = false;
             btnRetrain.Click += BtnRetrain_Click;
             // 
@@ -349,12 +389,45 @@
             lblStatus.Text = "Model status will appear here";
             lblStatus.TextAlign = ContentAlignment.MiddleLeft;
             // 
+            // lblSingleImageResult
+            // 
+            lblSingleImageResult.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            lblSingleImageResult.BackColor = Color.FromArgb(232, 245, 233);
+            lblSingleImageResult.BorderStyle = BorderStyle.FixedSingle;
+            lblSingleImageResult.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
+            lblSingleImageResult.ForeColor = Color.FromArgb(46, 125, 50);
+            lblSingleImageResult.Location = new Point(1214, 135);
+            lblSingleImageResult.Margin = new Padding(4, 0, 4, 0);
+            lblSingleImageResult.Name = "lblSingleImageResult";
+            lblSingleImageResult.Size = new Size(673, 50);
+            lblSingleImageResult.TabIndex = 19;
+            lblSingleImageResult.Text = "Click \'Predict Single Image\' to start";
+            lblSingleImageResult.TextAlign = ContentAlignment.MiddleCenter;
+            lblSingleImageResult.Visible = false;
+            // 
+            // btnMonitorFolder
+            // 
+            btnMonitorFolder.BackColor = Color.FromArgb(156, 39, 176);
+            btnMonitorFolder.FlatStyle = FlatStyle.Flat;
+            btnMonitorFolder.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            btnMonitorFolder.ForeColor = Color.White;
+            btnMonitorFolder.Location = new Point(1530, 58);
+            btnMonitorFolder.Name = "btnMonitorFolder";
+            btnMonitorFolder.Size = new Size(357, 67);
+            btnMonitorFolder.TabIndex = 20;
+            btnMonitorFolder.Text = "👁️ Monitor Folder (OFF)";
+            tooltip.SetToolTip(btnMonitorFolder, "Auto-detect and predict new images in class folders");
+            btnMonitorFolder.UseVisualStyleBackColor = false;
+            btnMonitorFolder.Click += BtnMonitorFolder_Click;
+            // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(10F, 25F);
             AutoScaleMode = AutoScaleMode.Font;
             BackColor = Color.White;
             ClientSize = new Size(1900, 1333);
+            Controls.Add(lblSingleImageResult);
+            Controls.Add(btnSelectSingleImage);
             Controls.Add(lblModelInfo);
             Controls.Add(lblStatus);
             Controls.Add(progressBar);
@@ -373,10 +446,11 @@
             Controls.Add(lblFolderFilter);
             Controls.Add(btnSelectFolder);
             Controls.Add(menuStrip);
+            Controls.Add(btnMonitorFolder);
             Font = new Font("Segoe UI", 9F);
             MainMenuStrip = menuStrip;
             Margin = new Padding(4, 5, 4, 5);
-            MinimumSize = new Size(1920, 1080);
+            MinimumSize = new Size(1918, 1080);
             Name = "Form1";
             StartPosition = FormStartPosition.CenterScreen;
             Text = "Image Checker - True Incremental Learning System";
@@ -397,6 +471,7 @@
         private System.Windows.Forms.ToolStripSeparator menuSeparator;
         private System.Windows.Forms.ToolStripMenuItem menuChangeBasePath;
         private System.Windows.Forms.Button btnSelectFolder;
+        private System.Windows.Forms.Button btnSelectSingleImage;
         private System.Windows.Forms.ComboBox cbFolderFilter;
         private System.Windows.Forms.ComboBox cbPredFilter;
         private System.Windows.Forms.DataGridView grid;
@@ -412,6 +487,11 @@
         private System.Windows.Forms.Label lblFolderFilter;
         private System.Windows.Forms.Label lblPredFilter;
         private System.Windows.Forms.Label lblSelectLabel;
+        private System.Windows.Forms.Label lblSingleImageResult;
         private Label lblModelInfo;
+        private ToolStripMenuItem verifyAllSettingToolStripMenuItem;
+        private ToolTip tooltip;
+        private ToolStripMenuItem manageCorrectionsToolStripMenuItem;
+        private System.Windows.Forms.Button btnMonitorFolder;
     }
 }
