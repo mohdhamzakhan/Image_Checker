@@ -29,8 +29,8 @@
         private void InitializeComponent()
         {
             components = new System.ComponentModel.Container();
-            DataGridViewCellStyle dataGridViewCellStyle1 = new DataGridViewCellStyle();
-            DataGridViewCellStyle dataGridViewCellStyle2 = new DataGridViewCellStyle();
+            DataGridViewCellStyle dataGridViewCellStyle5 = new DataGridViewCellStyle();
+            DataGridViewCellStyle dataGridViewCellStyle6 = new DataGridViewCellStyle();
             menuStrip = new MenuStrip();
             menuFile = new ToolStripMenuItem();
             menuBuildModel = new ToolStripMenuItem();
@@ -39,6 +39,7 @@
             menuChangeBasePath = new ToolStripMenuItem();
             verifyAllSettingToolStripMenuItem = new ToolStripMenuItem();
             manageCorrectionsToolStripMenuItem = new ToolStripMenuItem();
+            MenuConnectUsbLight = new ToolStripMenuItem();
             btnSelectFolder = new Button();
             btnSelectSingleImage = new Button();
             lblFolderFilter = new Label();
@@ -60,6 +61,7 @@
             lblSingleImageResult = new Label();
             btnMonitorFolder = new Button();
             tooltip = new ToolTip(components);
+            lblUsbLightStatus = new Label();
             menuStrip.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)grid).BeginInit();
             ((System.ComponentModel.ISupportInitialize)pictureBox).BeginInit();
@@ -78,7 +80,7 @@
             // 
             // menuFile
             // 
-            menuFile.DropDownItems.AddRange(new ToolStripItem[] { menuBuildModel, menuSelectModel, menuSeparator, menuChangeBasePath, verifyAllSettingToolStripMenuItem, manageCorrectionsToolStripMenuItem });
+            menuFile.DropDownItems.AddRange(new ToolStripItem[] { menuBuildModel, menuSelectModel, menuSeparator, menuChangeBasePath, verifyAllSettingToolStripMenuItem, manageCorrectionsToolStripMenuItem, MenuConnectUsbLight });
             menuFile.Name = "menuFile";
             menuFile.Size = new Size(92, 29);
             menuFile.Text = "Settings";
@@ -122,6 +124,13 @@
             manageCorrectionsToolStripMenuItem.Size = new Size(303, 34);
             manageCorrectionsToolStripMenuItem.Text = "📝 Manage Corrections";
             manageCorrectionsToolStripMenuItem.Click += MenuManageCorrections_Click;
+            // 
+            // MenuConnectUsbLight
+            // 
+            MenuConnectUsbLight.Name = "MenuConnectUsbLight";
+            MenuConnectUsbLight.Size = new Size(303, 34);
+            MenuConnectUsbLight.Text = "🔌 Connect USB Light";
+            MenuConnectUsbLight.Click += MenuConnectUsbLight_Click;
             // 
             // btnSelectFolder
             // 
@@ -220,23 +229,23 @@
             grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             grid.BackgroundColor = Color.White;
             grid.BorderStyle = BorderStyle.Fixed3D;
-            dataGridViewCellStyle1.Alignment = DataGridViewContentAlignment.MiddleLeft;
-            dataGridViewCellStyle1.BackColor = SystemColors.Control;
-            dataGridViewCellStyle1.Font = new Font("Segoe UI", 9F);
-            dataGridViewCellStyle1.ForeColor = SystemColors.WindowText;
-            dataGridViewCellStyle1.SelectionBackColor = SystemColors.Highlight;
-            dataGridViewCellStyle1.SelectionForeColor = SystemColors.HighlightText;
-            dataGridViewCellStyle1.WrapMode = DataGridViewTriState.True;
-            grid.ColumnHeadersDefaultCellStyle = dataGridViewCellStyle1;
+            dataGridViewCellStyle5.Alignment = DataGridViewContentAlignment.MiddleLeft;
+            dataGridViewCellStyle5.BackColor = SystemColors.Control;
+            dataGridViewCellStyle5.Font = new Font("Segoe UI", 9F);
+            dataGridViewCellStyle5.ForeColor = SystemColors.WindowText;
+            dataGridViewCellStyle5.SelectionBackColor = SystemColors.Highlight;
+            dataGridViewCellStyle5.SelectionForeColor = SystemColors.HighlightText;
+            dataGridViewCellStyle5.WrapMode = DataGridViewTriState.True;
+            grid.ColumnHeadersDefaultCellStyle = dataGridViewCellStyle5;
             grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            dataGridViewCellStyle2.Alignment = DataGridViewContentAlignment.MiddleLeft;
-            dataGridViewCellStyle2.BackColor = SystemColors.Window;
-            dataGridViewCellStyle2.Font = new Font("Segoe UI", 9F);
-            dataGridViewCellStyle2.ForeColor = SystemColors.ControlText;
-            dataGridViewCellStyle2.SelectionBackColor = SystemColors.Highlight;
-            dataGridViewCellStyle2.SelectionForeColor = SystemColors.HighlightText;
-            dataGridViewCellStyle2.WrapMode = DataGridViewTriState.False;
-            grid.DefaultCellStyle = dataGridViewCellStyle2;
+            dataGridViewCellStyle6.Alignment = DataGridViewContentAlignment.MiddleLeft;
+            dataGridViewCellStyle6.BackColor = SystemColors.Window;
+            dataGridViewCellStyle6.Font = new Font("Segoe UI", 9F);
+            dataGridViewCellStyle6.ForeColor = SystemColors.ControlText;
+            dataGridViewCellStyle6.SelectionBackColor = SystemColors.Highlight;
+            dataGridViewCellStyle6.SelectionForeColor = SystemColors.HighlightText;
+            dataGridViewCellStyle6.WrapMode = DataGridViewTriState.False;
+            grid.DefaultCellStyle = dataGridViewCellStyle6;
             grid.Location = new Point(29, 150);
             grid.Margin = new Padding(4, 5, 4, 5);
             grid.MultiSelect = false;
@@ -401,7 +410,7 @@
             lblSingleImageResult.Name = "lblSingleImageResult";
             lblSingleImageResult.Size = new Size(673, 50);
             lblSingleImageResult.TabIndex = 19;
-            lblSingleImageResult.Text = "Click \'Predict Single Image\' to start";
+            lblSingleImageResult.Text = "Click 'Predict Single Image' to start";
             lblSingleImageResult.TextAlign = ContentAlignment.MiddleCenter;
             lblSingleImageResult.Visible = false;
             // 
@@ -420,12 +429,24 @@
             btnMonitorFolder.UseVisualStyleBackColor = false;
             btnMonitorFolder.Click += BtnMonitorFolder_Click;
             // 
+            // lblUsbLightStatus
+            // 
+            lblUsbLightStatus.AutoSize = true;
+            lblUsbLightStatus.Font = new Font("Segoe UI", 9F, FontStyle.Italic);
+            lblUsbLightStatus.ForeColor = Color.Sienna;
+            lblUsbLightStatus.Location = new Point(908, 47);
+            lblUsbLightStatus.Name = "lblUsbLightStatus";
+            lblUsbLightStatus.Size = new Size(104, 25);
+            lblUsbLightStatus.TabIndex = 21;
+            lblUsbLightStatus.Text = "Light Status";
+            // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(10F, 25F);
             AutoScaleMode = AutoScaleMode.Font;
             BackColor = Color.White;
             ClientSize = new Size(1900, 1333);
+            Controls.Add(lblUsbLightStatus);
             Controls.Add(lblSingleImageResult);
             Controls.Add(btnSelectSingleImage);
             Controls.Add(lblModelInfo);
@@ -493,5 +514,7 @@
         private ToolTip tooltip;
         private ToolStripMenuItem manageCorrectionsToolStripMenuItem;
         private System.Windows.Forms.Button btnMonitorFolder;
+        private ToolStripMenuItem MenuConnectUsbLight;
+        private Label lblUsbLightStatus;
     }
 }

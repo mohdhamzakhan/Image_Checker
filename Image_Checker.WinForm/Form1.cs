@@ -23,7 +23,7 @@ namespace Image_Checker.WinForm
         // Add these fields at the top of Form1 class
         private UsbLightController _usbLight;
         private int _abnormalCount = 0;
-        private Label lblUsbLightStatus; // You'll need to add this to your form designer
+        //private Label lblUsbLightStatus; // You'll need to add this to your form designer
         public Form1()
         {
             InitializeComponent();
