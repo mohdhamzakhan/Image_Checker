@@ -1,0 +1,8 @@
+{
+  "ImageWidth": 224,
+  "ImageHeight": 224,
+  "RoiX": 186,
+  "RoiY": 150,
+  "RoiW": 200,
+  "RoiH": 207
+}

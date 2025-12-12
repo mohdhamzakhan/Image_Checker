@@ -20,10 +20,22 @@ namespace Image_Checker.WinForm
         private System.Windows.Forms.Timer _processingTimer;
         private Queue<string> _newImageQueue = new Queue<string>();
         private bool _isProcessingQueue = false;
+        // Add these fields at the top of Form1 class
+        private UsbLightController _usbLight;
+        private int _abnormalCount = 0;
+        private Label lblUsbLightStatus; // You'll need to add this to your form designer
         public Form1()
         {
             InitializeComponent();
             LoadConfiguration();
+
+            _usbLight = new UsbLightController();
+        }
+
+        // Add USB light connection menu/button
+        private void MenuConnectUsbLight_Click(object sender, EventArgs e)
+        {
+            ConnectUsbLight();
         }
 
         private void MenuCorrections_Click(object? sender, EventArgs e)
@@ -39,6 +51,51 @@ namespace Image_Checker.WinForm
         private void BtnManageCorrections_Click(object sender, EventArgs e)
         {
             OpenCorrectionsManager();
+        }
+
+        private void ConnectUsbLight()
+        {
+            if (_usbLight.IsConnected)
+            {
+                MessageBox.Show("USB Light is already connected.",
+                    "Already Connected", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            // Try to connect
+            bool connected = _usbLight.Connect();
+
+            if (connected)
+            {
+                lblUsbLightStatus.Text = $"💡 USB Light: Connected ({_usbLight.PortName})";
+                lblUsbLightStatus.BackColor = Color.FromArgb(220, 255, 220); // Light green
+
+                // Test blink
+                MessageBox.Show(
+                    $"USB Light connected successfully on {_usbLight.PortName}!\n\n" +
+                    "The light will blink 3 times to confirm.",
+                    "Connection Successful",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+
+                _usbLight.Blink(3);
+            }
+            else
+            {
+                lblUsbLightStatus.Text = "💡 USB Light: Not Connected";
+                lblUsbLightStatus.BackColor = Color.FromArgb(255, 220, 220); // Light red
+
+                MessageBox.Show(
+                    "Failed to connect USB light.\n\n" +
+                    "Troubleshooting:\n" +
+                    "• Check if USB device is plugged in\n" +
+                    "• Verify COM port is available\n" +
+                    "• Check device drivers are installed\n" +
+                    "• Try reconnecting the USB device",
+                    "Connection Failed",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
         }
 
         private void OpenCorrectionsManager()
@@ -254,12 +311,46 @@ namespace Image_Checker.WinForm
                 _predictor = new Predictor(_modelPath);
                 lblStatus.Text = $"✅ Model loaded: {Path.GetFileName(_modelPath)}";
                 InitializeTrainer();
+
+                var cfgPath = Path.ChangeExtension(_modelPath, ".json");
+                if (File.Exists(cfgPath))
+                {
+                    var json = File.ReadAllText(cfgPath);
+                    var cfg = System.Text.Json.JsonSerializer.Deserialize<RoiConfig>(json);
+                    _roiRect = new Rectangle(cfg.RoiX, cfg.RoiY, cfg.RoiW, cfg.RoiH);
+                }
             }
             catch (Exception ex)
             {
                 lblStatus.Text = $"❌ Model load failed: {ex.Message}";
             }
         }
+
+        private string PreprocessForPrediction(string imagePath)
+        {
+            // If ROI is not set, just use original
+            if (_roiRect == Rectangle.Empty)
+                return imagePath;
+
+            using var bmp = new Bitmap(imagePath);
+
+            int x = Math.Max(0, Math.Min(_roiRect.X, bmp.Width - _roiRect.Width));
+            int y = Math.Max(0, Math.Min(_roiRect.Y, bmp.Height - _roiRect.Height));
+            var safeRoi = new Rectangle(
+                x,
+                y,
+                Math.Min(_roiRect.Width, bmp.Width),
+                Math.Min(_roiRect.Height, bmp.Height));
+
+            using var cropped = bmp.Clone(safeRoi, bmp.PixelFormat);
+
+            // Here you could also resize to training size if needed
+
+            string tmpPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".png");
+            cropped.Save(tmpPath, System.Drawing.Imaging.ImageFormat.Png);
+            return tmpPath;
+        }
+
 
         // === Menu Actions ===
         private void MenuBuildModel_Click(object sender, EventArgs e)
@@ -1391,7 +1482,7 @@ namespace Image_Checker.WinForm
             {
                 try
                 {
-                    var trainer = new ModelTrainer(new Microsoft.ML.MLContext(), _basePath);
+                    var trainer = new ModelTrainer(new Microsoft.ML.MLContext(), _basePath, _roiRect);
                     trainer.TrainAndEvaluate();
                 }
                 catch (Exception ex)
@@ -1478,8 +1569,11 @@ namespace Image_Checker.WinForm
                     _singlePredictor = new SingleImagePredictor(_modelPath);
                 }
 
+                // NEW: preprocess using ROI
+                var preprocessedPath = PreprocessForPrediction(imagePath);
+
                 // Get prediction with confidence
-                var (label, confidence) = _singlePredictor.PredictWithConfidence(imagePath);
+                var (label, confidence) = _singlePredictor.PredictWithConfidence(preprocessedPath);
 
                 // Display the image
                 pictureBox.Image?.Dispose();
@@ -1522,7 +1616,7 @@ namespace Image_Checker.WinForm
                 lblStatus.Text = $"✅ Single image predicted: {label} ({confidenceText})";
 
                 // Show detailed scores if needed
-                var detailedResult = _singlePredictor.PredictWithAllScores(imagePath);
+                var detailedResult = _singlePredictor.PredictWithAllScores(preprocessedPath);
                 if (detailedResult.AllScores != null && detailedResult.AllScores.Length > 0)
                 {
                     var scoresText = new StringBuilder();
@@ -1630,7 +1724,15 @@ namespace Image_Checker.WinForm
                 StopFolderMonitoring();
             }
         }
-        
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            StopFolderMonitoring();
+            _usbLight?.Dispose();
+            base.OnFormClosing(e);
+        }
+
+        // Update StopFolderMonitoring
         private void StopFolderMonitoring()
         {
             if (_folderWatcher != null)
@@ -1649,6 +1751,13 @@ namespace Image_Checker.WinForm
 
             _newImageQueue.Clear();
             _monitoredFolder = null;
+            _abnormalCount = 0;
+
+            // Turn off USB light when stopping
+            if (_usbLight.IsConnected)
+            {
+                _usbLight.TurnOff();
+            }
 
             btnMonitorFolder.Text = "👁️ Monitor Folder (OFF)";
             btnMonitorFolder.BackColor = Color.FromArgb(156, 39, 176); // Purple
@@ -1681,6 +1790,7 @@ namespace Image_Checker.WinForm
             }
         }
 
+        // Updated ProcessImageQueue with USB light control
         private void ProcessImageQueue(object sender, EventArgs e)
         {
             if (_isProcessingQueue || _predictor == null)
@@ -1729,21 +1839,52 @@ namespace Image_Checker.WinForm
                 var (label, confidence) = _predictor.PredictWithConfidence(imagePath);
                 string cleanLabel = label?.Trim().Trim('"') ?? "Unknown";
 
+                // Check for mismatch (abnormal)
+                bool isAbnormal = !classFolder.Equals(cleanLabel, StringComparison.OrdinalIgnoreCase);
+
                 // Log to console
                 Console.WriteLine($"🔍 Auto-predicted: {Path.GetFileName(imagePath)}");
                 Console.WriteLine($"   Folder: {classFolder} | Prediction: {cleanLabel} ({confidence:P2})");
 
+                if (isAbnormal)
+                {
+                    _abnormalCount++;
+                    Console.WriteLine($"⚠️ ABNORMAL DETECTED! Count: {_abnormalCount}");
+
+                    // Turn ON USB light for abnormal detection
+                    if (_usbLight.IsConnected)
+                    {
+                        _usbLight.TurnOn();
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"✅ Normal classification");
+
+                    // Turn OFF USB light if no more abnormals in queue
+                    if (_abnormalCount == 0 && _usbLight.IsConnected)
+                    {
+                        _usbLight.TurnOff();
+                    }
+                }
+
                 // Update status
-                string statusEmoji = classFolder.Equals(cleanLabel, StringComparison.OrdinalIgnoreCase) ? "✅" : "⚠️";
+                string statusEmoji = isAbnormal ? "⚠️" : "✅";
+                Color statusColor = isAbnormal
+                    ? Color.FromArgb(255, 235, 238)  // Light red
+                    : Color.FromArgb(232, 245, 233); // Light green
+
                 Invoke(new Action(() =>
                 {
                     lblStatus.Text = $"{statusEmoji} Auto-prediction:\n" +
                                    $"   File: {Path.GetFileName(imagePath)}\n" +
-                                   $"   Folder: {classFolder} → Predicted: {cleanLabel} ({confidence:P2})";
+                                   $"   Folder: {classFolder} → Predicted: {cleanLabel} ({confidence:P2})\n" +
+                                   $"   Abnormal detections: {_abnormalCount}";
+                    lblStatus.BackColor = statusColor;
                 }));
 
                 // Add to results if mismatch detected
-                if (!classFolder.Equals(cleanLabel, StringComparison.OrdinalIgnoreCase))
+                if (isAbnormal)
                 {
                     Invoke(new Action(() =>
                     {
@@ -1761,16 +1902,21 @@ namespace Image_Checker.WinForm
                         PopulateGrid(_results);
                         PopulateFilters();
 
-                        // Show notification for mismatches
+                        // Show notification for high-confidence mismatches
                         if (confidence > 0.7f)
                         {
+                            // Play alert sound
+                            System.Media.SystemSounds.Exclamation.Play();
+
                             MessageBox.Show(
-                                $"⚠️ Potential Mismatch Detected!\n\n" +
+                                $"⚠️ ABNORMAL DETECTION!\n\n" +
                                 $"File: {Path.GetFileName(imagePath)}\n" +
                                 $"Current Folder: {classFolder}\n" +
                                 $"Predicted: {cleanLabel} ({confidence:P2})\n\n" +
-                                $"Please review and correct if needed.",
-                                "Classification Mismatch",
+                                $"USB Light has been turned ON.\n" +
+                                $"Total abnormals: {_abnormalCount}\n\n" +
+                                $"Please review and correct.",
+                                "Quality Alert",
                                 MessageBoxButtons.OK,
                                 MessageBoxIcon.Warning);
                         }
@@ -1787,7 +1933,49 @@ namespace Image_Checker.WinForm
             }
         }
 
+        // Add button to clear abnormal count and turn off light
+        private void BtnClearAbnormals_Click(object sender, EventArgs e)
+        {
+            if (_abnormalCount == 0)
+            {
+                MessageBox.Show("No abnormal detections to clear.",
+                    "Nothing to Clear", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
 
+            var result = MessageBox.Show(
+                $"Clear {_abnormalCount} abnormal detection(s) and turn off USB light?\n\n" +
+                "This will reset the counter but won't remove corrections from the list.",
+                "Clear Abnormals",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question);
+
+            if (result == DialogResult.Yes)
+            {
+                _abnormalCount = 0;
+
+                if (_usbLight.IsConnected)
+                {
+                    _usbLight.TurnOff();
+                }
+
+                lblStatus.Text = "✅ Abnormal count cleared, USB light turned off";
+                lblStatus.BackColor = Color.FromArgb(232, 245, 233); // Light green
+
+                MessageBox.Show("Abnormal count reset. Monitoring continues.",
+                    "Cleared", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+
+        private Rectangle _roiRect = Rectangle.Empty;
+
+        private class RoiConfig
+        {
+            public int RoiX { get; set; }
+            public int RoiY { get; set; }
+            public int RoiW { get; set; }
+            public int RoiH { get; set; }
+        }
         public class ImageResult
         {
             public string? FileName { get; set; }

@@ -8,6 +8,9 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Tensorflow.Keras;
+using static SkiaSharp.SKImageFilter;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.StartPanel;
 
 namespace Image_Checker.WinForm
 {
@@ -19,12 +22,46 @@ namespace Image_Checker.WinForm
         private CancellationTokenSource _cancellationTokenSource;
         private bool _isTraining;
         private List<string> _detectedLabels = new List<string>();
+        // ROI preview state
+        private string sampleImagePath;
+        private Rectangle roiRect = new Rectangle(220, 140, 200, 200);
+        private List<string> roiImagePaths = new List<string>();
+        private int roiImageIndex = 0;
+
+
 
         public ModelBuilderForm()
         {
             InitializeComponent();
             _consoleRedirector = new ConsoleRedirector(txtTrainingLog);
             _isTraining = false;
+            btnRoiPrev.Click += btnRoiPrev_Click;
+            btnRoiNext.Click += btnRoiNext_Click;
+
+            // Sync target image size when ROI dimensions change
+            numRoiW.ValueChanged += RoiSizeChanged;
+            numRoiH.ValueChanged += RoiSizeChanged;
+
+            // Initialize target image size to match default ROI
+            SyncImageSizeWithRoi();
+        }
+
+        private void RoiSizeChanged(object sender, EventArgs e)
+        {
+            SyncImageSizeWithRoi();
+        }
+
+        private void SyncImageSizeWithRoi()
+        {
+            int roiWidth = (int)numRoiW.Value;
+            int roiHeight = (int)numRoiH.Value;
+
+            // Update target image size to match ROI
+            numImageWidth.Value = roiWidth;
+            numImageHeight.Value = roiHeight;
+
+            // Optional: Add visual feedback
+            // lblImageSizeInfo.Text = $"Target size auto-synced with ROI: {roiWidth}x{roiHeight}";
         }
 
         private void BtnSelectDataset_Click(object sender, EventArgs e)
@@ -69,6 +106,22 @@ namespace Image_Checker.WinForm
                 _outputPath = dialog.SelectedPath;
                 txtOutputPath.Text = _outputPath;
                 LogMessage($"💾 Output path selected: {_outputPath}");
+            }
+        }
+
+        private void RoiValueChanged(object sender, EventArgs e)
+        {
+            roiRect = new Rectangle(
+                (int)numRoiX.Value,
+                (int)numRoiY.Value,
+                (int)numRoiW.Value,
+                (int)numRoiH.Value);
+
+            // redraw box and update cropped preview
+            if (picRoiSource.Image != null)
+            {
+                ShowRoiImage();
+                picRoiSource.Invalidate();
             }
         }
 
@@ -152,6 +205,116 @@ namespace Image_Checker.WinForm
             LogMessage($"🏷️ Detected Classes: {string.Join(", ", _detectedLabels)}");
             LogMessage($"   The model will be trained to classify images into these {_detectedLabels.Count} categories.");
         }
+
+        private void btnPreviewRoi_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(_datasetPath) || !Directory.Exists(_datasetPath))
+            {
+                MessageBox.Show("Select a dataset folder first.", "ROI Preview",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            roiImagePaths = Directory.GetDirectories(_datasetPath)
+                .SelectMany(dir => Directory.GetFiles(dir, "*.*"))
+                .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)
+                         || f.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+                         || f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (!roiImagePaths.Any())
+            {
+                MessageBox.Show("No images found in dataset folders.", "ROI Preview",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            roiImageIndex = 0;   // only here
+            ShowRoiImage();
+        }
+
+        private void ShowRoiImage()
+        {
+            var imgPath = roiImagePaths[roiImageIndex];
+            sampleImagePath = imgPath;
+
+            using (var bmp = new Bitmap(imgPath))
+            {
+                int x = Math.Max(0, Math.Min(roiRect.X, bmp.Width - roiRect.Width));
+                int y = Math.Max(0, Math.Min(roiRect.Y, bmp.Height - roiRect.Height));
+                var safeRoi = new Rectangle(
+                    x, y,
+                    Math.Min(roiRect.Width, bmp.Width),
+                    Math.Min(roiRect.Height, bmp.Height));
+
+                picRoiSource.Image = (Bitmap)bmp.Clone();
+                picRoiCrop.Image = bmp.Clone(safeRoi, bmp.PixelFormat);
+
+                lblRoiInfo.Text =
+                    $"Image {roiImageIndex + 1} / {roiImagePaths.Count}\r\n" +
+                    $"{Path.GetFileName(imgPath)}\r\n" +
+                    $"ROI: X={safeRoi.X}, Y={safeRoi.Y}, W={safeRoi.Width}, H={safeRoi.Height}";
+            }
+
+            picRoiSource.Invalidate();
+        }
+
+        private void btnRoiPrev_Click(object sender, EventArgs e)
+        {
+            if (!roiImagePaths.Any()) return;
+            roiImageIndex = (roiImageIndex - 1 + roiImagePaths.Count) % roiImagePaths.Count;
+            ShowRoiImage();
+        }
+
+        private void btnRoiNext_Click(object sender, EventArgs e)
+        {
+            if (!roiImagePaths.Any()) return;
+            roiImageIndex = (roiImageIndex + 1) % roiImagePaths.Count;
+            ShowRoiImage();
+        }
+
+        private void picRoiSource_Paint(object sender, PaintEventArgs e)
+        {
+            if (picRoiSource.Image == null) return;
+
+            var img = picRoiSource.Image;
+            var pb = picRoiSource;
+
+            float imageAspect = (float)img.Width / img.Height;
+            float boxAspect = (float)pb.Width / pb.Height;
+
+            Rectangle drawRect;
+            if (imageAspect > boxAspect)
+            {
+                int drawWidth = pb.Width;
+                int drawHeight = (int)(pb.Width / imageAspect);
+                int offsetY = (pb.Height - drawHeight) / 2;
+                drawRect = new Rectangle(0, offsetY, drawWidth, drawHeight);
+            }
+            else
+            {
+                int drawHeight = pb.Height;
+                int drawWidth = (int)(pb.Height * imageAspect);
+                int offsetX = (pb.Width - drawWidth) / 2;
+                drawRect = new Rectangle(offsetX, 0, drawWidth, drawHeight);
+            }
+
+            float scaleX = (float)drawRect.Width / img.Width;
+            float scaleY = (float)drawRect.Height / img.Height;
+
+            var roiDisplay = new Rectangle(
+                drawRect.X + (int)(roiRect.X * scaleX),
+                drawRect.Y + (int)(roiRect.Y * scaleY),
+                (int)(roiRect.Width * scaleX),
+                (int)(roiRect.Height * scaleY));
+
+            using (var pen = new Pen(Color.Lime, 2))
+            {
+                e.Graphics.DrawRectangle(pen, roiDisplay);
+            }
+        }
+
+
 
         private async void BtnStartTraining_Click(object sender, EventArgs e)
         {
@@ -265,12 +428,15 @@ namespace Image_Checker.WinForm
         {
             // Get training parameters from UI
             int cvFolds = 0, trials = 0;
+            int imageWidth = 0, imageHeight = 0;
             bool useSDCA = false, useLBFGS = false, useFastTree = false, useLightGBM = false, useTransfer = false;
 
             Invoke(new Action(() =>
             {
                 cvFolds = (int)numCVFolds.Value;
                 trials = (int)numTrials.Value;
+                imageWidth = (int)numImageWidth.Value;
+                imageHeight = (int)numImageHeight.Value;
                 useSDCA = chkSDCA.Checked;
                 useLBFGS = chkLBFGS.Checked;
                 useFastTree = chkFastTree.Checked;
@@ -328,7 +494,7 @@ namespace Image_Checker.WinForm
 
             try
             {
-                var trainer = new ModelTrainer(mlContext, _datasetPath);
+                var trainer = new ModelTrainer(mlContext, _datasetPath, roiRect);
 
                 trainer.TrainAndEvaluate(
                     cvFolds: cvFolds,
@@ -338,6 +504,8 @@ namespace Image_Checker.WinForm
                     useFastTree: useFastTree,
                     useLightGBM: useLightGBM,
                     useTransferLearning: useTransfer,
+                    imageWidth: imageWidth,
+                    imageHeight: imageHeight,
                     cancellationToken: cancellationToken
                 );
 
@@ -455,6 +623,154 @@ namespace Image_Checker.WinForm
             _cancellationTokenSource?.Dispose();
             base.OnFormClosing(e);
         }
+
+        private async void btnApplyRoi_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(_datasetPath) || !Directory.Exists(_datasetPath))
+            {
+                MessageBox.Show("Select a dataset folder first.", "Apply ROI",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Disable button and show progress
+            btnApplyRoi.Enabled = false;
+            btnApplyRoi.Text = "Processing...";
+            progressBar.Visible = true;
+            progressBar.Style = ProgressBarStyle.Continuous;
+            progressBar.Value = 0;
+
+            LogMessage("");
+            LogMessage("═══════════════════════════════════════════════", System.Drawing.Color.Cyan);
+            LogMessage("✂️ APPLYING ROI AND CREATING CROPPED DATASET", System.Drawing.Color.Cyan);
+            LogMessage($"   ROI: X={roiRect.X}, Y={roiRect.Y}, W={roiRect.Width}, H={roiRect.Height}", System.Drawing.Color.Cyan);
+            LogMessage("═══════════════════════════════════════════════", System.Drawing.Color.Cyan);
+
+            try
+            {
+                var outputRoot = Path.Combine(Path.GetDirectoryName(_datasetPath)!,
+                                              Path.GetFileName(_datasetPath) + "_Cropped");
+                Directory.CreateDirectory(outputRoot);
+
+                var classDirs = Directory.GetDirectories(_datasetPath);
+
+                // Count total images first
+                int totalImages = 0;
+                var classImageCounts = new Dictionary<string, List<string>>();
+
+                foreach (var classDir in classDirs)
+                {
+                    var images = Directory.GetFiles(classDir, "*.*")
+                        .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                                    f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+                                    f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+
+                    var className = Path.GetFileName(classDir);
+                    classImageCounts[className] = images;
+                    totalImages += images.Count;
+                }
+
+                LogMessage($"📊 Found {totalImages} images across {classDirs.Length} classes");
+                LogMessage("🔄 Starting crop operation...");
+
+                int processedCount = 0;
+
+                await Task.Run(() =>
+                {
+                    foreach (var kvp in classImageCounts)
+                    {
+                        var className = kvp.Key;
+                        var images = kvp.Value;
+
+                        var outClassDir = Path.Combine(outputRoot, className);
+                        Directory.CreateDirectory(outClassDir);
+
+                        Invoke(new Action(() =>
+                            LogMessage($"   Processing class: {className} ({images.Count} images)...")));
+
+                        foreach (var imgPath in images)
+                        {
+                            try
+                            {
+                                using var bmp = new Bitmap(imgPath);
+
+                                int x = Math.Max(0, Math.Min(roiRect.X, bmp.Width - roiRect.Width));
+                                int y = Math.Max(0, Math.Min(roiRect.Y, bmp.Height - roiRect.Height));
+                                var safeRoi = new Rectangle(
+                                    x,
+                                    y,
+                                    Math.Min(roiRect.Width, bmp.Width),
+                                    Math.Min(roiRect.Height, bmp.Height));
+
+                                using var crop = bmp.Clone(safeRoi, bmp.PixelFormat);
+
+                                // Save directly without resizing since ROI size = target size
+                                var outPath = Path.Combine(outClassDir, Path.GetFileName(imgPath));
+                                crop.Save(outPath);
+
+                                processedCount++;
+
+                                // Update progress bar
+                                int progressPercent = (int)((processedCount / (float)totalImages) * 100);
+                                Invoke(new Action(() =>
+                                {
+                                    progressBar.Value = progressPercent;
+                                }));
+                            }
+                            catch (Exception ex)
+                            {
+                                Invoke(new Action(() =>
+                                    LogMessage($"      ⚠️ Failed to process {Path.GetFileName(imgPath)}: {ex.Message}",
+                                        System.Drawing.Color.Orange)));
+                            }
+                        }
+                    }
+                });
+
+                LogMessage("");
+                LogMessage("═══════════════════════════════════════════════", System.Drawing.Color.Green);
+                LogMessage($"✅ SUCCESSFULLY CROPPED {processedCount} IMAGES!", System.Drawing.Color.Green);
+                LogMessage($"   Output: {outputRoot}", System.Drawing.Color.Green);
+                LogMessage("═══════════════════════════════════════════════", System.Drawing.Color.Green);
+
+                MessageBox.Show(
+                    $"✅ Successfully cropped {processedCount} images!\n\n" +
+                    $"ROI: {roiRect.Width}x{roiRect.Height}\n" +
+                    $"Output: {outputRoot}\n\n" +
+                    $"The dataset path has been updated to use the cropped images.",
+                    "Crop Complete",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+
+                // Auto-switch to cropped dataset
+                _datasetPath = outputRoot;
+                txtDatasetPath.Text = outputRoot;
+                ValidateDataset();
+            }
+            catch (Exception ex)
+            {
+                LogMessage("", System.Drawing.Color.White);
+                LogMessage("═══════════════════════════════════════════════", System.Drawing.Color.Red);
+                LogMessage($"❌ CROP OPERATION FAILED: {ex.Message}", System.Drawing.Color.Red);
+                LogMessage("═══════════════════════════════════════════════", System.Drawing.Color.Red);
+
+                MessageBox.Show(
+                    $"Failed to create cropped dataset:\n\n{ex.Message}",
+                    "Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+            finally
+            {
+                // Re-enable button and hide progress
+                btnApplyRoi.Enabled = true;
+                btnApplyRoi.Text = "Apply ROI && Create Cropped Dataset";
+                progressBar.Visible = false;
+                progressBar.Value = 0;
+            }
+        }
+
     }
 
     /// <summary>

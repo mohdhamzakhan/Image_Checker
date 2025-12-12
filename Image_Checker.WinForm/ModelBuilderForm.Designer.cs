@@ -17,400 +17,649 @@
 
         private void InitializeComponent()
         {
-            this.lblTitle = new System.Windows.Forms.Label();
-            this.groupBoxDataset = new System.Windows.Forms.GroupBox();
-            this.lblDatasetInfo = new System.Windows.Forms.Label();
-            this.txtDatasetPath = new System.Windows.Forms.TextBox();
-            this.btnSelectDataset = new System.Windows.Forms.Button();
-            this.lblDatasetPath = new System.Windows.Forms.Label();
-            this.groupBoxOutput = new System.Windows.Forms.GroupBox();
-            this.txtOutputPath = new System.Windows.Forms.TextBox();
-            this.btnSelectOutput = new System.Windows.Forms.Button();
-            this.lblOutputPath = new System.Windows.Forms.Label();
-            this.groupBoxTraining = new System.Windows.Forms.GroupBox();
-            this.lblCVFolds = new System.Windows.Forms.Label();
-            this.numCVFolds = new System.Windows.Forms.NumericUpDown();
-            this.lblTrials = new System.Windows.Forms.Label();
-            this.numTrials = new System.Windows.Forms.NumericUpDown();
-            this.groupBoxModels = new System.Windows.Forms.GroupBox();
-            this.chkTransferLearning = new System.Windows.Forms.CheckBox();
-            this.chkLightGBM = new System.Windows.Forms.CheckBox();
-            this.chkFastTree = new System.Windows.Forms.CheckBox();
-            this.chkLBFGS = new System.Windows.Forms.CheckBox();
-            this.chkSDCA = new System.Windows.Forms.CheckBox();
-            this.btnStartTraining = new System.Windows.Forms.Button();
-            this.btnStopTraining = new System.Windows.Forms.Button();
-            this.progressBar = new System.Windows.Forms.ProgressBar();
-            this.groupBoxLog = new System.Windows.Forms.GroupBox();
-            this.txtTrainingLog = new System.Windows.Forms.RichTextBox();
-            this.groupBoxDataset.SuspendLayout();
-            this.groupBoxOutput.SuspendLayout();
-            this.groupBoxTraining.SuspendLayout();
-            ((System.ComponentModel.ISupportInitialize)(this.numCVFolds)).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)(this.numTrials)).BeginInit();
-            this.groupBoxModels.SuspendLayout();
-            this.groupBoxLog.SuspendLayout();
-            this.SuspendLayout();
+            lblTitle = new Label();
+            groupBoxOutput = new GroupBox();
+            txtOutputPath = new TextBox();
+            btnSelectOutput = new Button();
+            lblOutputPath = new Label();
+            groupBoxTraining = new GroupBox();
+            groupBoxModels = new GroupBox();
+            chkTransferLearning = new CheckBox();
+            chkLightGBM = new CheckBox();
+            chkFastTree = new CheckBox();
+            chkLBFGS = new CheckBox();
+            chkSDCA = new CheckBox();
+            numTrials = new NumericUpDown();
+            lblTrials = new Label();
+            numCVFolds = new NumericUpDown();
+            lblCVFolds = new Label();
+            lblImageSize = new Label();
+            numImageWidth = new NumericUpDown();
+            numImageHeight = new NumericUpDown();
+            btnStartTraining = new Button();
+            btnStopTraining = new Button();
+            progressBar = new ProgressBar();
+            groupBoxLog = new GroupBox();
+            txtTrainingLog = new RichTextBox();
+            groupBoxRoi = new GroupBox();
+            btnRoiNext = new Button();
+            btnRoiPrev = new Button();
+            picRoiSource = new PictureBox();
+            picRoiCrop = new PictureBox();
+            btnPreviewRoi = new Button();
+            lblRoiInfo = new Label();
+            numRoiX = new NumericUpDown();
+            numRoiY = new NumericUpDown();
+            numRoiW = new NumericUpDown();
+            numRoiH = new NumericUpDown();
+            lblDatasetPath = new Label();
+            btnSelectDataset = new Button();
+            txtDatasetPath = new TextBox();
+            lblDatasetInfo = new Label();
+            groupBoxDataset = new GroupBox();
+            btnApplyRoi = new Button();
+            groupBoxOutput.SuspendLayout();
+            groupBoxTraining.SuspendLayout();
+            groupBoxModels.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)numTrials).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)numCVFolds).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)numImageWidth).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)numImageHeight).BeginInit();
+            groupBoxLog.SuspendLayout();
+            groupBoxRoi.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)picRoiSource).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)picRoiCrop).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)numRoiX).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)numRoiY).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)numRoiW).BeginInit();
+            ((System.ComponentModel.ISupportInitialize)numRoiH).BeginInit();
+            groupBoxDataset.SuspendLayout();
+            SuspendLayout();
             // 
             // lblTitle
             // 
-            this.lblTitle.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(120)))), ((int)(((byte)(215)))));
-            this.lblTitle.Dock = System.Windows.Forms.DockStyle.Top;
-            this.lblTitle.Font = new System.Drawing.Font("Segoe UI", 16F, System.Drawing.FontStyle.Bold);
-            this.lblTitle.ForeColor = System.Drawing.Color.White;
-            this.lblTitle.Location = new System.Drawing.Point(0, 0);
-            this.lblTitle.Name = "lblTitle";
-            this.lblTitle.Size = new System.Drawing.Size(1000, 60);
-            this.lblTitle.TabIndex = 0;
-            this.lblTitle.Text = "🤖 ML Model Builder";
-            this.lblTitle.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
-            // 
-            // groupBoxDataset
-            // 
-            this.groupBoxDataset.Controls.Add(this.lblDatasetInfo);
-            this.groupBoxDataset.Controls.Add(this.txtDatasetPath);
-            this.groupBoxDataset.Controls.Add(this.btnSelectDataset);
-            this.groupBoxDataset.Controls.Add(this.lblDatasetPath);
-            this.groupBoxDataset.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Bold);
-            this.groupBoxDataset.Location = new System.Drawing.Point(20, 80);
-            this.groupBoxDataset.Name = "groupBoxDataset";
-            this.groupBoxDataset.Size = new System.Drawing.Size(960, 150);
-            this.groupBoxDataset.TabIndex = 1;
-            this.groupBoxDataset.TabStop = false;
-            this.groupBoxDataset.Text = "Step 1: Select Dataset Folder";
-            // 
-            // lblDatasetPath
-            // 
-            this.lblDatasetPath.AutoSize = true;
-            this.lblDatasetPath.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.lblDatasetPath.Location = new System.Drawing.Point(15, 30);
-            this.lblDatasetPath.Name = "lblDatasetPath";
-            this.lblDatasetPath.Size = new System.Drawing.Size(348, 15);
-            this.lblDatasetPath.TabIndex = 0;
-            this.lblDatasetPath.Text = "Select folder containing 'OK' and 'NG' subfolders with training images:";
-            // 
-            // btnSelectDataset
-            // 
-            this.btnSelectDataset.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(120)))), ((int)(((byte)(215)))));
-            this.btnSelectDataset.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnSelectDataset.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.btnSelectDataset.ForeColor = System.Drawing.Color.White;
-            this.btnSelectDataset.Location = new System.Drawing.Point(15, 55);
-            this.btnSelectDataset.Name = "btnSelectDataset";
-            this.btnSelectDataset.Size = new System.Drawing.Size(150, 35);
-            this.btnSelectDataset.TabIndex = 1;
-            this.btnSelectDataset.Text = "📁 Browse...";
-            this.btnSelectDataset.UseVisualStyleBackColor = false;
-            this.btnSelectDataset.Click += new System.EventHandler(this.BtnSelectDataset_Click);
-            // 
-            // txtDatasetPath
-            // 
-            this.txtDatasetPath.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.txtDatasetPath.Location = new System.Drawing.Point(180, 58);
-            this.txtDatasetPath.Name = "txtDatasetPath";
-            this.txtDatasetPath.ReadOnly = true;
-            this.txtDatasetPath.Size = new System.Drawing.Size(760, 23);
-            this.txtDatasetPath.TabIndex = 2;
-            // 
-            // lblDatasetInfo
-            // 
-            this.lblDatasetInfo.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.lblDatasetInfo.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.lblDatasetInfo.Location = new System.Drawing.Point(15, 100);
-            this.lblDatasetInfo.Name = "lblDatasetInfo";
-            this.lblDatasetInfo.Size = new System.Drawing.Size(925, 40);
-            this.lblDatasetInfo.TabIndex = 3;
-            this.lblDatasetInfo.Text = "No dataset selected";
-            this.lblDatasetInfo.TextAlign = System.Drawing.ContentAlignment.MiddleCenter;
+            lblTitle.BackColor = Color.FromArgb(0, 120, 215);
+            lblTitle.Dock = DockStyle.Top;
+            lblTitle.Font = new Font("Segoe UI", 16F, FontStyle.Bold);
+            lblTitle.ForeColor = Color.White;
+            lblTitle.Location = new Point(0, 0);
+            lblTitle.Margin = new Padding(4, 0, 4, 0);
+            lblTitle.Name = "lblTitle";
+            lblTitle.Size = new Size(1891, 100);
+            lblTitle.TabIndex = 0;
+            lblTitle.Text = "🤖 ML Model Builder";
+            lblTitle.TextAlign = ContentAlignment.MiddleCenter;
             // 
             // groupBoxOutput
             // 
-            this.groupBoxOutput.Controls.Add(this.txtOutputPath);
-            this.groupBoxOutput.Controls.Add(this.btnSelectOutput);
-            this.groupBoxOutput.Controls.Add(this.lblOutputPath);
-            this.groupBoxOutput.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Bold);
-            this.groupBoxOutput.Location = new System.Drawing.Point(20, 250);
-            this.groupBoxOutput.Name = "groupBoxOutput";
-            this.groupBoxOutput.Size = new System.Drawing.Size(960, 100);
-            this.groupBoxOutput.TabIndex = 2;
-            this.groupBoxOutput.TabStop = false;
-            this.groupBoxOutput.Text = "Step 2: Select Output Folder (Optional)";
-            // 
-            // lblOutputPath
-            // 
-            this.lblOutputPath.AutoSize = true;
-            this.lblOutputPath.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.lblOutputPath.Location = new System.Drawing.Point(15, 30);
-            this.lblOutputPath.Name = "lblOutputPath";
-            this.lblOutputPath.Size = new System.Drawing.Size(273, 15);
-            this.lblOutputPath.TabIndex = 0;
-            this.lblOutputPath.Text = "Where to save the trained model (default: dataset folder):";
-            // 
-            // btnSelectOutput
-            // 
-            this.btnSelectOutput.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(76)))), ((int)(((byte)(175)))), ((int)(((byte)(80)))));
-            this.btnSelectOutput.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnSelectOutput.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.btnSelectOutput.ForeColor = System.Drawing.Color.White;
-            this.btnSelectOutput.Location = new System.Drawing.Point(15, 55);
-            this.btnSelectOutput.Name = "btnSelectOutput";
-            this.btnSelectOutput.Size = new System.Drawing.Size(150, 35);
-            this.btnSelectOutput.TabIndex = 1;
-            this.btnSelectOutput.Text = "📂 Browse...";
-            this.btnSelectOutput.UseVisualStyleBackColor = false;
-            this.btnSelectOutput.Click += new System.EventHandler(this.BtnSelectOutput_Click);
+            groupBoxOutput.Controls.Add(txtOutputPath);
+            groupBoxOutput.Controls.Add(btnSelectOutput);
+            groupBoxOutput.Controls.Add(lblOutputPath);
+            groupBoxOutput.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            groupBoxOutput.Location = new Point(29, 417);
+            groupBoxOutput.Margin = new Padding(4, 5, 4, 5);
+            groupBoxOutput.Name = "groupBoxOutput";
+            groupBoxOutput.Padding = new Padding(4, 5, 4, 5);
+            groupBoxOutput.Size = new Size(1371, 167);
+            groupBoxOutput.TabIndex = 2;
+            groupBoxOutput.TabStop = false;
+            groupBoxOutput.Text = "Step 2: Select Output Folder (Optional)";
             // 
             // txtOutputPath
             // 
-            this.txtOutputPath.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.txtOutputPath.Location = new System.Drawing.Point(180, 58);
-            this.txtOutputPath.Name = "txtOutputPath";
-            this.txtOutputPath.ReadOnly = true;
-            this.txtOutputPath.Size = new System.Drawing.Size(760, 23);
-            this.txtOutputPath.TabIndex = 2;
+            txtOutputPath.Font = new Font("Segoe UI", 9F);
+            txtOutputPath.Location = new Point(257, 97);
+            txtOutputPath.Margin = new Padding(4, 5, 4, 5);
+            txtOutputPath.Name = "txtOutputPath";
+            txtOutputPath.ReadOnly = true;
+            txtOutputPath.Size = new Size(1084, 31);
+            txtOutputPath.TabIndex = 2;
+            // 
+            // btnSelectOutput
+            // 
+            btnSelectOutput.BackColor = Color.FromArgb(76, 175, 80);
+            btnSelectOutput.FlatStyle = FlatStyle.Flat;
+            btnSelectOutput.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            btnSelectOutput.ForeColor = Color.White;
+            btnSelectOutput.Location = new Point(21, 92);
+            btnSelectOutput.Margin = new Padding(4, 5, 4, 5);
+            btnSelectOutput.Name = "btnSelectOutput";
+            btnSelectOutput.Size = new Size(214, 58);
+            btnSelectOutput.TabIndex = 1;
+            btnSelectOutput.Text = "📂 Browse...";
+            btnSelectOutput.UseVisualStyleBackColor = false;
+            btnSelectOutput.Click += BtnSelectOutput_Click;
+            // 
+            // lblOutputPath
+            // 
+            lblOutputPath.AutoSize = true;
+            lblOutputPath.Font = new Font("Segoe UI", 9F);
+            lblOutputPath.Location = new Point(21, 50);
+            lblOutputPath.Margin = new Padding(4, 0, 4, 0);
+            lblOutputPath.Name = "lblOutputPath";
+            lblOutputPath.Size = new Size(464, 25);
+            lblOutputPath.TabIndex = 0;
+            lblOutputPath.Text = "Where to save the trained model (default: dataset folder):";
             // 
             // groupBoxTraining
             // 
-            this.groupBoxTraining.Controls.Add(this.groupBoxModels);
-            this.groupBoxTraining.Controls.Add(this.numTrials);
-            this.groupBoxTraining.Controls.Add(this.lblTrials);
-            this.groupBoxTraining.Controls.Add(this.numCVFolds);
-            this.groupBoxTraining.Controls.Add(this.lblCVFolds);
-            this.groupBoxTraining.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Bold);
-            this.groupBoxTraining.Location = new System.Drawing.Point(20, 370);
-            this.groupBoxTraining.Name = "groupBoxTraining";
-            this.groupBoxTraining.Size = new System.Drawing.Size(960, 140);
-            this.groupBoxTraining.TabIndex = 3;
-            this.groupBoxTraining.TabStop = false;
-            this.groupBoxTraining.Text = "Step 3: Configure Training Parameters";
-            // 
-            // lblCVFolds
-            // 
-            this.lblCVFolds.AutoSize = true;
-            this.lblCVFolds.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.lblCVFolds.Location = new System.Drawing.Point(15, 35);
-            this.lblCVFolds.Name = "lblCVFolds";
-            this.lblCVFolds.Size = new System.Drawing.Size(190, 15);
-            this.lblCVFolds.TabIndex = 0;
-            this.lblCVFolds.Text = "Cross-Validation Folds (2-10):";
-            // 
-            // numCVFolds
-            // 
-            this.numCVFolds.Font = new System.Drawing.Font("Segoe UI", 10F);
-            this.numCVFolds.Location = new System.Drawing.Point(220, 32);
-            this.numCVFolds.Maximum = new decimal(new int[] { 10, 0, 0, 0 });
-            this.numCVFolds.Minimum = new decimal(new int[] { 2, 0, 0, 0 });
-            this.numCVFolds.Name = "numCVFolds";
-            this.numCVFolds.Size = new System.Drawing.Size(80, 25);
-            this.numCVFolds.TabIndex = 1;
-            this.numCVFolds.Value = new decimal(new int[] { 3, 0, 0, 0 });
-            // 
-            // lblTrials
-            // 
-            this.lblTrials.AutoSize = true;
-            this.lblTrials.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.lblTrials.Location = new System.Drawing.Point(15, 70);
-            this.lblTrials.Name = "lblTrials";
-            this.lblTrials.Size = new System.Drawing.Size(195, 15);
-            this.lblTrials.TabIndex = 2;
-            this.lblTrials.Text = "Hyperparameter Tuning Trials (1-20):";
-            // 
-            // numTrials
-            // 
-            this.numTrials.Font = new System.Drawing.Font("Segoe UI", 10F);
-            this.numTrials.Location = new System.Drawing.Point(220, 67);
-            this.numTrials.Maximum = new decimal(new int[] { 20, 0, 0, 0 });
-            this.numTrials.Minimum = new decimal(new int[] { 1, 0, 0, 0 });
-            this.numTrials.Name = "numTrials";
-            this.numTrials.Size = new System.Drawing.Size(80, 25);
-            this.numTrials.TabIndex = 3;
-            this.numTrials.Value = new decimal(new int[] { 5, 0, 0, 0 });
+            groupBoxTraining.Controls.Add(groupBoxModels);
+            groupBoxTraining.Controls.Add(numTrials);
+            groupBoxTraining.Controls.Add(lblTrials);
+            groupBoxTraining.Controls.Add(numCVFolds);
+            groupBoxTraining.Controls.Add(lblCVFolds);
+            groupBoxTraining.Controls.Add(lblImageSize);
+            groupBoxTraining.Controls.Add(numImageWidth);
+            groupBoxTraining.Controls.Add(numImageHeight);
+            groupBoxTraining.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            groupBoxTraining.Location = new Point(29, 617);
+            groupBoxTraining.Margin = new Padding(4, 5, 4, 5);
+            groupBoxTraining.Name = "groupBoxTraining";
+            groupBoxTraining.Padding = new Padding(4, 5, 4, 5);
+            groupBoxTraining.Size = new Size(1371, 233);
+            groupBoxTraining.TabIndex = 3;
+            groupBoxTraining.TabStop = false;
+            groupBoxTraining.Text = "Step 3: Configure Training Parameters";
             // 
             // groupBoxModels
             // 
-            this.groupBoxModels.Controls.Add(this.chkTransferLearning);
-            this.groupBoxModels.Controls.Add(this.chkLightGBM);
-            this.groupBoxModels.Controls.Add(this.chkFastTree);
-            this.groupBoxModels.Controls.Add(this.chkLBFGS);
-            this.groupBoxModels.Controls.Add(this.chkSDCA);
-            this.groupBoxModels.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.groupBoxModels.Location = new System.Drawing.Point(350, 25);
-            this.groupBoxModels.Name = "groupBoxModels";
-            this.groupBoxModels.Size = new System.Drawing.Size(590, 100);
-            this.groupBoxModels.TabIndex = 4;
-            this.groupBoxModels.TabStop = false;
-            this.groupBoxModels.Text = "Select Algorithms";
-            // 
-            // chkSDCA
-            // 
-            this.chkSDCA.AutoSize = true;
-            this.chkSDCA.Checked = true;
-            this.chkSDCA.CheckState = System.Windows.Forms.CheckState.Checked;
-            this.chkSDCA.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.chkSDCA.Location = new System.Drawing.Point(15, 25);
-            this.chkSDCA.Name = "chkSDCA";
-            this.chkSDCA.Size = new System.Drawing.Size(159, 19);
-            this.chkSDCA.TabIndex = 0;
-            this.chkSDCA.Text = "SDCA (Fast, Baseline)";
-            this.chkSDCA.UseVisualStyleBackColor = true;
-            // 
-            // chkLBFGS
-            // 
-            this.chkLBFGS.AutoSize = true;
-            this.chkLBFGS.Checked = true;
-            this.chkLBFGS.CheckState = System.Windows.Forms.CheckState.Checked;
-            this.chkLBFGS.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.chkLBFGS.Location = new System.Drawing.Point(15, 50);
-            this.chkLBFGS.Name = "chkLBFGS";
-            this.chkLBFGS.Size = new System.Drawing.Size(169, 19);
-            this.chkLBFGS.TabIndex = 1;
-            this.chkLBFGS.Text = "L-BFGS (Accurate, Medium)";
-            this.chkLBFGS.UseVisualStyleBackColor = true;
-            // 
-            // chkFastTree
-            // 
-            this.chkFastTree.AutoSize = true;
-            this.chkFastTree.Checked = true;
-            this.chkFastTree.CheckState = System.Windows.Forms.CheckState.Checked;
-            this.chkFastTree.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.chkFastTree.Location = new System.Drawing.Point(220, 25);
-            this.chkFastTree.Name = "chkFastTree";
-            this.chkFastTree.Size = new System.Drawing.Size(177, 19);
-            this.chkFastTree.TabIndex = 2;
-            this.chkFastTree.Text = "FastTree (Fast, Tree-based)";
-            this.chkFastTree.UseVisualStyleBackColor = true;
-            // 
-            // chkLightGBM
-            // 
-            this.chkLightGBM.AutoSize = true;
-            this.chkLightGBM.Checked = true;
-            this.chkLightGBM.CheckState = System.Windows.Forms.CheckState.Checked;
-            this.chkLightGBM.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.chkLightGBM.Location = new System.Drawing.Point(220, 50);
-            this.chkLightGBM.Name = "chkLightGBM";
-            this.chkLightGBM.Size = new System.Drawing.Size(193, 19);
-            this.chkLightGBM.TabIndex = 3;
-            this.chkLightGBM.Text = "LightGBM (Best, Recommended)";
-            this.chkLightGBM.UseVisualStyleBackColor = true;
+            groupBoxModels.Controls.Add(chkTransferLearning);
+            groupBoxModels.Controls.Add(chkLightGBM);
+            groupBoxModels.Controls.Add(chkFastTree);
+            groupBoxModels.Controls.Add(chkLBFGS);
+            groupBoxModels.Controls.Add(chkSDCA);
+            groupBoxModels.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            groupBoxModels.Location = new Point(500, 42);
+            groupBoxModels.Margin = new Padding(4, 5, 4, 5);
+            groupBoxModels.Name = "groupBoxModels";
+            groupBoxModels.Padding = new Padding(4, 5, 4, 5);
+            groupBoxModels.Size = new Size(843, 167);
+            groupBoxModels.TabIndex = 4;
+            groupBoxModels.TabStop = false;
+            groupBoxModels.Text = "Select Algorithms";
             // 
             // chkTransferLearning
             // 
-            this.chkTransferLearning.AutoSize = true;
-            this.chkTransferLearning.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.chkTransferLearning.Location = new System.Drawing.Point(15, 75);
-            this.chkTransferLearning.Name = "chkTransferLearning";
-            this.chkTransferLearning.Size = new System.Drawing.Size(258, 19);
-            this.chkTransferLearning.TabIndex = 4;
-            this.chkTransferLearning.Text = "Transfer Learning - MobileNetV2 (Slow, RGB only)";
-            this.chkTransferLearning.UseVisualStyleBackColor = true;
+            chkTransferLearning.AutoSize = true;
+            chkTransferLearning.Font = new Font("Segoe UI", 9F);
+            chkTransferLearning.Location = new Point(21, 125);
+            chkTransferLearning.Margin = new Padding(4, 5, 4, 5);
+            chkTransferLearning.Name = "chkTransferLearning";
+            chkTransferLearning.Size = new Size(426, 29);
+            chkTransferLearning.TabIndex = 4;
+            chkTransferLearning.Text = "Transfer Learning - MobileNetV2 (Slow, RGB only)";
+            chkTransferLearning.UseVisualStyleBackColor = true;
+            // 
+            // chkLightGBM
+            // 
+            chkLightGBM.AutoSize = true;
+            chkLightGBM.Checked = true;
+            chkLightGBM.CheckState = CheckState.Checked;
+            chkLightGBM.Font = new Font("Segoe UI", 9F);
+            chkLightGBM.Location = new Point(314, 83);
+            chkLightGBM.Margin = new Padding(4, 5, 4, 5);
+            chkLightGBM.Name = "chkLightGBM";
+            chkLightGBM.Size = new Size(292, 29);
+            chkLightGBM.TabIndex = 3;
+            chkLightGBM.Text = "LightGBM (Best, Recommended)";
+            chkLightGBM.UseVisualStyleBackColor = true;
+            // 
+            // chkFastTree
+            // 
+            chkFastTree.AutoSize = true;
+            chkFastTree.Checked = true;
+            chkFastTree.CheckState = CheckState.Checked;
+            chkFastTree.Font = new Font("Segoe UI", 9F);
+            chkFastTree.Location = new Point(314, 42);
+            chkFastTree.Margin = new Padding(4, 5, 4, 5);
+            chkFastTree.Name = "chkFastTree";
+            chkFastTree.Size = new Size(241, 29);
+            chkFastTree.TabIndex = 2;
+            chkFastTree.Text = "FastTree (Fast, Tree-based)";
+            chkFastTree.UseVisualStyleBackColor = true;
+            // 
+            // chkLBFGS
+            // 
+            chkLBFGS.AutoSize = true;
+            chkLBFGS.Checked = true;
+            chkLBFGS.CheckState = CheckState.Checked;
+            chkLBFGS.Font = new Font("Segoe UI", 9F);
+            chkLBFGS.Location = new Point(21, 83);
+            chkLBFGS.Margin = new Padding(4, 5, 4, 5);
+            chkLBFGS.Name = "chkLBFGS";
+            chkLBFGS.Size = new Size(252, 29);
+            chkLBFGS.TabIndex = 1;
+            chkLBFGS.Text = "L-BFGS (Accurate, Medium)";
+            chkLBFGS.UseVisualStyleBackColor = true;
+            // 
+            // chkSDCA
+            // 
+            chkSDCA.AutoSize = true;
+            chkSDCA.Checked = true;
+            chkSDCA.CheckState = CheckState.Checked;
+            chkSDCA.Font = new Font("Segoe UI", 9F);
+            chkSDCA.Location = new Point(21, 42);
+            chkSDCA.Margin = new Padding(4, 5, 4, 5);
+            chkSDCA.Name = "chkSDCA";
+            chkSDCA.Size = new Size(202, 29);
+            chkSDCA.TabIndex = 0;
+            chkSDCA.Text = "SDCA (Fast, Baseline)";
+            chkSDCA.UseVisualStyleBackColor = true;
+            // 
+            // numTrials
+            // 
+            numTrials.Font = new Font("Segoe UI", 10F);
+            numTrials.Location = new Point(314, 112);
+            numTrials.Margin = new Padding(4, 5, 4, 5);
+            numTrials.Maximum = new decimal(new int[] { 20, 0, 0, 0 });
+            numTrials.Minimum = new decimal(new int[] { 1, 0, 0, 0 });
+            numTrials.Name = "numTrials";
+            numTrials.Size = new Size(114, 34);
+            numTrials.TabIndex = 3;
+            numTrials.Value = new decimal(new int[] { 5, 0, 0, 0 });
+            // 
+            // lblTrials
+            // 
+            lblTrials.AutoSize = true;
+            lblTrials.Font = new Font("Segoe UI", 9F);
+            lblTrials.Location = new Point(21, 117);
+            lblTrials.Margin = new Padding(4, 0, 4, 0);
+            lblTrials.Name = "lblTrials";
+            lblTrials.Size = new Size(299, 25);
+            lblTrials.TabIndex = 2;
+            lblTrials.Text = "Hyperparameter Tuning Trials (1-20):";
+            // 
+            // numCVFolds
+            // 
+            numCVFolds.Font = new Font("Segoe UI", 10F);
+            numCVFolds.Location = new Point(314, 53);
+            numCVFolds.Margin = new Padding(4, 5, 4, 5);
+            numCVFolds.Maximum = new decimal(new int[] { 10, 0, 0, 0 });
+            numCVFolds.Minimum = new decimal(new int[] { 2, 0, 0, 0 });
+            numCVFolds.Name = "numCVFolds";
+            numCVFolds.Size = new Size(114, 34);
+            numCVFolds.TabIndex = 1;
+            numCVFolds.Value = new decimal(new int[] { 3, 0, 0, 0 });
+            // 
+            // lblCVFolds
+            // 
+            lblCVFolds.AutoSize = true;
+            lblCVFolds.Font = new Font("Segoe UI", 9F);
+            lblCVFolds.Location = new Point(21, 58);
+            lblCVFolds.Margin = new Padding(4, 0, 4, 0);
+            lblCVFolds.Name = "lblCVFolds";
+            lblCVFolds.Size = new Size(245, 25);
+            lblCVFolds.TabIndex = 0;
+            lblCVFolds.Text = "Cross-Validation Folds (2-10):";
+            // 
+            // lblImageSize
+            // 
+            lblImageSize.AutoSize = true;
+            lblImageSize.Font = new Font("Segoe UI", 9F);
+            lblImageSize.Location = new Point(21, 175);
+            lblImageSize.Margin = new Padding(4, 0, 4, 0);
+            lblImageSize.Name = "lblImageSize";
+            lblImageSize.Size = new Size(211, 25);
+            lblImageSize.TabIndex = 5;
+            lblImageSize.Text = "Target image size (W * H)";
+            // 
+            // numImageWidth
+            // 
+            numImageWidth.Font = new Font("Segoe UI", 10F);
+            numImageWidth.Location = new Point(295, 167);
+            numImageWidth.Margin = new Padding(4, 5, 4, 5);
+            numImageWidth.Maximum = new decimal(new int[] { 1024, 0, 0, 0 });
+            numImageWidth.Minimum = new decimal(new int[] { 32, 0, 0, 0 });
+            numImageWidth.Name = "numImageWidth";
+            numImageWidth.Size = new Size(86, 34);
+            numImageWidth.TabIndex = 6;
+            numImageWidth.Value = new decimal(new int[] { 224, 0, 0, 0 });
+            // 
+            // numImageHeight
+            // 
+            numImageHeight.Font = new Font("Segoe UI", 10F);
+            numImageHeight.Location = new Point(395, 167);
+            numImageHeight.Margin = new Padding(4, 5, 4, 5);
+            numImageHeight.Maximum = new decimal(new int[] { 1024, 0, 0, 0 });
+            numImageHeight.Minimum = new decimal(new int[] { 32, 0, 0, 0 });
+            numImageHeight.Name = "numImageHeight";
+            numImageHeight.Size = new Size(90, 34);
+            numImageHeight.TabIndex = 7;
+            numImageHeight.Value = new decimal(new int[] { 224, 0, 0, 0 });
             // 
             // btnStartTraining
             // 
-            this.btnStartTraining.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(156)))), ((int)(((byte)(39)))), ((int)(((byte)(176)))));
-            this.btnStartTraining.Enabled = false;
-            this.btnStartTraining.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnStartTraining.Font = new System.Drawing.Font("Segoe UI", 12F, System.Drawing.FontStyle.Bold);
-            this.btnStartTraining.ForeColor = System.Drawing.Color.White;
-            this.btnStartTraining.Location = new System.Drawing.Point(20, 530);
-            this.btnStartTraining.Name = "btnStartTraining";
-            this.btnStartTraining.Size = new System.Drawing.Size(760, 50);
-            this.btnStartTraining.TabIndex = 4;
-            this.btnStartTraining.Text = "🚀 Start Training";
-            this.btnStartTraining.UseVisualStyleBackColor = false;
-            this.btnStartTraining.Click += new System.EventHandler(this.BtnStartTraining_Click);
+            btnStartTraining.BackColor = Color.FromArgb(156, 39, 176);
+            btnStartTraining.Enabled = false;
+            btnStartTraining.FlatStyle = FlatStyle.Flat;
+            btnStartTraining.Font = new Font("Segoe UI", 12F, FontStyle.Bold);
+            btnStartTraining.ForeColor = Color.White;
+            btnStartTraining.Location = new Point(29, 883);
+            btnStartTraining.Margin = new Padding(4, 5, 4, 5);
+            btnStartTraining.Name = "btnStartTraining";
+            btnStartTraining.Size = new Size(1086, 83);
+            btnStartTraining.TabIndex = 4;
+            btnStartTraining.Text = "🚀 Start Training";
+            btnStartTraining.UseVisualStyleBackColor = false;
+            btnStartTraining.Click += BtnStartTraining_Click;
             // 
             // btnStopTraining
             // 
-            this.btnStopTraining.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(220)))), ((int)(((byte)(53)))), ((int)(((byte)(69)))));
-            this.btnStopTraining.Enabled = false;
-            this.btnStopTraining.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnStopTraining.Font = new System.Drawing.Font("Segoe UI", 12F, System.Drawing.FontStyle.Bold);
-            this.btnStopTraining.ForeColor = System.Drawing.Color.White;
-            this.btnStopTraining.Location = new System.Drawing.Point(800, 530);
-            this.btnStopTraining.Name = "btnStopTraining";
-            this.btnStopTraining.Size = new System.Drawing.Size(180, 50);
-            this.btnStopTraining.TabIndex = 5;
-            this.btnStopTraining.Text = "🛑 Stop";
-            this.btnStopTraining.UseVisualStyleBackColor = false;
-            this.btnStopTraining.Click += new System.EventHandler(this.BtnStopTraining_Click);
+            btnStopTraining.BackColor = Color.FromArgb(220, 53, 69);
+            btnStopTraining.Enabled = false;
+            btnStopTraining.FlatStyle = FlatStyle.Flat;
+            btnStopTraining.Font = new Font("Segoe UI", 12F, FontStyle.Bold);
+            btnStopTraining.ForeColor = Color.White;
+            btnStopTraining.Location = new Point(1143, 883);
+            btnStopTraining.Margin = new Padding(4, 5, 4, 5);
+            btnStopTraining.Name = "btnStopTraining";
+            btnStopTraining.Size = new Size(257, 83);
+            btnStopTraining.TabIndex = 5;
+            btnStopTraining.Text = "\U0001f6d1 Stop";
+            btnStopTraining.UseVisualStyleBackColor = false;
+            btnStopTraining.Click += BtnStopTraining_Click;
             // 
             // progressBar
             // 
-            this.progressBar.Location = new System.Drawing.Point(20, 590);
-            this.progressBar.Name = "progressBar";
-            this.progressBar.Size = new System.Drawing.Size(960, 25);
-            this.progressBar.Style = System.Windows.Forms.ProgressBarStyle.Marquee;
-            this.progressBar.TabIndex = 6;
-            this.progressBar.Visible = false;
+            progressBar.Location = new Point(29, 983);
+            progressBar.Margin = new Padding(4, 5, 4, 5);
+            progressBar.Name = "progressBar";
+            progressBar.Size = new Size(1371, 42);
+            progressBar.Style = ProgressBarStyle.Marquee;
+            progressBar.TabIndex = 6;
+            progressBar.Visible = false;
             // 
             // groupBoxLog
             // 
-            this.groupBoxLog.Controls.Add(this.txtTrainingLog);
-            this.groupBoxLog.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Bold);
-            this.groupBoxLog.Location = new System.Drawing.Point(20, 630);
-            this.groupBoxLog.Name = "groupBoxLog";
-            this.groupBoxLog.Size = new System.Drawing.Size(960, 250);
-            this.groupBoxLog.TabIndex = 7;
-            this.groupBoxLog.TabStop = false;
-            this.groupBoxLog.Text = "Training Log";
+            groupBoxLog.Controls.Add(txtTrainingLog);
+            groupBoxLog.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            groupBoxLog.Location = new Point(29, 1050);
+            groupBoxLog.Margin = new Padding(4, 5, 4, 5);
+            groupBoxLog.Name = "groupBoxLog";
+            groupBoxLog.Padding = new Padding(4, 5, 4, 5);
+            groupBoxLog.Size = new Size(1371, 417);
+            groupBoxLog.TabIndex = 7;
+            groupBoxLog.TabStop = false;
+            groupBoxLog.Text = "Training Log";
             // 
             // txtTrainingLog
             // 
-            this.txtTrainingLog.BackColor = System.Drawing.Color.Black;
-            this.txtTrainingLog.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.txtTrainingLog.Font = new System.Drawing.Font("Consolas", 9F);
-            this.txtTrainingLog.ForeColor = System.Drawing.Color.Lime;
-            this.txtTrainingLog.Location = new System.Drawing.Point(3, 21);
-            this.txtTrainingLog.Multiline = true;
-            this.txtTrainingLog.Name = "txtTrainingLog";
-            this.txtTrainingLog.ReadOnly = true;
-            this.txtTrainingLog.ScrollBars = System.Windows.Forms.RichTextBoxScrollBars.Vertical;
-            this.txtTrainingLog.Size = new System.Drawing.Size(954, 226);
-            this.txtTrainingLog.TabIndex = 0;
+            txtTrainingLog.BackColor = Color.Black;
+            txtTrainingLog.Dock = DockStyle.Fill;
+            txtTrainingLog.Font = new Font("Consolas", 9F);
+            txtTrainingLog.ForeColor = Color.Lime;
+            txtTrainingLog.Location = new Point(4, 32);
+            txtTrainingLog.Margin = new Padding(4, 5, 4, 5);
+            txtTrainingLog.Name = "txtTrainingLog";
+            txtTrainingLog.ReadOnly = true;
+            txtTrainingLog.ScrollBars = RichTextBoxScrollBars.Vertical;
+            txtTrainingLog.Size = new Size(1363, 380);
+            txtTrainingLog.TabIndex = 0;
+            txtTrainingLog.Text = "";
+            // 
+            // groupBoxRoi
+            // 
+            groupBoxRoi.Controls.Add(btnRoiNext);
+            groupBoxRoi.Controls.Add(btnRoiPrev);
+            groupBoxRoi.Controls.Add(picRoiSource);
+            groupBoxRoi.Controls.Add(picRoiCrop);
+            groupBoxRoi.Controls.Add(btnPreviewRoi);
+            groupBoxRoi.Controls.Add(lblRoiInfo);
+            groupBoxRoi.Controls.Add(numRoiX);
+            groupBoxRoi.Controls.Add(numRoiY);
+            groupBoxRoi.Controls.Add(numRoiW);
+            groupBoxRoi.Controls.Add(numRoiH);
+            groupBoxRoi.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            groupBoxRoi.Location = new Point(1418, 123);
+            groupBoxRoi.Name = "groupBoxRoi";
+            groupBoxRoi.Size = new Size(462, 727);
+            groupBoxRoi.TabIndex = 8;
+            groupBoxRoi.TabStop = false;
+            groupBoxRoi.Text = "Step 4 - ROI Preview";
+            // 
+            // btnRoiNext
+            // 
+            btnRoiNext.BackColor = SystemColors.Highlight;
+            btnRoiNext.FlatStyle = FlatStyle.Flat;
+            btnRoiNext.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            btnRoiNext.Location = new Point(141, 487);
+            btnRoiNext.Name = "btnRoiNext";
+            btnRoiNext.Size = new Size(70, 53);
+            btnRoiNext.TabIndex = 10;
+            btnRoiNext.Text = ">>";
+            btnRoiNext.UseVisualStyleBackColor = false;
+            // 
+            // btnRoiPrev
+            // 
+            btnRoiPrev.BackColor = Color.FromArgb(76, 175, 80);
+            btnRoiPrev.FlatStyle = FlatStyle.Flat;
+            btnRoiPrev.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            btnRoiPrev.Location = new Point(24, 487);
+            btnRoiPrev.Name = "btnRoiPrev";
+            btnRoiPrev.Size = new Size(70, 53);
+            btnRoiPrev.TabIndex = 9;
+            btnRoiPrev.Text = "<<";
+            btnRoiPrev.UseVisualStyleBackColor = false;
+            // 
+            // picRoiSource
+            // 
+            picRoiSource.BorderStyle = BorderStyle.FixedSingle;
+            picRoiSource.Location = new Point(15, 62);
+            picRoiSource.Name = "picRoiSource";
+            picRoiSource.Size = new Size(320, 180);
+            picRoiSource.SizeMode = PictureBoxSizeMode.Zoom;
+            picRoiSource.TabIndex = 0;
+            picRoiSource.TabStop = false;
+            picRoiSource.Paint += picRoiSource_Paint;
+            // 
+            // picRoiCrop
+            // 
+            picRoiCrop.BorderStyle = BorderStyle.FixedSingle;
+            picRoiCrop.Location = new Point(15, 264);
+            picRoiCrop.Name = "picRoiCrop";
+            picRoiCrop.Size = new Size(200, 200);
+            picRoiCrop.SizeMode = PictureBoxSizeMode.Zoom;
+            picRoiCrop.TabIndex = 1;
+            picRoiCrop.TabStop = false;
+            // 
+            // btnPreviewRoi
+            // 
+            btnPreviewRoi.BackColor = Color.FromArgb(0, 120, 215);
+            btnPreviewRoi.FlatStyle = FlatStyle.Flat;
+            btnPreviewRoi.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            btnPreviewRoi.ForeColor = Color.White;
+            btnPreviewRoi.Location = new Point(221, 292);
+            btnPreviewRoi.Name = "btnPreviewRoi";
+            btnPreviewRoi.Size = new Size(150, 35);
+            btnPreviewRoi.TabIndex = 0;
+            btnPreviewRoi.Text = "Preview ROI";
+            btnPreviewRoi.UseVisualStyleBackColor = false;
+            btnPreviewRoi.Click += btnPreviewRoi_Click;
+            // 
+            // lblRoiInfo
+            // 
+            lblRoiInfo.Font = new Font("Segoe UI", 9F);
+            lblRoiInfo.Location = new Point(230, 330);
+            lblRoiInfo.Name = "lblRoiInfo";
+            lblRoiInfo.Size = new Size(204, 134);
+            lblRoiInfo.TabIndex = 2;
+            lblRoiInfo.Text = "Shows the area used for training.\r\nSelect dataset first, then click Preview ROI.";
+            // 
+            // numRoiX
+            // 
+            numRoiX.Font = new Font("Segoe UI", 9F);
+            numRoiX.Location = new Point(24, 552);
+            numRoiX.Maximum = new decimal(new int[] { 640, 0, 0, 0 });
+            numRoiX.Name = "numRoiX";
+            numRoiX.Size = new Size(70, 31);
+            numRoiX.TabIndex = 5;
+            numRoiX.Value = new decimal(new int[] { 220, 0, 0, 0 });
+            numRoiX.ValueChanged += RoiValueChanged;
+            // 
+            // numRoiY
+            // 
+            numRoiY.Font = new Font("Segoe UI", 9F);
+            numRoiY.Location = new Point(24, 594);
+            numRoiY.Maximum = new decimal(new int[] { 480, 0, 0, 0 });
+            numRoiY.Name = "numRoiY";
+            numRoiY.Size = new Size(70, 31);
+            numRoiY.TabIndex = 6;
+            numRoiY.Value = new decimal(new int[] { 140, 0, 0, 0 });
+            numRoiY.ValueChanged += RoiValueChanged;
+            // 
+            // numRoiW
+            // 
+            numRoiW.Font = new Font("Segoe UI", 9F);
+            numRoiW.Location = new Point(141, 552);
+            numRoiW.Maximum = new decimal(new int[] { 640, 0, 0, 0 });
+            numRoiW.Minimum = new decimal(new int[] { 10, 0, 0, 0 });
+            numRoiW.Name = "numRoiW";
+            numRoiW.Size = new Size(70, 31);
+            numRoiW.TabIndex = 7;
+            numRoiW.Value = new decimal(new int[] { 200, 0, 0, 0 });
+            numRoiW.ValueChanged += RoiValueChanged;
+            // 
+            // numRoiH
+            // 
+            numRoiH.Font = new Font("Segoe UI", 9F);
+            numRoiH.Location = new Point(141, 589);
+            numRoiH.Maximum = new decimal(new int[] { 480, 0, 0, 0 });
+            numRoiH.Minimum = new decimal(new int[] { 10, 0, 0, 0 });
+            numRoiH.Name = "numRoiH";
+            numRoiH.Size = new Size(70, 31);
+            numRoiH.TabIndex = 8;
+            numRoiH.Value = new decimal(new int[] { 200, 0, 0, 0 });
+            numRoiH.ValueChanged += RoiValueChanged;
+            // 
+            // lblDatasetPath
+            // 
+            lblDatasetPath.AutoSize = true;
+            lblDatasetPath.Font = new Font("Segoe UI", 9F);
+            lblDatasetPath.Location = new Point(21, 50);
+            lblDatasetPath.Margin = new Padding(4, 0, 4, 0);
+            lblDatasetPath.Name = "lblDatasetPath";
+            lblDatasetPath.Size = new Size(566, 25);
+            lblDatasetPath.TabIndex = 0;
+            lblDatasetPath.Text = "Select folder containing 'OK' and 'NG' subfolders with training images:";
+            // 
+            // btnSelectDataset
+            // 
+            btnSelectDataset.BackColor = Color.FromArgb(0, 120, 215);
+            btnSelectDataset.FlatStyle = FlatStyle.Flat;
+            btnSelectDataset.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            btnSelectDataset.ForeColor = Color.White;
+            btnSelectDataset.Location = new Point(21, 92);
+            btnSelectDataset.Margin = new Padding(4, 5, 4, 5);
+            btnSelectDataset.Name = "btnSelectDataset";
+            btnSelectDataset.Size = new Size(214, 58);
+            btnSelectDataset.TabIndex = 1;
+            btnSelectDataset.Text = "📁 Browse...";
+            btnSelectDataset.UseVisualStyleBackColor = false;
+            btnSelectDataset.Click += BtnSelectDataset_Click;
+            // 
+            // txtDatasetPath
+            // 
+            txtDatasetPath.Font = new Font("Segoe UI", 9F);
+            txtDatasetPath.Location = new Point(257, 97);
+            txtDatasetPath.Margin = new Padding(4, 5, 4, 5);
+            txtDatasetPath.Name = "txtDatasetPath";
+            txtDatasetPath.ReadOnly = true;
+            txtDatasetPath.Size = new Size(1084, 31);
+            txtDatasetPath.TabIndex = 2;
+            // 
+            // lblDatasetInfo
+            // 
+            lblDatasetInfo.BorderStyle = BorderStyle.FixedSingle;
+            lblDatasetInfo.Font = new Font("Segoe UI", 9F);
+            lblDatasetInfo.Location = new Point(21, 167);
+            lblDatasetInfo.Margin = new Padding(4, 0, 4, 0);
+            lblDatasetInfo.Name = "lblDatasetInfo";
+            lblDatasetInfo.Size = new Size(1321, 65);
+            lblDatasetInfo.TabIndex = 3;
+            lblDatasetInfo.Text = "No dataset selected";
+            lblDatasetInfo.TextAlign = ContentAlignment.MiddleCenter;
+            // 
+            // groupBoxDataset
+            // 
+            groupBoxDataset.Controls.Add(lblDatasetInfo);
+            groupBoxDataset.Controls.Add(txtDatasetPath);
+            groupBoxDataset.Controls.Add(btnSelectDataset);
+            groupBoxDataset.Controls.Add(lblDatasetPath);
+            groupBoxDataset.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            groupBoxDataset.Location = new Point(29, 133);
+            groupBoxDataset.Margin = new Padding(4, 5, 4, 5);
+            groupBoxDataset.Name = "groupBoxDataset";
+            groupBoxDataset.Padding = new Padding(4, 5, 4, 5);
+            groupBoxDataset.Size = new Size(1371, 250);
+            groupBoxDataset.TabIndex = 1;
+            groupBoxDataset.TabStop = false;
+            groupBoxDataset.Text = "Step 1: Select Dataset Folder";
+            // 
+            // btnApplyRoi
+            // 
+            btnApplyRoi.BackColor = Color.FromArgb(46, 125, 50);
+            btnApplyRoi.FlatStyle = FlatStyle.Flat;
+            btnApplyRoi.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            btnApplyRoi.ForeColor = Color.White;
+            btnApplyRoi.Location = new Point(1418, 858);
+            btnApplyRoi.Margin = new Padding(4, 5, 4, 5);
+            btnApplyRoi.Name = "btnApplyRoi";
+            btnApplyRoi.Size = new Size(462, 67);
+            btnApplyRoi.TabIndex = 19;
+            btnApplyRoi.Text = "🖼️ Apply ROI and Create Cropped Dataset";
+            btnApplyRoi.UseVisualStyleBackColor = false;
+            btnApplyRoi.Click += btnApplyRoi_Click;
             // 
             // ModelBuilderForm
             // 
-            this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 15F);
-            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.BackColor = System.Drawing.Color.White;
-            this.ClientSize = new System.Drawing.Size(1000, 900);
-            this.Controls.Add(this.groupBoxLog);
-            this.Controls.Add(this.progressBar);
-            this.Controls.Add(this.btnStopTraining);
-            this.Controls.Add(this.btnStartTraining);
-            this.Controls.Add(this.groupBoxTraining);
-            this.Controls.Add(this.groupBoxOutput);
-            this.Controls.Add(this.groupBoxDataset);
-            this.Controls.Add(this.lblTitle);
-            this.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
-            this.MaximizeBox = false;
-            this.Name = "ModelBuilderForm";
-            this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-            this.Text = "ML Model Builder - Image Checker";
-            this.groupBoxDataset.ResumeLayout(false);
-            this.groupBoxDataset.PerformLayout();
-            this.groupBoxOutput.ResumeLayout(false);
-            this.groupBoxOutput.PerformLayout();
-            this.groupBoxTraining.ResumeLayout(false);
-            this.groupBoxTraining.PerformLayout();
-            ((System.ComponentModel.ISupportInitialize)(this.numCVFolds)).EndInit();
-            ((System.ComponentModel.ISupportInitialize)(this.numTrials)).EndInit();
-            this.groupBoxModels.ResumeLayout(false);
-            this.groupBoxModels.PerformLayout();
-            this.groupBoxLog.ResumeLayout(false);
-            this.ResumeLayout(false);
+            AutoScaleDimensions = new SizeF(10F, 25F);
+            AutoScaleMode = AutoScaleMode.Font;
+            BackColor = Color.White;
+            ClientSize = new Size(1891, 1500);
+            Controls.Add(btnApplyRoi);
+            Controls.Add(groupBoxRoi);
+            Controls.Add(groupBoxLog);
+            Controls.Add(progressBar);
+            Controls.Add(btnStopTraining);
+            Controls.Add(btnStartTraining);
+            Controls.Add(groupBoxTraining);
+            Controls.Add(groupBoxOutput);
+            Controls.Add(groupBoxDataset);
+            Controls.Add(lblTitle);
+            Font = new Font("Segoe UI", 9F);
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            Margin = new Padding(4, 5, 4, 5);
+            MaximizeBox = false;
+            Name = "ModelBuilderForm";
+            StartPosition = FormStartPosition.CenterScreen;
+            Text = "ML Model Builder - Image Checker";
+            groupBoxOutput.ResumeLayout(false);
+            groupBoxOutput.PerformLayout();
+            groupBoxTraining.ResumeLayout(false);
+            groupBoxTraining.PerformLayout();
+            groupBoxModels.ResumeLayout(false);
+            groupBoxModels.PerformLayout();
+            ((System.ComponentModel.ISupportInitialize)numTrials).EndInit();
+            ((System.ComponentModel.ISupportInitialize)numCVFolds).EndInit();
+            ((System.ComponentModel.ISupportInitialize)numImageWidth).EndInit();
+            ((System.ComponentModel.ISupportInitialize)numImageHeight).EndInit();
+            groupBoxLog.ResumeLayout(false);
+            groupBoxRoi.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)picRoiSource).EndInit();
+            ((System.ComponentModel.ISupportInitialize)picRoiCrop).EndInit();
+            ((System.ComponentModel.ISupportInitialize)numRoiX).EndInit();
+            ((System.ComponentModel.ISupportInitialize)numRoiY).EndInit();
+            ((System.ComponentModel.ISupportInitialize)numRoiW).EndInit();
+            ((System.ComponentModel.ISupportInitialize)numRoiH).EndInit();
+            groupBoxDataset.ResumeLayout(false);
+            groupBoxDataset.PerformLayout();
+            ResumeLayout(false);
 
         }
 
         #endregion
 
         private System.Windows.Forms.Label lblTitle;
-        private System.Windows.Forms.GroupBox groupBoxDataset;
-        private System.Windows.Forms.Label lblDatasetInfo;
-        private System.Windows.Forms.TextBox txtDatasetPath;
-        private System.Windows.Forms.Button btnSelectDataset;
-        private System.Windows.Forms.Label lblDatasetPath;
         private System.Windows.Forms.GroupBox groupBoxOutput;
         private System.Windows.Forms.TextBox txtOutputPath;
         private System.Windows.Forms.Button btnSelectOutput;
@@ -431,5 +680,25 @@
         private System.Windows.Forms.ProgressBar progressBar;
         private System.Windows.Forms.GroupBox groupBoxLog;
         private System.Windows.Forms.RichTextBox txtTrainingLog;
+        private System.Windows.Forms.Label lblImageSize;
+        private System.Windows.Forms.NumericUpDown numImageWidth;
+        private System.Windows.Forms.NumericUpDown numImageHeight;
+        private System.Windows.Forms.GroupBox groupBoxRoi;
+        private System.Windows.Forms.PictureBox picRoiSource;
+        private System.Windows.Forms.PictureBox picRoiCrop;
+        private System.Windows.Forms.Button btnPreviewRoi;
+        private System.Windows.Forms.Label lblRoiInfo;
+        private System.Windows.Forms.NumericUpDown numRoiX;
+        private System.Windows.Forms.NumericUpDown numRoiY;
+        private System.Windows.Forms.NumericUpDown numRoiW;
+        private System.Windows.Forms.NumericUpDown numRoiH;
+        private Label lblDatasetPath;
+        private Button btnSelectDataset;
+        private TextBox txtDatasetPath;
+        private Label lblDatasetInfo;
+        private GroupBox groupBoxDataset;
+        private Button btnRoiNext;
+        private Button btnRoiPrev;
+        private Button btnApplyRoi;
     }
 }

@@ -4,6 +4,7 @@ using Microsoft.ML;
 using Microsoft.ML.Data;
 using Microsoft.ML.Transforms.Image;
 using Microsoft.ML.Vision;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 internal class Program
@@ -21,10 +22,12 @@ internal class Program
         DataValidator.PrintLabelDistribution(csvPath);
 
         var mlContext = new MLContext(seed: 0);
-        var trainer = new ModelTrainer(mlContext, basePath);
+        var trainer = new ModelTrainer(mlContext, basePath, new Rectangle(200,140,220,220));
 
         trainer.TrainAndEvaluate();
 
         Console.WriteLine("\n✅ Training complete. Best model saved in project directory.");
     }
+
+
 }

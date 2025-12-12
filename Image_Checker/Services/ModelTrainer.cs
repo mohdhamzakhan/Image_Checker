@@ -4,6 +4,7 @@ using Microsoft.ML;
 using System.Drawing;
 using System.IO;
 using System.Threading;
+using static SkiaSharp.SKImageFilter;
 
 namespace Image_Checker.Services
 {
@@ -11,11 +12,13 @@ namespace Image_Checker.Services
     {
         private readonly MLContext _mlContext;
         private readonly string _basePath;
+        private readonly Rectangle _roiRect;
 
-        public ModelTrainer(MLContext mlContext, string basePath)
+        public ModelTrainer(MLContext mlContext, string basePath, Rectangle roiRect)
         {
             _mlContext = mlContext;
             _basePath = basePath;
+            _roiRect = roiRect;
         }
 
         /// <summary>
@@ -193,6 +196,8 @@ namespace Image_Checker.Services
             bool useFastTree = true,
             bool useLightGBM = true,
             bool useTransferLearning = false,
+            int imageWidth = 224, 
+            int imageHeight = 224,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -250,8 +255,8 @@ namespace Image_Checker.Services
                     inputColumnName: nameof(ImageData.ImagePath))
                 .Append(_mlContext.Transforms.ResizeImages(
                     outputColumnName: "ResizedImage",
-                    imageWidth: 150,
-                    imageHeight: 150,
+                    imageWidth: imageWidth,
+                    imageHeight: imageHeight,
                     inputColumnName: "InputImage",
                     resizing: Microsoft.ML.Transforms.Image.ImageResizingEstimator.ResizingKind.IsoCrop))
                 .Append(_mlContext.Transforms.ExtractPixels(
@@ -263,7 +268,7 @@ namespace Image_Checker.Services
                 .Append(_mlContext.Transforms.Conversion.MapValueToKey("Label", nameof(ImageData.Label)));
 
             Console.WriteLine("   • Image loading");
-            Console.WriteLine("   • Resize to 150x150");
+            Console.WriteLine($"   • Resize to {imageWidth}x{imageHeight}");
             Console.WriteLine("   • Feature extraction (RGB, normalized)");
             Console.WriteLine($"   • Label encoding ({classLabels.Count} classes)");
 
@@ -411,10 +416,11 @@ namespace Image_Checker.Services
                     };
 
                     var transferPipeline = _mlContext.Transforms.LoadImages("InputImage", _basePath, nameof(ImageData.ImagePath))
-                        .Append(_mlContext.Transforms.ResizeImages("InputImage", 224, 224))
-                        .Append(_mlContext.Transforms.Conversion.MapValueToKey("Label"))
-                        .Append(_mlContext.MulticlassClassification.Trainers.ImageClassification(options))
-                        .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
+     .Append(_mlContext.Transforms.ResizeImages("InputImage", imageWidth, imageHeight))
+     .Append(_mlContext.Transforms.Conversion.MapValueToKey("Label"))
+     .Append(_mlContext.MulticlassClassification.Trainers.ImageClassification(options))
+     .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
+
 
                     trainers.Add(("ImageClassification_Transfer", transferPipeline, true));
                     Console.WriteLine("✅ Transfer learning model added");
@@ -538,6 +544,22 @@ namespace Image_Checker.Services
             Console.WriteLine($"✅ Model saved: {Path.GetFileName(modelPath)}");
             Console.WriteLine($"   Location: {modelPath}");
             Console.WriteLine($"   Classes: {string.Join(", ", classLabels)}");
+
+            var roiConfig = new
+            {
+                RoiX = _roiRect.X,
+                RoiY = _roiRect.Y,
+                RoiW = _roiRect.Width,
+                RoiH = _roiRect.Height
+            };
+
+            var json = System.Text.Json.JsonSerializer.Serialize(
+                roiConfig,
+                new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+
+            var cfgPath = Path.ChangeExtension(modelPath, ".json");
+            File.WriteAllText(cfgPath, json);
+            Console.WriteLine($"   ROI config saved: {Path.GetFileName(cfgPath)}");
         }
     }
 }
