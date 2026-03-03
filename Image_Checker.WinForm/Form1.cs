@@ -24,6 +24,7 @@ namespace Image_Checker.WinForm
         private UsbLightController _usbLight;
         private int _abnormalCount = 0;
         //private Label lblUsbLightStatus; // You'll need to add this to your form designer
+        private UsbPortPowerController _usbPortController;
         public Form1()
         {
             InitializeComponent();
@@ -52,6 +53,292 @@ namespace Image_Checker.WinForm
         {
             OpenCorrectionsManager();
         }
+
+        private void BtnTestUsbPortControl_Click(object sender, EventArgs e)
+        {
+            Console.WriteLine("\n" + new string('=', 60));
+            Console.WriteLine("STARTING USB PORT POWER CONTROL TEST");
+            Console.WriteLine(new string('=', 60) + "\n");
+
+            // Run full diagnostics
+            UsbPortPowerController.RunDiagnostics();
+
+            MessageBox.Show(
+                "Diagnostic test complete!\n\n" +
+                "Check the console output for detailed results.\n\n" +
+                "If successful, you can proceed to test actual port control.",
+                "Diagnostics Complete",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+
+        private void BtnCheckUsbSupport_Click(object sender, EventArgs e)
+        {
+            bool supported = UsbPortPowerController.IsSupported();
+
+            if (supported)
+            {
+                MessageBox.Show(
+                    "✅ USB Port Power Control MAY be supported!\n\n" +
+                    "Hubs detected on your system.\n\n" +
+                    "Note: Final confirmation requires actual testing.\n" +
+                    "Not all hubs support per-port power control.",
+                    "Possibly Supported",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            else
+            {
+                MessageBox.Show(
+                    "❌ USB Port Power Control is NOT supported\n\n" +
+                    "No USB hubs detected on your system.\n\n" +
+                    "Recommended alternatives:\n" +
+                    "• Arduino + Relay (most reliable)\n" +
+                    "• USB smart plugs\n" +
+                    "• DevCon tool for device disable/enable",
+                    "Not Supported",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+        }
+
+        private void BtnConnectUsbHub_Click(object sender, EventArgs e)
+        {
+            if (_usbPortController != null && _usbPortController.IsConnected)
+            {
+                MessageBox.Show(
+                    "Already connected to USB hub.\n\n" +
+                    $"Device: {_usbPortController.DevicePath}",
+                    "Already Connected",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return;
+            }
+
+            _usbPortController = new UsbPortPowerController();
+
+            if (_usbPortController.AutoConnect())
+            {
+                MessageBox.Show(
+                    $"✅ Connected to USB hub!\n\n" +
+                    $"Device: {_usbPortController.DevicePath}\n\n" +
+                    "You can now test port control.",
+                    "Connection Successful",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            else
+            {
+                MessageBox.Show(
+                    "❌ Failed to connect to USB hub\n\n" +
+                    "Make sure you're running as Administrator!\n\n" +
+                    "Right-click the application → Run as Administrator",
+                    "Connection Failed",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+
+                _usbPortController?.Dispose();
+                _usbPortController = null;
+            }
+        }
+
+        private void BtnTestConnection_Click(object sender, EventArgs e)
+        {
+            if (_usbPortController == null || !_usbPortController.IsConnected)
+            {
+                MessageBox.Show(
+                    "Not connected to USB hub.\n\n" +
+                    "Click 'Connect to USB Hub' first.",
+                    "Not Connected",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
+            bool valid = _usbPortController.TestConnection();
+
+            if (valid)
+            {
+                MessageBox.Show(
+                    "✅ Connection test PASSED!\n\n" +
+                    $"Device: {_usbPortController.DevicePath}\n\n" +
+                    "Connection is valid and ready for use.\n" +
+                    "Check console for detailed info.",
+                    "Test Passed",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            else
+            {
+                MessageBox.Show(
+                    "❌ Connection test FAILED\n\n" +
+                    "Connection is not valid.\n" +
+                    "Try reconnecting.",
+                    "Test Failed",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+        }
+
+        private void BtnCyclePort_Click(object sender, EventArgs e)
+        {
+            if (_usbPortController == null || !_usbPortController.IsConnected)
+            {
+                MessageBox.Show(
+                    "Not connected to USB hub.\n\n" +
+                    "Click 'Connect to USB Hub' first.",
+                    "Not Connected",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
+            // Get port number from user
+            var inputDialog = new Form
+            {
+                Text = "Enter USB Port Number",
+                Width = 400,
+                Height = 200,
+                StartPosition = FormStartPosition.CenterParent
+            };
+
+            var label = new Label
+            {
+                Text = "Enter the USB port number to cycle (1-8):\n\n" +
+                       "⚠️ WARNING: This will disconnect any device on that port!\n" +
+                       "The device should reconnect automatically.",
+                AutoSize = false,
+                Width = 350,
+                Height = 80,
+                Left = 20,
+                Top = 20
+            };
+
+            var textBox = new TextBox
+            {
+                Text = "1",
+                Left = 20,
+                Top = 110,
+                Width = 100
+            };
+
+            var buttonOk = new Button
+            {
+                Text = "Cycle Port",
+                Left = 130,
+                Top = 105,
+                DialogResult = DialogResult.OK
+            };
+
+            var buttonCancel = new Button
+            {
+                Text = "Cancel",
+                Left = 230,
+                Top = 105,
+                DialogResult = DialogResult.Cancel
+            };
+
+            inputDialog.Controls.AddRange(new Control[] { label, textBox, buttonOk, buttonCancel });
+            inputDialog.AcceptButton = buttonOk;
+            inputDialog.CancelButton = buttonCancel;
+
+            if (inputDialog.ShowDialog() == DialogResult.OK)
+            {
+                if (int.TryParse(textBox.Text, out int portNumber))
+                {
+                    if (portNumber < 1 || portNumber > 8)
+                    {
+                        MessageBox.Show(
+                            "Invalid port number.\n\n" +
+                            "Please enter a number between 1 and 8.",
+                            "Invalid Input",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    // Final confirmation
+                    var confirm = MessageBox.Show(
+                        $"⚠️ CONFIRM PORT CYCLE\n\n" +
+                        $"You are about to cycle USB port {portNumber}.\n\n" +
+                        $"This will:\n" +
+                        $"• Disconnect any device on port {portNumber}\n" +
+                        $"• The device should reconnect in 2-3 seconds\n\n" +
+                        $"Do NOT cycle ports with:\n" +
+                        $"• Keyboard or mouse\n" +
+                        $"• Critical storage devices\n\n" +
+                        $"Continue?",
+                        "Confirm Port Cycle",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Warning);
+
+                    if (confirm == DialogResult.Yes)
+                    {
+                        lblStatus.Text = $"⚡ Cycling USB port {portNumber}...";
+                        Application.DoEvents();
+
+                        bool success = _usbPortController.CyclePort(portNumber);
+
+                        if (success)
+                        {
+                            lblStatus.Text = $"✅ USB port {portNumber} cycled successfully";
+                            MessageBox.Show(
+                                $"✅ Port {portNumber} cycled successfully!\n\n" +
+                                "The device should reconnect automatically.\n" +
+                                "Check the console for detailed output.",
+                                "Success",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Information);
+                        }
+                        else
+                        {
+                            lblStatus.Text = $"❌ Failed to cycle USB port {portNumber}";
+                            MessageBox.Show(
+                                $"❌ Failed to cycle port {portNumber}\n\n" +
+                                "Possible reasons:\n" +
+                                "• Port number doesn't exist\n" +
+                                "• Hub doesn't support per-port control\n" +
+                                "• Insufficient permissions\n" +
+                                "• Wrong hub selected\n\n" +
+                                "Check console for error details.\n\n" +
+                                "Try using Arduino + Relay instead.",
+                                "Failed",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Error);
+                        }
+                    }
+                }
+                else
+                {
+                    MessageBox.Show(
+                        "Invalid port number format.\n\n" +
+                        "Please enter a valid number.",
+                        "Invalid Input",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                }
+            }
+        }
+
+        private void BtnDisconnectUsbHub_Click(object sender, EventArgs e)
+        {
+            if (_usbPortController == null)
+            {
+                MessageBox.Show("Not connected.", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            _usbPortController.Dispose();
+            _usbPortController = null;
+
+            lblStatus.Text = "⏹️ Disconnected from USB hub";
+            MessageBox.Show(
+                "Disconnected from USB hub.",
+                "Disconnected",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+
 
         private void ConnectUsbLight()
         {
@@ -1728,6 +2015,7 @@ namespace Image_Checker.WinForm
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             StopFolderMonitoring();
+            _usbPortController?.Dispose();
             _usbLight?.Dispose();
             base.OnFormClosing(e);
         }

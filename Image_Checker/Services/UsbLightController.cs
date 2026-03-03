@@ -67,23 +67,59 @@ namespace Image_Checker.Services
         {
             try
             {
+                using (var searcher = new ManagementObjectSearcher(
+                    "SELECT * FROM Win32_PnPEntity WHERE Caption LIKE '%(COM%'"))
+                {
+                    foreach (ManagementObject queryObj in searcher.Get())
+                    {
+                        string caption = queryObj["Caption"]?.ToString();
+                        string deviceId = queryObj["DeviceID"]?.ToString();
+
+                        if (string.IsNullOrEmpty(caption))
+                            continue;
+
+                        Console.WriteLine($"🔍 Found: {caption}");
+
+                        // Extract COM port number
+                        var match = System.Text.RegularExpressions.Regex.Match(caption, @"COM(\d+)");
+                        if (!match.Success)
+                            continue;
+
+                        string portName = $"COM{match.Groups[1].Value}";
+
+                        // Filter by known USB-to-Serial chip manufacturers
+                        if (caption.Contains("Arduino", StringComparison.OrdinalIgnoreCase) ||
+                            caption.Contains("CH340", StringComparison.OrdinalIgnoreCase) ||
+                            caption.Contains("CH341", StringComparison.OrdinalIgnoreCase) ||
+                            caption.Contains("CP210", StringComparison.OrdinalIgnoreCase) ||
+                            caption.Contains("FTDI", StringComparison.OrdinalIgnoreCase) ||
+                            caption.Contains("USB Serial", StringComparison.OrdinalIgnoreCase) ||
+                            deviceId.Contains("VID_2341")) // Arduino Vendor ID
+                        {
+                            Console.WriteLine($"✅ Detected USB device on {portName}");
+                            return portName;
+                        }
+                    }
+                }
+
+                Console.WriteLine("⚠️ No USB light device found, checking available COM ports...");
+
+                // Fallback to manual port listing
                 var ports = SerialPort.GetPortNames();
                 if (ports.Length > 0)
                 {
-                    // Prefer COM3 and higher (COM1/COM2 often used by system)
+                    Console.WriteLine("Available ports:");
                     foreach (var port in ports)
-                    {
-                        if (int.TryParse(port.Replace("COM", ""), out int portNum) && portNum >= 3)
-                            return port;
-                    }
-                    // Fallback to first available
-                    return ports[0];
+                        Console.WriteLine($"  - {port}");
+
+                    Console.WriteLine("Please specify the correct port manually.");
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"⚠️ Port detection failed: {ex.Message}");
             }
+
             return null;
         }
 

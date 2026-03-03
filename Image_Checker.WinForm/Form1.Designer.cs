@@ -26,11 +26,16 @@
         /// Required method for Designer support - do not modify
         /// the contents of this method with the code editor.
         /// </summary>
+        /// 
+        private void InitializeUsbPortControlButtons()
+        {
+            
+        }
         private void InitializeComponent()
         {
             components = new System.ComponentModel.Container();
-            DataGridViewCellStyle dataGridViewCellStyle5 = new DataGridViewCellStyle();
-            DataGridViewCellStyle dataGridViewCellStyle6 = new DataGridViewCellStyle();
+            DataGridViewCellStyle dataGridViewCellStyle1 = new DataGridViewCellStyle();
+            DataGridViewCellStyle dataGridViewCellStyle2 = new DataGridViewCellStyle();
             menuStrip = new MenuStrip();
             menuFile = new ToolStripMenuItem();
             menuBuildModel = new ToolStripMenuItem();
@@ -62,9 +67,18 @@
             btnMonitorFolder = new Button();
             tooltip = new ToolTip(components);
             lblUsbLightStatus = new Label();
+            groupBoxUsbPortControl = new GroupBox();
+            lblUsbPortStatus = new Label();
+            btnCheckUsbSupport = new Button();
+            btnTestUsbPortControl = new Button();
+            btnConnectUsbHub = new Button();
+            btnTestConnection = new Button();
+            btnCyclePort = new Button();
+            btnDisconnectUsbHub = new Button();
             menuStrip.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)grid).BeginInit();
             ((System.ComponentModel.ISupportInitialize)pictureBox).BeginInit();
+            groupBoxUsbPortControl.SuspendLayout();
             SuspendLayout();
             // 
             // menuStrip
@@ -154,7 +168,7 @@
             btnSelectSingleImage.FlatStyle = FlatStyle.Flat;
             btnSelectSingleImage.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
             btnSelectSingleImage.ForeColor = Color.White;
-            btnSelectSingleImage.Location = new Point(1214, 58);
+            btnSelectSingleImage.Location = new Point(1223, 58);
             btnSelectSingleImage.Margin = new Padding(4, 5, 4, 5);
             btnSelectSingleImage.Name = "btnSelectSingleImage";
             btnSelectSingleImage.Size = new Size(300, 67);
@@ -229,31 +243,31 @@
             grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             grid.BackgroundColor = Color.White;
             grid.BorderStyle = BorderStyle.Fixed3D;
-            dataGridViewCellStyle5.Alignment = DataGridViewContentAlignment.MiddleLeft;
-            dataGridViewCellStyle5.BackColor = SystemColors.Control;
-            dataGridViewCellStyle5.Font = new Font("Segoe UI", 9F);
-            dataGridViewCellStyle5.ForeColor = SystemColors.WindowText;
-            dataGridViewCellStyle5.SelectionBackColor = SystemColors.Highlight;
-            dataGridViewCellStyle5.SelectionForeColor = SystemColors.HighlightText;
-            dataGridViewCellStyle5.WrapMode = DataGridViewTriState.True;
-            grid.ColumnHeadersDefaultCellStyle = dataGridViewCellStyle5;
+            dataGridViewCellStyle1.Alignment = DataGridViewContentAlignment.MiddleLeft;
+            dataGridViewCellStyle1.BackColor = SystemColors.Control;
+            dataGridViewCellStyle1.Font = new Font("Segoe UI", 9F);
+            dataGridViewCellStyle1.ForeColor = SystemColors.WindowText;
+            dataGridViewCellStyle1.SelectionBackColor = SystemColors.Highlight;
+            dataGridViewCellStyle1.SelectionForeColor = SystemColors.HighlightText;
+            dataGridViewCellStyle1.WrapMode = DataGridViewTriState.True;
+            grid.ColumnHeadersDefaultCellStyle = dataGridViewCellStyle1;
             grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            dataGridViewCellStyle6.Alignment = DataGridViewContentAlignment.MiddleLeft;
-            dataGridViewCellStyle6.BackColor = SystemColors.Window;
-            dataGridViewCellStyle6.Font = new Font("Segoe UI", 9F);
-            dataGridViewCellStyle6.ForeColor = SystemColors.ControlText;
-            dataGridViewCellStyle6.SelectionBackColor = SystemColors.Highlight;
-            dataGridViewCellStyle6.SelectionForeColor = SystemColors.HighlightText;
-            dataGridViewCellStyle6.WrapMode = DataGridViewTriState.False;
-            grid.DefaultCellStyle = dataGridViewCellStyle6;
-            grid.Location = new Point(29, 150);
+            dataGridViewCellStyle2.Alignment = DataGridViewContentAlignment.MiddleLeft;
+            dataGridViewCellStyle2.BackColor = SystemColors.Window;
+            dataGridViewCellStyle2.Font = new Font("Segoe UI", 9F);
+            dataGridViewCellStyle2.ForeColor = SystemColors.ControlText;
+            dataGridViewCellStyle2.SelectionBackColor = SystemColors.Highlight;
+            dataGridViewCellStyle2.SelectionForeColor = SystemColors.HighlightText;
+            dataGridViewCellStyle2.WrapMode = DataGridViewTriState.False;
+            grid.DefaultCellStyle = dataGridViewCellStyle2;
+            grid.Location = new Point(12, 138);
             grid.Margin = new Padding(4, 5, 4, 5);
             grid.MultiSelect = false;
             grid.Name = "grid";
             grid.ReadOnly = true;
             grid.RowHeadersWidth = 51;
             grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            grid.Size = new Size(1177, 1146);
+            grid.Size = new Size(1194, 1183);
             grid.TabIndex = 5;
             grid.CellFormatting += Grid_CellFormatting;
             grid.SelectionChanged += Grid_SelectionChanged;
@@ -265,7 +279,7 @@
             pictureBox.Location = new Point(1214, 195);
             pictureBox.Margin = new Padding(4, 5, 4, 5);
             pictureBox.Name = "pictureBox";
-            pictureBox.Size = new Size(673, 646);
+            pictureBox.Size = new Size(673, 719);
             pictureBox.SizeMode = PictureBoxSizeMode.Zoom;
             pictureBox.TabIndex = 6;
             pictureBox.TabStop = false;
@@ -276,7 +290,7 @@
             lblInfo.BackColor = Color.FromArgb(240, 240, 240);
             lblInfo.BorderStyle = BorderStyle.FixedSingle;
             lblInfo.Font = new Font("Segoe UI", 9F);
-            lblInfo.Location = new Point(1214, 846);
+            lblInfo.Location = new Point(1214, 919);
             lblInfo.Margin = new Padding(4, 0, 4, 0);
             lblInfo.Name = "lblInfo";
             lblInfo.Size = new Size(673, 49);
@@ -289,7 +303,7 @@
             lblSelectLabel.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             lblSelectLabel.AutoSize = true;
             lblSelectLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-            lblSelectLabel.Location = new Point(1214, 910);
+            lblSelectLabel.Location = new Point(1214, 968);
             lblSelectLabel.Margin = new Padding(4, 0, 4, 0);
             lblSelectLabel.Name = "lblSelectLabel";
             lblSelectLabel.Size = new Size(196, 25);
@@ -302,7 +316,7 @@
             cbCorrection.DropDownStyle = ComboBoxStyle.DropDownList;
             cbCorrection.Font = new Font("Segoe UI", 10F);
             cbCorrection.FormattingEnabled = true;
-            cbCorrection.Location = new Point(1214, 940);
+            cbCorrection.Location = new Point(1214, 1012);
             cbCorrection.Margin = new Padding(4, 5, 4, 5);
             cbCorrection.Name = "cbCorrection";
             cbCorrection.Size = new Size(180, 36);
@@ -315,7 +329,7 @@
             btnCorrect.FlatStyle = FlatStyle.Flat;
             btnCorrect.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
             btnCorrect.ForeColor = Color.White;
-            btnCorrect.Location = new Point(1410, 933);
+            btnCorrect.Location = new Point(1410, 998);
             btnCorrect.Margin = new Padding(4, 5, 4, 5);
             btnCorrect.Name = "btnCorrect";
             btnCorrect.Size = new Size(477, 50);
@@ -331,7 +345,7 @@
             btnQuickUpdate.FlatStyle = FlatStyle.Flat;
             btnQuickUpdate.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
             btnQuickUpdate.ForeColor = Color.White;
-            btnQuickUpdate.Location = new Point(1214, 1000);
+            btnQuickUpdate.Location = new Point(1214, 1058);
             btnQuickUpdate.Margin = new Padding(4, 5, 4, 5);
             btnQuickUpdate.Name = "btnQuickUpdate";
             btnQuickUpdate.Size = new Size(330, 67);
@@ -348,7 +362,7 @@
             btnRetrain.FlatStyle = FlatStyle.Flat;
             btnRetrain.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
             btnRetrain.ForeColor = Color.White;
-            btnRetrain.Location = new Point(1557, 1000);
+            btnRetrain.Location = new Point(1557, 1058);
             btnRetrain.Margin = new Padding(4, 5, 4, 5);
             btnRetrain.Name = "btnRetrain";
             btnRetrain.Size = new Size(330, 67);
@@ -364,7 +378,7 @@
             lblCorrectionCount.BackColor = Color.FromArgb(255, 248, 220);
             lblCorrectionCount.BorderStyle = BorderStyle.FixedSingle;
             lblCorrectionCount.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-            lblCorrectionCount.Location = new Point(1214, 1083);
+            lblCorrectionCount.Location = new Point(1214, 1130);
             lblCorrectionCount.Margin = new Padding(4, 0, 4, 0);
             lblCorrectionCount.Name = "lblCorrectionCount";
             lblCorrectionCount.Size = new Size(673, 40);
@@ -375,7 +389,7 @@
             // progressBar
             // 
             progressBar.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            progressBar.Location = new Point(1214, 1142);
+            progressBar.Location = new Point(1214, 1175);
             progressBar.Margin = new Padding(4, 5, 4, 5);
             progressBar.Name = "progressBar";
             progressBar.Size = new Size(673, 38);
@@ -390,7 +404,7 @@
             lblStatus.BorderStyle = BorderStyle.FixedSingle;
             lblStatus.Font = new Font("Segoe UI", 9F, FontStyle.Italic);
             lblStatus.ForeColor = Color.FromArgb(64, 64, 64);
-            lblStatus.Location = new Point(1214, 1197);
+            lblStatus.Location = new Point(1214, 1222);
             lblStatus.Margin = new Padding(4, 0, 4, 0);
             lblStatus.Name = "lblStatus";
             lblStatus.Size = new Size(673, 99);
@@ -440,6 +454,96 @@
             lblUsbLightStatus.TabIndex = 21;
             lblUsbLightStatus.Text = "Light Status";
             // 
+            // groupBoxUsbPortControl
+            // 
+            groupBoxUsbPortControl.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
+            groupBoxUsbPortControl.Controls.Add(lblUsbPortStatus);
+            groupBoxUsbPortControl.Controls.Add(btnCheckUsbSupport);
+            groupBoxUsbPortControl.Controls.Add(btnTestUsbPortControl);
+            groupBoxUsbPortControl.Controls.Add(btnConnectUsbHub);
+            groupBoxUsbPortControl.Controls.Add(btnTestConnection);
+            groupBoxUsbPortControl.Controls.Add(btnCyclePort);
+            groupBoxUsbPortControl.Controls.Add(btnDisconnectUsbHub);
+            groupBoxUsbPortControl.Location = new Point(12, 1175);
+            groupBoxUsbPortControl.Name = "groupBoxUsbPortControl";
+            groupBoxUsbPortControl.Size = new Size(640, 146);
+            groupBoxUsbPortControl.TabIndex = 200;
+            groupBoxUsbPortControl.TabStop = false;
+            groupBoxUsbPortControl.Text = "USB Port Power Control (Advanced)";
+            groupBoxUsbPortControl.Visible = false;
+            // 
+            // lblUsbPortStatus
+            // 
+            lblUsbPortStatus.BackColor = Color.FromArgb(240, 240, 240);
+            lblUsbPortStatus.Location = new Point(15, 20);
+            lblUsbPortStatus.Name = "lblUsbPortStatus";
+            lblUsbPortStatus.Size = new Size(550, 39);
+            lblUsbPortStatus.TabIndex = 0;
+            lblUsbPortStatus.Text = "Status: Not connected";
+            lblUsbPortStatus.TextAlign = ContentAlignment.MiddleLeft;
+            // 
+            // btnCheckUsbSupport
+            // 
+            btnCheckUsbSupport.Location = new Point(15, 70);
+            btnCheckUsbSupport.Name = "btnCheckUsbSupport";
+            btnCheckUsbSupport.Size = new Size(175, 30);
+            btnCheckUsbSupport.TabIndex = 1;
+            btnCheckUsbSupport.Text = "✓ Check Support";
+            btnCheckUsbSupport.UseVisualStyleBackColor = true;
+            btnCheckUsbSupport.Click += BtnCheckUsbSupport_Click;
+            // 
+            // btnTestUsbPortControl
+            // 
+            btnTestUsbPortControl.Location = new Point(200, 70);
+            btnTestUsbPortControl.Name = "btnTestUsbPortControl";
+            btnTestUsbPortControl.Size = new Size(175, 30);
+            btnTestUsbPortControl.TabIndex = 2;
+            btnTestUsbPortControl.Text = "🔍 Run Diagnostics";
+            btnTestUsbPortControl.UseVisualStyleBackColor = true;
+            btnTestUsbPortControl.Click += BtnTestUsbPortControl_Click;
+            // 
+            // btnConnectUsbHub
+            // 
+            btnConnectUsbHub.BackColor = Color.FromArgb(220, 255, 220);
+            btnConnectUsbHub.Location = new Point(385, 70);
+            btnConnectUsbHub.Name = "btnConnectUsbHub";
+            btnConnectUsbHub.Size = new Size(175, 30);
+            btnConnectUsbHub.TabIndex = 3;
+            btnConnectUsbHub.Text = "🔌 Connect Hub";
+            btnConnectUsbHub.UseVisualStyleBackColor = false;
+            btnConnectUsbHub.Click += BtnConnectUsbHub_Click;
+            // 
+            // btnTestConnection
+            // 
+            btnTestConnection.Location = new Point(15, 105);
+            btnTestConnection.Name = "btnTestConnection";
+            btnTestConnection.Size = new Size(175, 30);
+            btnTestConnection.TabIndex = 4;
+            btnTestConnection.Text = "🔧 Test Connection";
+            btnTestConnection.UseVisualStyleBackColor = true;
+            btnTestConnection.Click += BtnTestConnection_Click;
+            // 
+            // btnCyclePort
+            // 
+            btnCyclePort.BackColor = Color.FromArgb(255, 248, 220);
+            btnCyclePort.Location = new Point(200, 105);
+            btnCyclePort.Name = "btnCyclePort";
+            btnCyclePort.Size = new Size(175, 30);
+            btnCyclePort.TabIndex = 5;
+            btnCyclePort.Text = "⚡ Cycle Port";
+            btnCyclePort.UseVisualStyleBackColor = false;
+            btnCyclePort.Click += BtnCyclePort_Click;
+            // 
+            // btnDisconnectUsbHub
+            // 
+            btnDisconnectUsbHub.Location = new Point(385, 105);
+            btnDisconnectUsbHub.Name = "btnDisconnectUsbHub";
+            btnDisconnectUsbHub.Size = new Size(175, 30);
+            btnDisconnectUsbHub.TabIndex = 6;
+            btnDisconnectUsbHub.Text = "⏹️ Disconnect";
+            btnDisconnectUsbHub.UseVisualStyleBackColor = true;
+            btnDisconnectUsbHub.Click += BtnDisconnectUsbHub_Click;
+            // 
             // Form1
             // 
             AutoScaleDimensions = new SizeF(10F, 25F);
@@ -467,6 +571,7 @@
             Controls.Add(lblFolderFilter);
             Controls.Add(btnSelectFolder);
             Controls.Add(menuStrip);
+            Controls.Add(groupBoxUsbPortControl);
             Controls.Add(btnMonitorFolder);
             Font = new Font("Segoe UI", 9F);
             MainMenuStrip = menuStrip;
@@ -479,6 +584,7 @@
             menuStrip.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)grid).EndInit();
             ((System.ComponentModel.ISupportInitialize)pictureBox).EndInit();
+            groupBoxUsbPortControl.ResumeLayout(false);
             ResumeLayout(false);
             PerformLayout();
         }
@@ -516,5 +622,15 @@
         private System.Windows.Forms.Button btnMonitorFolder;
         private ToolStripMenuItem MenuConnectUsbLight;
         private Label lblUsbLightStatus;
+        private Button button1;
+
+        private System.Windows.Forms.Button btnCheckUsbSupport;
+        private System.Windows.Forms.Button btnTestUsbPortControl;
+        private System.Windows.Forms.Button btnConnectUsbHub;
+        private System.Windows.Forms.Button btnTestConnection;
+        private System.Windows.Forms.Button btnCyclePort;
+        private System.Windows.Forms.Button btnDisconnectUsbHub;
+        private System.Windows.Forms.GroupBox groupBoxUsbPortControl;
+        private System.Windows.Forms.Label lblUsbPortStatus;
     }
 }

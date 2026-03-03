@@ -1,1 +1,3 @@
 Timestamp,ImagePath,OriginalPrediction,OriginalConfidence,CorrectedLabel
+2025-12-20 13:35:39,"D:\Laptop\Code\Image_Checker\images\OK\B622BM5Y27G0000168___V00__.jpg","NG",0.5310,"OK"
+2025-12-20 13:37:12,"D:\Laptop\Code\Image_Checker\images\NG\B622BM5Y27G0000222___V00__.jpg","OK",0.7168,"NG"
