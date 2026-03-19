@@ -22,9 +22,12 @@ namespace Image_Checker.WinForm
         private bool _isProcessingQueue = false;
         // Add these fields at the top of Form1 class
         private UsbLightController _usbLight;
-        private int _abnormalCount = 0;
         //private Label lblUsbLightStatus; // You'll need to add this to your form designer
         private UsbPortPowerController _usbPortController;
+
+        private int _abnormalCount = 0;
+        private int _criticalMissCount = 0;
+        private int _falseAlarmCount = 0;
         public Form1()
         {
             InitializeComponent();
@@ -1841,87 +1844,101 @@ namespace Image_Checker.WinForm
             }
         }
 
+        // =============================================================================
+        // ONLY ONE METHOD CHANGES IN Form1.cs — PredictSingleImage
+        // Replace your existing PredictSingleImage with this complete version.
+        // Everything else in Form1.cs stays exactly as it was in the last full file.
+        // =============================================================================
+
         private void PredictSingleImage(string imagePath)
         {
             try
             {
                 lblSingleImageResult.Visible = true;
                 lblSingleImageResult.Text = "🔍 Analyzing image...";
-                lblSingleImageResult.BackColor = Color.FromArgb(255, 248, 220); // Light yellow
+                lblSingleImageResult.BackColor = Color.FromArgb(255, 248, 220);
                 Application.DoEvents();
 
-                // Initialize single predictor if not already done
-                if (_singlePredictor == null)
-                {
-                    _singlePredictor = new SingleImagePredictor(_modelPath);
-                }
-
-                // NEW: preprocess using ROI
                 var preprocessedPath = PreprocessForPrediction(imagePath);
 
-                // Get prediction with confidence
-                var (label, confidence) = _singlePredictor.PredictWithConfidence(preprocessedPath);
+                // ── DEBUG: Show raw OOD numbers in a message box ──────────────────
+                // Remove this block once you confirm OOD is working correctly.
+                var debug = _predictor.PredictDetailed(preprocessedPath);
+                MessageBox.Show(
+                    $"File:          {Path.GetFileName(imagePath)}\n\n" +
+                    $"Confidence:    {debug.Confidence:P2}\n" +
+                    $"Margin:        {debug.Margin:P2}\n" +
+                    $"Entropy Ratio: {debug.EntropyRatio:P2}\n\n" +
+                    $"OOD Rejected:  {debug.IsOutOfDistribution}\n" +
+                    $"Reason:        {debug.RejectionReason ?? "none — image looks like a weld"}",
+                    "OOD Diagnostics",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                // ── END DEBUG ─────────────────────────────────────────────────────
 
-                // Display the image
+                // THIS IS THE KEY LINE — uses _predictor (with OOD), NOT _singlePredictor
+                var (label, confidence) = _predictor.PredictWithConfidenceAndOodCheck(preprocessedPath);
+
+                // Display the original image
                 pictureBox.Image?.Dispose();
-                using (var fs = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using var fs = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                pictureBox.Image = Image.FromStream(fs);
+
+                // ── Image rejected as not a weld ──────────────────────────────────
+                if (label == Predictor.UNKNOWN_LABEL)
                 {
-                    pictureBox.Image = Image.FromStream(fs);
+                    lblSingleImageResult.BackColor = Color.FromArgb(224, 224, 224); // grey
+                    lblSingleImageResult.ForeColor = Color.FromArgb(66, 66, 66);
+                    lblSingleImageResult.Text =
+                        $"⚠️ Not a valid weld image — prediction rejected\n" +
+                        $"   Raw confidence: {confidence:P2} — failed OOD checks.\n" +
+                        $"   Please select a weld photo.";
+
+                    lblInfo.Text = $"{Path.GetFileName(imagePath)} | Rejected: not a valid weld image";
+                    lblStatus.Text = $"⚠️ Image rejected — does not look like a weld ({confidence:P2} raw confidence)";
+                    lblStatus.BackColor = Color.FromArgb(224, 224, 224);
+                    lblStatus.ForeColor = Color.FromArgb(66, 66, 66);
+                    return;
                 }
 
-                // Update result label
+                // ── Valid weld image ──────────────────────────────────────────────
                 string confidenceText = $"{confidence:P2}";
                 Color resultColor;
                 string emoji;
 
                 if (confidence >= 0.90f)
                 {
-                    resultColor = Color.FromArgb(232, 245, 233); // Light green
+                    resultColor = Color.FromArgb(232, 245, 233);
                     emoji = "✅";
                 }
                 else if (confidence >= 0.70f)
                 {
-                    resultColor = Color.FromArgb(255, 248, 220); // Light yellow
+                    resultColor = Color.FromArgb(255, 248, 220);
                     emoji = "⚠️";
                 }
                 else
                 {
-                    resultColor = Color.FromArgb(255, 235, 238); // Light red
+                    resultColor = Color.FromArgb(255, 235, 238);
                     emoji = "❓";
                 }
 
                 lblSingleImageResult.BackColor = resultColor;
-                lblSingleImageResult.Text = $"{emoji} Prediction: {label} ({confidenceText} confidence)";
                 lblSingleImageResult.ForeColor = confidence >= 0.70f
                     ? Color.FromArgb(46, 125, 50)
                     : Color.FromArgb(211, 47, 47);
+                lblSingleImageResult.Text = $"{emoji} Prediction: {label} ({confidenceText} confidence)";
 
-                // Update info label
                 lblInfo.Text = $"{Path.GetFileName(imagePath)} | Prediction: {label} ({confidenceText})";
-
-                // Update status
                 lblStatus.Text = $"✅ Single image predicted: {label} ({confidenceText})";
-
-                // Show detailed scores if needed
-                var detailedResult = _singlePredictor.PredictWithAllScores(preprocessedPath);
-                if (detailedResult.AllScores != null && detailedResult.AllScores.Length > 0)
-                {
-                    var scoresText = new StringBuilder();
-                    scoresText.AppendLine($"\nDetailed Scores:");
-                    for (int i = 0; i < detailedResult.AllScores.Length; i++)
-                    {
-                        scoresText.AppendLine($"  Class {i}: {detailedResult.AllScores[i]:P2}");
-                    }
-                    Console.WriteLine(scoresText.ToString());
-                }
+                lblStatus.BackColor = resultColor;
+                lblStatus.ForeColor = SystemColors.ControlText;
             }
             catch (Exception ex)
             {
                 lblSingleImageResult.Visible = true;
                 lblSingleImageResult.Text = $"❌ Prediction failed: {ex.Message}";
-                lblSingleImageResult.BackColor = Color.FromArgb(255, 235, 238); // Light red
+                lblSingleImageResult.BackColor = Color.FromArgb(255, 235, 238);
                 lblSingleImageResult.ForeColor = Color.FromArgb(211, 47, 47);
-
                 lblStatus.Text = $"❌ Prediction failed: {ex.Message}";
                 MessageBox.Show($"Failed to predict image:\n\n{ex.Message}",
                     "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -1944,6 +1961,74 @@ namespace Image_Checker.WinForm
             }
         }
 
+        //private void StartFolderMonitoring()
+        //{
+        //    if (_predictor == null)
+        //    {
+        //        MessageBox.Show("Model not loaded. Please configure a model first.",
+        //            "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        //        return;
+        //    }
+
+        //    using var dialog = new FolderBrowserDialog
+        //    {
+        //        Description = "Select root folder containing class subfolders (OK, NG, etc.)"
+        //    };
+
+        //    if (dialog.ShowDialog() != DialogResult.OK)
+        //        return;
+
+        //    _monitoredFolder = dialog.SelectedPath;
+
+        //    // Verify it has subfolders
+        //    var classFolders = Directory.GetDirectories(_monitoredFolder);
+        //    if (classFolders.Length == 0)
+        //    {
+        //        MessageBox.Show("Selected folder has no subfolders.\n\n" +
+        //                       "Please select a folder containing class subfolders like 'OK', 'NG', etc.",
+        //            "No Class Folders", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        //        return;
+        //    }
+
+        //    try
+        //    {
+        //        // Initialize timer for batch processing
+        //        _processingTimer = new System.Windows.Forms.Timer();
+        //        _processingTimer.Interval = 2000; // Process queue every 2 seconds
+        //        _processingTimer.Tick += ProcessImageQueue;
+        //        _processingTimer.Start();
+
+        //        // Setup FileSystemWatcher
+        //        _folderWatcher = new FileSystemWatcher(_monitoredFolder)
+        //        {
+        //            IncludeSubdirectories = true,
+        //            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
+        //            Filter = "*.*"
+        //        };
+
+        //        _folderWatcher.Created += OnNewImageDetected;
+        //        _folderWatcher.EnableRaisingEvents = true;
+
+        //        btnMonitorFolder.Text = "👁️ Monitor Folder (ON)";
+        //        btnMonitorFolder.BackColor = Color.FromArgb(76, 175, 80); // Green
+
+        //        lblStatus.Text = $"✅ Monitoring: {_monitoredFolder}\n" +
+        //                        $"   Class folders: {string.Join(", ", classFolders.Select(f => Path.GetFileName(f)))}";
+
+        //        MessageBox.Show($"Folder monitoring started!\n\n" +
+        //                       $"Monitoring: {_monitoredFolder}\n" +
+        //                       $"Class folders: {classFolders.Length}\n\n" +
+        //                       $"New images will be automatically predicted.",
+        //            "Monitoring Active", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        MessageBox.Show($"Failed to start monitoring:\n{ex.Message}",
+        //            "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        //        StopFolderMonitoring();
+        //    }
+        //}
+
         private void StartFolderMonitoring()
         {
             if (_predictor == null)
@@ -1958,30 +2043,27 @@ namespace Image_Checker.WinForm
                 Description = "Select root folder containing class subfolders (OK, NG, etc.)"
             };
 
-            if (dialog.ShowDialog() != DialogResult.OK)
-                return;
+            if (dialog.ShowDialog() != DialogResult.OK) return;
 
             _monitoredFolder = dialog.SelectedPath;
 
-            // Verify it has subfolders
             var classFolders = Directory.GetDirectories(_monitoredFolder);
             if (classFolders.Length == 0)
             {
-                MessageBox.Show("Selected folder has no subfolders.\n\n" +
-                               "Please select a folder containing class subfolders like 'OK', 'NG', etc.",
+                MessageBox.Show(
+                    "Selected folder has no subfolders.\n\n" +
+                    "Please select a folder containing class subfolders like 'OK', 'NG', etc.",
                     "No Class Folders", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
             try
             {
-                // Initialize timer for batch processing
                 _processingTimer = new System.Windows.Forms.Timer();
-                _processingTimer.Interval = 2000; // Process queue every 2 seconds
+                _processingTimer.Interval = 2000;
                 _processingTimer.Tick += ProcessImageQueue;
                 _processingTimer.Start();
 
-                // Setup FileSystemWatcher
                 _folderWatcher = new FileSystemWatcher(_monitoredFolder)
                 {
                     IncludeSubdirectories = true,
@@ -1993,15 +2075,24 @@ namespace Image_Checker.WinForm
                 _folderWatcher.EnableRaisingEvents = true;
 
                 btnMonitorFolder.Text = "👁️ Monitor Folder (ON)";
-                btnMonitorFolder.BackColor = Color.FromArgb(76, 175, 80); // Green
+                btnMonitorFolder.BackColor = Color.FromArgb(76, 175, 80);
+
+                // Reset all counters when starting a fresh monitoring session
+                _criticalMissCount = 0;
+                _falseAlarmCount = 0;
+                _abnormalCount = 0;
 
                 lblStatus.Text = $"✅ Monitoring: {_monitoredFolder}\n" +
-                                $"   Class folders: {string.Join(", ", classFolders.Select(f => Path.GetFileName(f)))}";
+                                      $"   Class folders: {string.Join(", ", classFolders.Select(f => Path.GetFileName(f)))}";
+                lblStatus.BackColor = SystemColors.Control;
+                lblStatus.ForeColor = SystemColors.ControlText;
 
-                MessageBox.Show($"Folder monitoring started!\n\n" +
-                               $"Monitoring: {_monitoredFolder}\n" +
-                               $"Class folders: {classFolders.Length}\n\n" +
-                               $"New images will be automatically predicted.",
+                MessageBox.Show(
+                    $"Folder monitoring started!\n\n" +
+                    $"Monitoring: {_monitoredFolder}\n" +
+                    $"Class folders: {classFolders.Length}\n\n" +
+                    $"New images will be automatically predicted.\n" +
+                    $"🔴 Critical misses (NG→OK) will trigger USB light + red alert.",
                     "Monitoring Active", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
@@ -2079,16 +2170,156 @@ namespace Image_Checker.WinForm
         }
 
         // Updated ProcessImageQueue with USB light control
+        //private void ProcessImageQueue(object sender, EventArgs e)
+        //{
+        //    if (_isProcessingQueue || _predictor == null)
+        //        return;
+
+        //    string imagePath = null;
+        //    lock (_newImageQueue)
+        //    {
+        //        if (_newImageQueue.Count == 0)
+        //            return;
+        //        imagePath = _newImageQueue.Dequeue();
+        //    }
+
+        //    _isProcessingQueue = true;
+
+        //    try
+        //    {
+        //        // Verify file still exists and is accessible
+        //        if (!File.Exists(imagePath))
+        //        {
+        //            Console.WriteLine($"⚠️ File no longer exists: {Path.GetFileName(imagePath)}");
+        //            return;
+        //        }
+
+        //        // Wait for file to be fully written
+        //        for (int i = 0; i < 3; i++)
+        //        {
+        //            try
+        //            {
+        //                using (var fs = File.Open(imagePath, FileMode.Open, FileAccess.Read, FileShare.None))
+        //                {
+        //                    break; // File is accessible
+        //                }
+        //            }
+        //            catch (IOException)
+        //            {
+        //                if (i == 2) throw;
+        //                Thread.Sleep(500);
+        //            }
+        //        }
+
+        //        // Get class folder name
+        //        var classFolder = new DirectoryInfo(Path.GetDirectoryName(imagePath)).Name;
+
+        //        // Predict
+        //        var (label, confidence) = _predictor.PredictWithConfidence(imagePath);
+        //        string cleanLabel = label?.Trim().Trim('"') ?? "Unknown";
+
+        //        // Check for mismatch (abnormal)
+        //        bool isAbnormal = !classFolder.Equals(cleanLabel, StringComparison.OrdinalIgnoreCase);
+
+        //        // Log to console
+        //        Console.WriteLine($"🔍 Auto-predicted: {Path.GetFileName(imagePath)}");
+        //        Console.WriteLine($"   Folder: {classFolder} | Prediction: {cleanLabel} ({confidence:P2})");
+
+        //        if (isAbnormal)
+        //        {
+        //            _abnormalCount++;
+        //            Console.WriteLine($"⚠️ ABNORMAL DETECTED! Count: {_abnormalCount}");
+
+        //            // Turn ON USB light for abnormal detection
+        //            if (_usbLight.IsConnected)
+        //            {
+        //                _usbLight.TurnOn();
+        //            }
+        //        }
+        //        else
+        //        {
+        //            Console.WriteLine($"✅ Normal classification");
+
+        //            // Turn OFF USB light if no more abnormals in queue
+        //            if (_abnormalCount == 0 && _usbLight.IsConnected)
+        //            {
+        //                _usbLight.TurnOff();
+        //            }
+        //        }
+
+        //        // Update status
+        //        string statusEmoji = isAbnormal ? "⚠️" : "✅";
+        //        Color statusColor = isAbnormal
+        //            ? Color.FromArgb(255, 235, 238)  // Light red
+        //            : Color.FromArgb(232, 245, 233); // Light green
+
+        //        Invoke(new Action(() =>
+        //        {
+        //            lblStatus.Text = $"{statusEmoji} Auto-prediction:\n" +
+        //                           $"   File: {Path.GetFileName(imagePath)}\n" +
+        //                           $"   Folder: {classFolder} → Predicted: {cleanLabel} ({confidence:P2})\n" +
+        //                           $"   Abnormal detections: {_abnormalCount}";
+        //            lblStatus.BackColor = statusColor;
+        //        }));
+
+        //        // Add to results if mismatch detected
+        //        if (isAbnormal)
+        //        {
+        //            Invoke(new Action(() =>
+        //            {
+        //                _results.Add(new ImageResult
+        //                {
+        //                    FileName = Path.GetFileName(imagePath),
+        //                    ImagePath = imagePath,
+        //                    Subfolder = classFolder,
+        //                    PredictedLabel = cleanLabel,
+        //                    CorrectedLabel = cleanLabel,
+        //                    Confidence = confidence
+        //                });
+
+        //                // Refresh grid
+        //                PopulateGrid(_results);
+        //                PopulateFilters();
+
+        //                // Show notification for high-confidence mismatches
+        //                if (confidence > 0.7f)
+        //                {
+        //                    // Play alert sound
+        //                    System.Media.SystemSounds.Exclamation.Play();
+
+        //                    MessageBox.Show(
+        //                        $"⚠️ ABNORMAL DETECTION!\n\n" +
+        //                        $"File: {Path.GetFileName(imagePath)}\n" +
+        //                        $"Current Folder: {classFolder}\n" +
+        //                        $"Predicted: {cleanLabel} ({confidence:P2})\n\n" +
+        //                        $"USB Light has been turned ON.\n" +
+        //                        $"Total abnormals: {_abnormalCount}\n\n" +
+        //                        $"Please review and correct.",
+        //                        "Quality Alert",
+        //                        MessageBoxButtons.OK,
+        //                        MessageBoxIcon.Warning);
+        //                }
+        //            }));
+        //        }
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        Console.WriteLine($"❌ Failed to process {Path.GetFileName(imagePath)}: {ex.Message}");
+        //    }
+        //    finally
+        //    {
+        //        _isProcessingQueue = false;
+        //    }
+        //}
+
         private void ProcessImageQueue(object sender, EventArgs e)
         {
-            if (_isProcessingQueue || _predictor == null)
-                return;
+            if (_isProcessingQueue || _predictor == null) return;
 
             string imagePath = null;
             lock (_newImageQueue)
             {
-                if (_newImageQueue.Count == 0)
-                    return;
+                if (_newImageQueue.Count == 0) return;
                 imagePath = _newImageQueue.Dequeue();
             }
 
@@ -2096,22 +2327,19 @@ namespace Image_Checker.WinForm
 
             try
             {
-                // Verify file still exists and is accessible
                 if (!File.Exists(imagePath))
                 {
                     Console.WriteLine($"⚠️ File no longer exists: {Path.GetFileName(imagePath)}");
                     return;
                 }
 
-                // Wait for file to be fully written
+                // Wait for file to finish writing
                 for (int i = 0; i < 3; i++)
                 {
                     try
                     {
-                        using (var fs = File.Open(imagePath, FileMode.Open, FileAccess.Read, FileShare.None))
-                        {
-                            break; // File is accessible
-                        }
+                        using var fs = File.Open(imagePath, FileMode.Open, FileAccess.Read, FileShare.None);
+                        break;
                     }
                     catch (IOException)
                     {
@@ -2120,59 +2348,84 @@ namespace Image_Checker.WinForm
                     }
                 }
 
-                // Get class folder name
-                var classFolder = new DirectoryInfo(Path.GetDirectoryName(imagePath)).Name;
+                // Ground truth = the subfolder the image was placed in BEFORE prediction
+                string groundTruth = new DirectoryInfo(Path.GetDirectoryName(imagePath)).Name;
 
-                // Predict
+                // Run prediction
                 var (label, confidence) = _predictor.PredictWithConfidence(imagePath);
                 string cleanLabel = label?.Trim().Trim('"') ?? "Unknown";
 
-                // Check for mismatch (abnormal)
-                bool isAbnormal = !classFolder.Equals(cleanLabel, StringComparison.OrdinalIgnoreCase);
+                // ── Classify the result ───────────────────────────────────────
+                //
+                //  CRITICAL MISS : NG folder → predicted OK
+                //                  A defective product is about to pass as good.
+                //                  This is the dangerous case — escalate immediately.
+                //
+                //  FALSE ALARM   : OK folder → predicted NG
+                //                  A good product was incorrectly flagged.
+                //                  Annoying, but NOT a safety risk.
+                //
+                //  CORRECT       : folder label matches prediction — all good.
+                //
+                bool isCriticalMiss = groundTruth.Equals("NG", StringComparison.OrdinalIgnoreCase)
+                                   && cleanLabel.Equals("OK", StringComparison.OrdinalIgnoreCase);
 
-                // Log to console
+                bool isFalseAlarm = groundTruth.Equals("OK", StringComparison.OrdinalIgnoreCase)
+                                   && cleanLabel.Equals("NG", StringComparison.OrdinalIgnoreCase);
+
+                bool isCorrect = !isCriticalMiss && !isFalseAlarm;
+
                 Console.WriteLine($"🔍 Auto-predicted: {Path.GetFileName(imagePath)}");
-                Console.WriteLine($"   Folder: {classFolder} | Prediction: {cleanLabel} ({confidence:P2})");
+                Console.WriteLine($"   Folder (truth): {groundTruth}  |  Predicted: {cleanLabel} ({confidence:P2})");
 
-                if (isAbnormal)
+                // ── React based on result ─────────────────────────────────────
+                if (isCriticalMiss)
                 {
+                    _criticalMissCount++;
                     _abnormalCount++;
-                    Console.WriteLine($"⚠️ ABNORMAL DETECTED! Count: {_abnormalCount}");
+                    Console.WriteLine($"🔴 CRITICAL MISS #{_criticalMissCount} — NG product predicted as OK!");
 
-                    // Turn ON USB light for abnormal detection
+                    // USB light ON immediately — stays ON until user clears alerts
                     if (_usbLight.IsConnected)
-                    {
                         _usbLight.TurnOn();
-                    }
+
+                    // Switch to UI thread for all visual updates
+                    Invoke(new Action(() => FlashCriticalAlert(imagePath, Path.GetFileName(imagePath), confidence)));
+                }
+                else if (isFalseAlarm)
+                {
+                    _falseAlarmCount++;
+                    Console.WriteLine($"🟡 False alarm #{_falseAlarmCount} — OK product flagged as NG");
+
+                    // No USB light for false alarms — not a safety risk
+                    Invoke(new Action(() =>
+                    {
+                        lblStatus.Text = $"🟡 False Alarm #{_falseAlarmCount}: {Path.GetFileName(imagePath)}\n" +
+                                              $"   Folder: OK  →  Predicted: NG ({confidence:P2})\n" +
+                                              $"   Good product incorrectly flagged — not a safety risk.";
+                        lblStatus.BackColor = Color.FromArgb(255, 248, 220); // soft yellow
+                        lblStatus.ForeColor = SystemColors.ControlText;
+                    }));
                 }
                 else
                 {
-                    Console.WriteLine($"✅ Normal classification");
+                    Console.WriteLine($"✅ Correct prediction");
 
-                    // Turn OFF USB light if no more abnormals in queue
-                    if (_abnormalCount == 0 && _usbLight.IsConnected)
-                    {
+                    // Only turn off USB light when no critical misses are still active
+                    if (_criticalMissCount == 0 && _usbLight.IsConnected)
                         _usbLight.TurnOff();
-                    }
+
+                    Invoke(new Action(() =>
+                    {
+                        lblStatus.Text = $"✅ Correct: {groundTruth} → {cleanLabel} ({confidence:P2})\n" +
+                                              $"   Critical misses: {_criticalMissCount}  |  False alarms: {_falseAlarmCount}";
+                        lblStatus.BackColor = Color.FromArgb(232, 245, 233); // soft green
+                        lblStatus.ForeColor = SystemColors.ControlText;
+                    }));
                 }
 
-                // Update status
-                string statusEmoji = isAbnormal ? "⚠️" : "✅";
-                Color statusColor = isAbnormal
-                    ? Color.FromArgb(255, 235, 238)  // Light red
-                    : Color.FromArgb(232, 245, 233); // Light green
-
-                Invoke(new Action(() =>
-                {
-                    lblStatus.Text = $"{statusEmoji} Auto-prediction:\n" +
-                                   $"   File: {Path.GetFileName(imagePath)}\n" +
-                                   $"   Folder: {classFolder} → Predicted: {cleanLabel} ({confidence:P2})\n" +
-                                   $"   Abnormal detections: {_abnormalCount}";
-                    lblStatus.BackColor = statusColor;
-                }));
-
-                // Add to results if mismatch detected
-                if (isAbnormal)
+                // Add any mismatch to the results grid so the user can review/correct it
+                if (!isCorrect)
                 {
                     Invoke(new Action(() =>
                     {
@@ -2180,34 +2433,14 @@ namespace Image_Checker.WinForm
                         {
                             FileName = Path.GetFileName(imagePath),
                             ImagePath = imagePath,
-                            Subfolder = classFolder,
+                            Subfolder = groundTruth,
                             PredictedLabel = cleanLabel,
                             CorrectedLabel = cleanLabel,
                             Confidence = confidence
                         });
 
-                        // Refresh grid
                         PopulateGrid(_results);
                         PopulateFilters();
-
-                        // Show notification for high-confidence mismatches
-                        if (confidence > 0.7f)
-                        {
-                            // Play alert sound
-                            System.Media.SystemSounds.Exclamation.Play();
-
-                            MessageBox.Show(
-                                $"⚠️ ABNORMAL DETECTION!\n\n" +
-                                $"File: {Path.GetFileName(imagePath)}\n" +
-                                $"Current Folder: {classFolder}\n" +
-                                $"Predicted: {cleanLabel} ({confidence:P2})\n\n" +
-                                $"USB Light has been turned ON.\n" +
-                                $"Total abnormals: {_abnormalCount}\n\n" +
-                                $"Please review and correct.",
-                                "Quality Alert",
-                                MessageBoxButtons.OK,
-                                MessageBoxIcon.Warning);
-                        }
                     }));
                 }
             }
@@ -2221,39 +2454,70 @@ namespace Image_Checker.WinForm
             }
         }
 
+        private async void FlashCriticalAlert(string imagePath, string fileName, float confidence)
+        {
+            // Show the offending image immediately so the operator can see it
+            if (File.Exists(imagePath))
+            {
+                pictureBox.Image?.Dispose();
+                using var fs = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                pictureBox.Image = Image.FromStream(fs);
+            }
+
+            // Set status to urgent red with white text
+            lblStatus.Text = $"🔴 CRITICAL MISS #{_criticalMissCount} — DEFECTIVE PRODUCT PASSED AS OK!\n" +
+                                  $"   File: {fileName}  |  Confidence: {confidence:P2}\n" +
+                                  $"   USB alert light is ON — inspect this product immediately.\n" +
+                                  $"   Click 'Clear Alerts' once the product has been removed.";
+            lblStatus.BackColor = Color.FromArgb(211, 47, 47);  // strong red
+            lblStatus.ForeColor = Color.White;
+
+            // Pulse 6 times (red ↔ darker red) to catch the operator's eye
+            for (int i = 0; i < 6; i++)
+            {
+                lblStatus.BackColor = i % 2 == 0
+                    ? Color.FromArgb(211, 47, 47)   // red
+                    : Color.FromArgb(183, 28, 28);  // darker red
+                await Task.Delay(250);
+            }
+
+            // Settle on steady red — stays until operator clicks Clear Alerts
+            lblStatus.BackColor = Color.FromArgb(211, 47, 47);
+            lblStatus.ForeColor = Color.White;
+        }
+
         // Add button to clear abnormal count and turn off light
         private void BtnClearAbnormals_Click(object sender, EventArgs e)
         {
-            if (_abnormalCount == 0)
+            if (_criticalMissCount == 0 && _falseAlarmCount == 0 && _abnormalCount == 0)
             {
-                MessageBox.Show("No abnormal detections to clear.",
-                    "Nothing to Clear", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("No alerts to clear.", "Nothing to Clear",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
             var result = MessageBox.Show(
-                $"Clear {_abnormalCount} abnormal detection(s) and turn off USB light?\n\n" +
-                "This will reset the counter but won't remove corrections from the list.",
-                "Clear Abnormals",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question);
+                $"Clear all alerts and turn off USB light?\n\n" +
+                $"🔴 Critical misses (NG→OK):  {_criticalMissCount}\n" +
+                $"🟡 False alarms   (OK→NG):   {_falseAlarmCount}\n\n" +
+                $"Session counters will reset. Monitoring continues.",
+                "Clear Alerts", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
 
             if (result == DialogResult.Yes)
             {
+                _criticalMissCount = 0;
+                _falseAlarmCount = 0;
                 _abnormalCount = 0;
 
                 if (_usbLight.IsConnected)
-                {
                     _usbLight.TurnOff();
-                }
 
-                lblStatus.Text = "✅ Abnormal count cleared, USB light turned off";
-                lblStatus.BackColor = Color.FromArgb(232, 245, 233); // Light green
-
-                MessageBox.Show("Abnormal count reset. Monitoring continues.",
-                    "Cleared", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                lblStatus.Text = "✅ Alerts cleared — monitoring continues.";
+                lblStatus.BackColor = Color.FromArgb(232, 245, 233); // soft green
+                lblStatus.ForeColor = SystemColors.ControlText;       // restore default
             }
         }
+
 
         private Rectangle _roiRect = Rectangle.Empty;
 

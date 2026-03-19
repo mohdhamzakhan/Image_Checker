@@ -1,11 +1,13 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 18
-VisualStudioVersion = 18.0.11217.181 d18.0
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.37012.4 d17.14
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Image_Checker", "Image_Checker\Image_Checker.csproj", "{1C00EB92-A725-4424-9D62-A8D3406650F5}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Image_Checker.WinForm", "Image_Checker.WinForm\Image_Checker.WinForm.csproj", "{AB80BE79-26FC-45D4-B865-708CEFE8CA9E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Image_Checker.Forms", "Image_Checker.Forms\Image_Checker.Forms.csproj", "{8319416B-9A74-448F-BD83-EDBE0C6968AB}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -21,6 +23,10 @@ Global
 		{AB80BE79-26FC-45D4-B865-708CEFE8CA9E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{AB80BE79-26FC-45D4-B865-708CEFE8CA9E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{AB80BE79-26FC-45D4-B865-708CEFE8CA9E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8319416B-9A74-448F-BD83-EDBE0C6968AB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8319416B-9A74-448F-BD83-EDBE0C6968AB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8319416B-9A74-448F-BD83-EDBE0C6968AB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8319416B-9A74-448F-BD83-EDBE0C6968AB}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
