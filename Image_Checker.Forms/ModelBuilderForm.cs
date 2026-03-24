@@ -24,7 +24,8 @@ namespace Image_Checker.Forms
         private readonly DataPreprocessor _pp = new();
         private DataTable? _raw;
         private PreprocessingSummary? _lastPrep;
-        private string? _savedModel;
+        private string? _savedModel;      // primary model path
+        private string? _savedSsaModel;   // SSA model path (TS tasks)
         private CancellationTokenSource? _cts;
 
         // ── algorithm descriptions ─────────────────────────────────────────
@@ -425,7 +426,9 @@ namespace Image_Checker.Forms
                 {
                     DateColumn = cmbTsDate.SelectedIndex > 0
                                         ? cmbTsDate.SelectedItem?.ToString() : null,
-                    HorizonSteps = (int)nudTsHorizon.Value,
+                    // Ensure HorizonSteps > 0 — ResolveTaskType checks this to confirm TS.
+                    // If the spinner is 0 (default before user sets it), use 12 as a safe default.
+                    HorizonSteps = (int)nudTsHorizon.Value > 0 ? (int)nudTsHorizon.Value : 12,
                     Granularity = cmbTsGran.SelectedItem?.ToString() ?? "Month",
                     WindowSize = (int)nudTsWindow.Value,
                     SeriesLength = (int)nudTsSeries.Value,
@@ -578,6 +581,7 @@ namespace Image_Checker.Forms
             btnCancelTrain.Enabled = true;
             btnSaveModel.Enabled = btnExportReport.Enabled = false;
             _savedModel = null;
+            _savedSsaModel = null;
 
             PreprocessingSummary? prep = null;
             string? mPath = null;
@@ -599,7 +603,14 @@ namespace Image_Checker.Forms
                         // Build final trainer config from the snapshot + preprocessed paths
                         var cfg = new DataTrainerConfig
                         {
-                            DataFilePath = prep.TempCsvPath,
+                            // For TimeSeries: use the ORIGINAL raw file, not the preprocessed CSV.
+                            // The SSA pipeline needs TRX_DATE and raw QUANTITY_INVOICED values
+                            // for date-based aggregation. The preprocessed CSV has those columns
+                            // stripped / one-hot encoded and cannot be used for TS aggregation.
+                            // For tabular tasks: use prep.TempCsvPath (cleaned, encoded data).
+                            DataFilePath = trainerBase.Task == TaskType.TimeSeries
+                                                    ? filePath
+                                                    : prep.TempCsvPath,
                             Separator = ',',
                             HasHeader = true,
                             LabelColumnName = trainerBase.LabelColumnName,
@@ -625,6 +636,26 @@ namespace Image_Checker.Forms
                 if (mPath == null) { LogColor("\n⚠️ Cancelled.", Color.Gold); SetStatus("Cancelled.", false); return; }
 
                 _savedModel = mPath; _lastPrep = prep;
+
+                // When task = TimeSeries, mPath is the SSA model.
+                // The regression companion was also saved in the same folder.
+                // Store the SSA path explicitly so the Results tab can show both.
+                if (ParseTask() == TaskType.TimeSeries && mPath != null)
+                {
+                    _savedSsaModel = mPath;
+                    // Find the regression companion (most recent bestModel-* in same dir that is NOT SSA)
+                    var dir = Path.GetDirectoryName(mPath) ?? "";
+                    var regressionZip = Directory.GetFiles(dir, "bestModel-*_Regression-*.zip")
+                        .OrderByDescending(f => File.GetLastWriteTime(f))
+                        .FirstOrDefault();
+                    if (regressionZip != null)
+                        _savedModel = regressionZip; // keep regression as "tabular" model too
+                }
+                else
+                {
+                    _savedSsaModel = null;
+                }
+
                 LogColor($"\n✅ Saved:\n   {mPath}", Color.LightGreen);
                 FillResults(mPath);
                 tabMain.SelectedTab = tpResults;
@@ -647,11 +678,42 @@ namespace Image_Checker.Forms
         private void FillResults(string path)
         {
             if (InvokeRequired) { Invoke(() => FillResults(path)); return; }
-            lblResultTitle.Text = $"🏆  Best model: {Path.GetFileNameWithoutExtension(path)}";
+
+            bool isTs = ParseTask() == TaskType.TimeSeries;
+
+            lblResultTitle.Text = isTs
+                ? "📅  Time-Series training complete — SSA + Regression models saved"
+                : $"🏆  Best model: {Path.GetFileNameWithoutExtension(path)}";
+
             var dt = new DataTable();
             dt.Columns.Add("Property"); dt.Columns.Add("Value");
-            dt.Rows.Add("Model File", Path.GetFileName(path));
-            dt.Rows.Add("Saved To", Path.GetDirectoryName(path));
+
+            if (isTs && _savedSsaModel != null)
+            {
+                dt.Rows.Add("== SSA FORECAST MODEL ==", "(load this for forecasting)");
+                dt.Rows.Add("SSA File", Path.GetFileName(_savedSsaModel));
+                dt.Rows.Add("SSA Folder", Path.GetDirectoryName(_savedSsaModel));
+                dt.Rows.Add("Use for", "Time-Series Forecast tab");
+                dt.Rows.Add("", "");
+
+                var dir = Path.GetDirectoryName(_savedSsaModel) ?? "";
+                var regZip = Directory.GetFiles(dir, "bestModel-*_Regression-*.zip")
+                    .OrderByDescending(f => File.GetLastWriteTime(f)).FirstOrDefault();
+                if (regZip != null)
+                {
+                    dt.Rows.Add("== REGRESSION MODEL ==", "(load this for row prediction)");
+                    dt.Rows.Add("Regression File", Path.GetFileName(regZip));
+                    dt.Rows.Add("Regression Folder", Path.GetDirectoryName(regZip));
+                    dt.Rows.Add("Use for", "Input Data tab — predict by customer/item");
+                    dt.Rows.Add("", "");
+                }
+            }
+            else
+            {
+                dt.Rows.Add("Model File", Path.GetFileName(path));
+                dt.Rows.Add("Saved To", Path.GetDirectoryName(path));
+            }
+
             dt.Rows.Add("Label", cmbLabel.SelectedItem?.ToString());
             dt.Rows.Add("Task", ParseTask().ToString());
             dt.Rows.Add("Split", $"{100 - (int)nudTestPct.Value}% train / {nudTestPct.Value}% test");
@@ -664,9 +726,48 @@ namespace Image_Checker.Forms
                 dt.Rows.Add("Missing Fixed", _lastPrep.MissingValuesFixed);
                 dt.Rows.Add("Outliers Handled", _lastPrep.OutliersHandled);
             }
+
             dgvResults.DataSource = dt;
             rtbResultLog.Clear();
-            if (_lastPrep != null) foreach (var l in _lastPrep.Log) rtbResultLog.AppendText(l + "\n");
+
+            if (isTs && _savedSsaModel != null)
+            {
+                // Print clear instructions directly in the log panel
+                void Ln(string t, Color c)
+                {
+                    rtbResultLog.SelectionColor = c;
+                    rtbResultLog.AppendText(t + "");
+                }
+                Ln("TWO MODELS WERE SAVED", Color.Cyan);
+                Ln("═══════════════════════════════════════════════════", Color.FromArgb(100, 145, 215));
+                Ln("", Color.White);
+                Ln("📅  MODEL 1 — SSA FORECAST  (for time trend forecasting)", Color.LightGreen);
+                Ln($"   File : {Path.GetFileName(_savedSsaModel)}", Color.FromArgb(188, 210, 188));
+                Ln("   How  : Open Prediction Form", Color.FromArgb(188, 210, 188));
+                Ln("         → Browse & Load → select SSA file", Color.FromArgb(188, 210, 188));
+                Ln("         → Time-Series Forecast tab", Color.FromArgb(188, 210, 188));
+                Ln("         → Set horizon (e.g. 12) + Granularity = Month", Color.FromArgb(188, 210, 188));
+                Ln("         → Run Forecast", Color.FromArgb(188, 210, 188));
+                Ln("", Color.White);
+                var dir2 = Path.GetDirectoryName(_savedSsaModel) ?? "";
+                var reg2 = Directory.GetFiles(dir2, "bestModel-*_Regression-*.zip")
+                    .OrderByDescending(f => File.GetLastWriteTime(f)).FirstOrDefault();
+                if (reg2 != null)
+                {
+                    Ln("📊  MODEL 2 — REGRESSION  (predict qty for specific customer/item)", Color.LightSkyBlue);
+                    Ln($"   File : {Path.GetFileName(reg2)}", Color.FromArgb(188, 210, 188));
+                    Ln("   How  : Open Prediction Form", Color.FromArgb(188, 210, 188));
+                    Ln("         → Browse & Load → select Regression file", Color.FromArgb(188, 210, 188));
+                    Ln("         → Input Data tab", Color.FromArgb(188, 210, 188));
+                    Ln("         → Add Row, enter PARTY_NAME / INVENTORY_ITEM_ID / TRX_DATE", Color.FromArgb(188, 210, 188));
+                    Ln("         → Run Prediction", Color.FromArgb(188, 210, 188));
+                }
+            }
+            else if (_lastPrep != null)
+            {
+                foreach (var l in _lastPrep.Log) rtbResultLog.AppendText(l + "");
+            }
+
             btnSaveModel.Enabled = btnExportReport.Enabled = true;
         }
 

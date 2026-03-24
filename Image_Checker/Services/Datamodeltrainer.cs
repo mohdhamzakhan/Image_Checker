@@ -8,7 +8,6 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
-using static Google.Protobuf.Compiler.CodeGeneratorResponse.Types;
 
 namespace Image_Checker.Services
 {
@@ -88,29 +87,36 @@ namespace Image_Checker.Services
             // and has no numeric feature columns, only SSA runs.
             if (_resolvedTask == TaskType.TimeSeries)
             {
-                // Always run SSA
+                // ── (a) Always run SSA first ──────────────────────────────────────
                 var ssaPath = RunTimeSeriesPipeline(rawData, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Also run tabular regression if there are numeric feature columns
+                // ── (b) Also run tabular Regression for feature-based prediction ──
+                // SSA forecasts overall quantity trend over time.
+                // Regression predicts quantity for a specific customer+item combination.
+                // Both are saved; the SSA path is returned as primary so the UI shows it.
                 if (_numericCols.Length > 0 || _categoricalCols.Length > 0)
                 {
                     Console.WriteLine(
-                        "
-🔄 Also running Regression pipeline on all feature columns...");
+                        "\n\U0001f504 Also running Regression pipeline on all feature columns...");
                     Console.WriteLine(
-                        "   (SSA uses only the label series; regression uses all features)");
+                        "   (SSA = time trend forecast; Regression = per-customer/item prediction)");
 
-                    // Switch resolved task to Regression for the tabular run
                     _resolvedTask = TaskType.Regression;
                     var tabularPath = RunTabularPipeline(rawData, cancellationToken);
-
-                    // Restore resolved task for accurate reporting
                     _resolvedTask = TaskType.TimeSeries;
 
-                    // Return the tabular model path as the primary result
-                    // (SSA model was already saved above)
-                    return tabularPath ?? ssaPath;
+                    // Log both paths clearly so user knows which file does what
+                    if (ssaPath != null)
+                        Console.WriteLine($"\n\U0001f4c5 SSA forecast model  : {Path.GetFileName(ssaPath)}");
+                    if (tabularPath != null)
+                        Console.WriteLine($"\U0001f4ca Regression model     : {Path.GetFileName(tabularPath)}");
+                    Console.WriteLine("   Load the SSA model for time-series forecasting.");
+                    Console.WriteLine("   Load the Regression model for per-row quantity prediction.");
+
+                    // Return SSA path as primary — that is what the user trained TS for.
+                    // Regression is a bonus model saved alongside it.
+                    return ssaPath ?? tabularPath;
                 }
 
                 return ssaPath;
@@ -129,31 +135,120 @@ namespace Image_Checker.Services
             Console.WriteLine("\n📈 Running SSA Time-Series pipeline...");
             var ts = _cfg.TimeSeries;
 
-            // ── Step 1: Build a view that contains ONLY the float label column ──
-            // ForecastBySsa.inputColumnName must resolve to a Single (float) typed
-            // column in the schema.  We project the full data down to just that one
-            // column so there is no ambiguity regardless of what other columns exist.
-            IEstimator<ITransformer> projectStep;
-            if (_cfg.LabelColumnName == "Value")
+            // ── Step 1: Aggregate by date period ─────────────────────────────────
+            //
+            // REASON: Transactional data has MANY rows per date
+            // (e.g. 348,336 invoice rows → thousands of rows per month).
+            // SSA requires exactly ONE value per time step, otherwise it treats
+            // each transaction row as a separate step and produces meaningless
+            // tiny forecasts (e.g. 257 per step instead of monthly total 50,000).
+            //
+            // When a date column is configured we:
+            //   1. Read label (float) + date (string) columns into memory
+            //   2. Normalise each date to the granularity period key
+            //      Day  → "yyyy-MM-dd"
+            //      Month→ "yyyy-MM"      ← typical for invoice data
+            //      Year → "yyyy"
+            //   3. GROUP BY period key, SUM the label values
+            //   4. SORT ascending (SSA needs chronological order)
+            //   5. Reload as a new IDataView { "Value": Single }
+            //
+            // Example: 348,336 rows → 24 monthly sums → SSA trains on 24 real points.
+
+            IDataView seriesView;
+
+            if (!string.IsNullOrWhiteSpace(ts.DateColumn))
             {
-                // Column is already named "Value" – just copy to confirm it is float
-                projectStep = _ml.Transforms.CopyColumns("Value", _cfg.LabelColumnName);
+                Console.WriteLine($"   • Date column '{ts.DateColumn}' detected — aggregating by {ts.Granularity}...");
+
+                // Read label values (already typed as float by InferTextLoaderColumns)
+                var labelValues = rawData.GetColumn<float>(_cfg.LabelColumnName).ToList();
+
+                // Read date column. It may be typed as String or Single depending on content.
+                List<string> dateStrings;
+                try
+                {
+                    dateStrings = rawData.GetColumn<string>(ts.DateColumn).ToList();
+                }
+                catch
+                {
+                    // Column was typed as Single (e.g. bare year numbers like 2024)
+                    dateStrings = rawData.GetColumn<float>(ts.DateColumn)
+                                         .Select(f => ((int)f).ToString())
+                                         .ToList();
+                }
+
+                if (labelValues.Count != dateStrings.Count)
+                    throw new InvalidOperationException(
+                        $"Date column '{ts.DateColumn}' has {dateStrings.Count} rows " +
+                        $"but label column has {labelValues.Count} rows.");
+
+                // Convert one raw date string to a normalised period key
+                string ToPeriodKey(string raw)
+                {
+                    raw = raw?.Trim() ?? string.Empty;
+                    if (DateTime.TryParse(raw, out var dt))
+                    {
+                        return ts.Granularity switch
+                        {
+                            "Year" => dt.ToString("yyyy"),
+                            "Day" => dt.ToString("yyyy-MM-dd"),
+                            _ => dt.ToString("yyyy-MM")   // Month default
+                        };
+                    }
+                    // Bare 4-digit year (e.g. "2024")
+                    if (raw.Length == 4 && int.TryParse(raw, out _)) return raw;
+                    // Unknown format — truncate to first 10 chars and hope for the best
+                    return raw.Length > 10 ? raw[..10] : raw;
+                }
+
+                // Group → SUM → sort chronologically
+                var grouped = labelValues
+                    .Zip(dateStrings, (val, date) => (Key: ToPeriodKey(date), Val: val))
+                    .GroupBy(x => x.Key)
+                    .OrderBy(g => g.Key)
+                    .Select(g => new TsValueRow { Value = g.Sum(x => x.Val) })
+                    .ToList();
+
+                Console.WriteLine($"   • Aggregated {labelValues.Count:N0} rows → {grouped.Count} {ts.Granularity} periods");
+
+                if (grouped.Count < 4)
+                {
+                    Console.WriteLine($"   ❌ Only {grouped.Count} period(s) after aggregation — need ≥ 4.");
+                    Console.WriteLine($"      Check date column '{ts.DateColumn}' and granularity '{ts.Granularity}'.");
+                    return null;
+                }
+
+                // Print a preview of the aggregated series
+                var preview = labelValues
+                    .Zip(dateStrings, (val, date) => (Key: ToPeriodKey(date), Val: val))
+                    .GroupBy(x => x.Key)
+                    .OrderBy(g => g.Key)
+                    .ToList();
+                int show = Math.Min(preview.Count, 8);
+                Console.WriteLine($"   • Series preview (first {show} of {preview.Count} periods):");
+                for (int pi = 0; pi < show; pi++)
+                    Console.WriteLine($"      {preview[pi].Key}  →  {preview[pi].Sum(x => x.Val):N2}");
+                if (preview.Count > show)
+                    Console.WriteLine($"      ... ({preview.Count - show} more periods)");
+
+                seriesView = _ml.Data.LoadFromEnumerable(grouped);
             }
             else
             {
-                // Rename user's column to "Value" so SSA always finds it
-                projectStep = _ml.Transforms.CopyColumns("Value", _cfg.LabelColumnName);
+                // No date column — project label column → "Value", use rows in file order.
+                // User must ensure data is pre-sorted chronologically.
+                Console.WriteLine($"   • No date column configured — using rows in file order.");
+                Console.WriteLine($"     ⚠️  Ensure data is sorted chronologically for accurate SSA results.");
+                var projectStep2 = _ml.Transforms.CopyColumns("Value", _cfg.LabelColumnName);
+                seriesView = projectStep2.Fit(rawData).Transform(rawData);
             }
 
-            Console.WriteLine($"   • Projecting label '{_cfg.LabelColumnName}' → 'Value' (float)");
-            var projector = projectStep.Fit(rawData);
-            var projected = projector.Transform(rawData);   // schema now has "Value" : Single
+            // ── Step 2: Row count on the aggregated series ────────────────────────
+            long totalRows = seriesView.GetColumn<float>("Value").LongCount();
+            Console.WriteLine($"   • Series length after aggregation: {totalRows:N0} steps");
 
-            // ── Step 2: Row count (materialise via GetColumn, not DynamicRow) ───
-            long totalRows = projected.GetColumn<float>("Value").LongCount();
-            Console.WriteLine($"   • Total rows in series: {totalRows:N0}");
-
-            // ── Step 3: Compute parameters ────────────────────────────────────
+            // ── Step 3: Compute SSA parameters ───────────────────────────────────
             int trainSize = ts.TrainSize > 0
                 ? ts.TrainSize
                 : (int)(totalRows * (1.0 - _cfg.TestFraction));
@@ -164,47 +259,77 @@ namespace Image_Checker.Services
                 return null;
             }
 
-            int windowSize = ts.WindowSize;
+            int windowSize = ts.WindowSize > 0 ? ts.WindowSize : Math.Max(ts.HorizonSteps + 1, (int)(totalRows * 0.5));
             int horizon = ts.HorizonSteps;
             int seriesLen = ts.SeriesLength > 0 ? ts.SeriesLength : trainSize;
 
-            // SSA constraint: windowSize must be > horizon and ≤ seriesLength/2
-            if (windowSize <= horizon)
-            {
-                windowSize = horizon + 1;
-                Console.WriteLine($"   ⚠️  WindowSize auto-adjusted to {windowSize} (must be > horizon {horizon}).");
-            }
-            if (windowSize > seriesLen / 2)
-            {
-                windowSize = Math.Max(horizon + 1, seriesLen / 2);
-                Console.WriteLine($"   ⚠️  WindowSize capped to {windowSize} (must be ≤ SeriesLength/2).");
-            }
+            // Enforce all SSA constraints in strict dependency order.
+            // SSA requires: windowSize > horizon, seriesLen > windowSize, windowSize <= seriesLen/2,
+            // seriesLen <= trainSize. Wrong order causes the crash shown in the log:
+            //   "The series length should be greater than the window size."
+            // Common case: user sets SeriesLength=100, horizon=365 -> windowSize becomes 366,
+            // but seriesLen=100 < 366 -> crash.
+
+            // A: clamp seriesLen to available data first
             if (seriesLen > trainSize)
             {
                 seriesLen = trainSize;
-                Console.WriteLine($"   ⚠️  SeriesLength capped to {seriesLen} (cannot exceed trainSize).");
+                Console.WriteLine($"   ⚠️  SeriesLength capped to {seriesLen} (cannot exceed trainSize {trainSize}).");
             }
 
-            Console.WriteLine($"   • Label column  : {_cfg.LabelColumnName} → 'Value'");
-            Console.WriteLine($"   • Total rows    : {totalRows:N0}");
+            // B: windowSize must be > horizon
+            if (windowSize <= horizon)
+            {
+                windowSize = horizon + 1;
+                Console.WriteLine($"   ⚠️  WindowSize adjusted to {windowSize} (must be > horizon {horizon}).");
+            }
+
+            // C: seriesLen must be > windowSize (THE critical constraint that was missing)
+            if (seriesLen <= windowSize)
+            {
+                int needed = Math.Min(windowSize + 1, trainSize);
+                Console.WriteLine($"   ⚠️  SeriesLength {seriesLen} <= WindowSize {windowSize} - expanding to {needed}.");
+                seriesLen = needed;
+            }
+
+            // D: windowSize must be <= seriesLen / 2
+            if (windowSize > seriesLen / 2)
+            {
+                windowSize = Math.Max(horizon + 1, seriesLen / 2);
+                Console.WriteLine($"   ⚠️  WindowSize capped to {windowSize} (must be <= SeriesLength/2 = {seriesLen / 2}).");
+            }
+
+            // E: re-check C after D (D may have reduced windowSize below the threshold again)
+            if (seriesLen <= windowSize)
+            {
+                seriesLen = Math.Min(windowSize + 1, trainSize);
+                Console.WriteLine($"   ⚠️  SeriesLength re-adjusted to {seriesLen}.");
+            }
+
+            // F: final guard - seriesLen cannot exceed trainSize
+            if (seriesLen > trainSize)
+            {
+                seriesLen = trainSize;
+                Console.WriteLine($"   ⚠️  SeriesLength capped to trainSize {trainSize}.");
+            }
+
+            Console.WriteLine($"   • Label column  : {_cfg.LabelColumnName} → aggregated 'Value'");
+            Console.WriteLine($"   • Total periods : {totalRows:N0}");
             Console.WriteLine($"   • Train size    : {trainSize}");
             Console.WriteLine($"   • Horizon       : {horizon}");
             Console.WriteLine($"   • Window size   : {windowSize}");
             Console.WriteLine($"   • Series length : {seriesLen}");
             Console.WriteLine($"   • Confidence    : {ts.ConfidenceLevel:P0}");
-
-            if (!string.IsNullOrWhiteSpace(ts.DateColumn))
-                Console.WriteLine($"   ⚠️  Date column '{ts.DateColumn}' used for reference only. " +
-                                  $"Ensure data is pre-sorted by date for accurate SSA results.");
+            Console.WriteLine($"   • Granularity   : {ts.Granularity}");
 
             ct.ThrowIfCancellationRequested();
 
             try
             {
-                // ── Step 4: Build and fit the SSA forecaster on "Value" ─────────
+                // ── Step 4: Fit SSA on aggregated "Value" series ──────────────────
                 var ssaPipeline = _ml.Forecasting.ForecastBySsa(
                     outputColumnName: "Forecast",
-                    inputColumnName: "Value",      // always "Value" after projection
+                    inputColumnName: "Value",
                     windowSize: windowSize,
                     seriesLength: seriesLen,
                     trainSize: trainSize,
@@ -213,14 +338,14 @@ namespace Image_Checker.Services
                     confidenceLowerBoundColumn: "LowerBound",
                     confidenceUpperBoundColumn: "UpperBound");
 
-                Console.WriteLine("\n   ⏳ Fitting SSA model...");
-                var ssaModel = ssaPipeline.Fit(projected);
+                Console.WriteLine("\n   ⏳ Fitting SSA model on aggregated series...");
+                var ssaModel = ssaPipeline.Fit(seriesView);
                 Console.WriteLine("   ✅ SSA model fitted");
 
                 ct.ThrowIfCancellationRequested();
 
-                // ── Step 5: In-sample evaluation ─────────────────────────────────
-                var transformed = ssaModel.Transform(projected);
+                // ── Step 5: In-sample evaluation ──────────────────────────────────
+                var transformed = ssaModel.Transform(seriesView);
                 var forecastCol = transformed.GetColumn<float[]>("Forecast").ToList();
                 var actualCol = transformed.GetColumn<float>("Value").ToList();
 
@@ -235,35 +360,27 @@ namespace Image_Checker.Services
                 }
                 if (evalN > 0) { mae /= evalN; rmse = Math.Sqrt(rmse / evalN); }
 
-                Console.WriteLine($"\n📊 SSA In-sample metrics:");
-                Console.WriteLine($"   • MAE  : {mae:F4}");
-                Console.WriteLine($"   • RMSE : {rmse:F4}");
+                Console.WriteLine($"\n📊 SSA In-sample metrics (on aggregated series):");
+                Console.WriteLine($"   • MAE  : {mae:N2}");
+                Console.WriteLine($"   • RMSE : {rmse:N2}");
 
                 // ── Step 6: Print next-horizon forecast ───────────────────────────
-                Console.WriteLine($"\n🔮 Next {horizon}-step forecast:");
+                Console.WriteLine($"\n🔮 Next {horizon}-{ts.Granularity} forecast:");
                 var eng = ssaModel.CreateTimeSeriesEngine<TsValueRow, TsForecastRow>(_ml);
                 var forecast = eng.Predict();
                 for (int i = 0; i < forecast.Forecast.Length; i++)
                 {
-                    string lb = forecast.LowerBound.Length > i ? forecast.LowerBound[i].ToString("F4") : "—";
-                    string ub = forecast.UpperBound.Length > i ? forecast.UpperBound[i].ToString("F4") : "—";
-                    Console.WriteLine($"   Step {i + 1,3}: {forecast.Forecast[i]:F4}  [{lb} – {ub}]");
+                    string lb = forecast.LowerBound.Length > i ? forecast.LowerBound[i].ToString("N2") : "—";
+                    string ub = forecast.UpperBound.Length > i ? forecast.UpperBound[i].ToString("N2") : "—";
+                    Console.WriteLine($"   {ts.Granularity} {i + 1,3}: {forecast.Forecast[i]:N2}  [{lb} – {ub}]");
                 }
 
                 ct.ThrowIfCancellationRequested();
 
-                // ── Step 7: Save ONLY the ssaModel ───────────────────────────────
-                // We deliberately do NOT save the combined (CopyColumns → SSA) pipeline.
-                //
-                // Reason: if we save combinedPipeline.Fit(rawData), the saved model's
-                // input schema requires the ORIGINAL column name (e.g. "QUANTITY_INVOICED").
-                // At prediction time ModelPredictionForm builds a dummy IDataView with only
-                // a "Value" column — that would cause:
-                //   "Could not find input column 'QUANTITY_INVOICED'"
-                //
-                // By saving ssaModel directly its input schema is just { "Value": Single },
-                // which matches the dummy view perfectly.
-                return SaveTimeSeriesModel(ssaModel, projected.Schema, mae, rmse);
+                // ── Step 7: Save ssaModel only (input schema = {"Value": Single}) ──
+                // Do NOT save the combined CopyColumns→SSA pipeline — that would
+                // bake in the original column name and break prediction.
+                return SaveTimeSeriesModel(ssaModel, seriesView.Schema, mae, rmse);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
@@ -327,9 +444,15 @@ namespace Image_Checker.Services
 
                 try
                 {
-                    IEstimator<ITransformer> fullPipeline = preprocess
-                        .Append(trainer)
-                        .Append(_ml.Transforms.Conversion.MapKeyToValue("PredictedLabel", "PredictedLabel"));
+                    // MapKeyToValue only applies to classification tasks.
+                    // Regression has no PredictedLabel key column — appending it
+                    // causes "Could not find input column 'PredictedLabel'".
+                    IEstimator<ITransformer> fullPipeline =
+                        _resolvedTask == TaskType.Regression
+                            ? preprocess.Append(trainer)
+                            : preprocess.Append(trainer)
+                                        .Append(_ml.Transforms.Conversion.MapKeyToValue(
+                                            "PredictedLabel", "PredictedLabel"));
 
                     Console.WriteLine("   ⏳ Training...");
                     var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -742,12 +865,16 @@ namespace Image_Checker.Services
                 LabelColumn = _cfg.LabelColumnName,
                 DateColumn = _cfg.TimeSeries.DateColumn,
                 HorizonSteps = _cfg.TimeSeries.HorizonSteps,
-                Granularity = _cfg.TimeSeries.Granularity,   // Day / Month / Year
+                Granularity = _cfg.TimeSeries.Granularity,
                 WindowSize = _cfg.TimeSeries.WindowSize,
                 SeriesLength = _cfg.TimeSeries.SeriesLength,
                 TrainedAt = DateTime.Now.ToString("o"),
                 MAE = mae,
-                RMSE = rmse
+                RMSE = rmse,
+                // Store the original raw data path so ModelPredictionForm can
+                // re-read and filter by PARTY_NAME / INVENTORY_ITEM_ID for per-series forecasting.
+                RawDataPath = _cfg.DataFilePath,
+                FeatureColumns = _allColumns   // all non-label columns (includes date + categoricals)
             };
 
             File.WriteAllText(cfgPath,
@@ -811,34 +938,43 @@ namespace Image_Checker.Services
 
         private TaskType ResolveTaskType(IDataView data)
         {
-            if (_cfg.Task != TaskType.Auto) return _cfg.Task;
+            // Always honour an explicit user selection — never auto-detect over it.
+            if (_cfg.Task != TaskType.Auto)
+            {
+                Console.WriteLine($"   (explicit task '{_cfg.Task}' honoured — skipping auto-detect)");
+                return _cfg.Task;
+            }
 
-            // TimeSeries heuristic: user set TimeSeriesOptions.HorizonSteps > 0 with a numeric label
+            // Auto: TimeSeries heuristic — HorizonSteps > 0 + numeric label
             if (_cfg.TimeSeries.HorizonSteps > 0 &&
                 data.Schema[_cfg.LabelColumnName].Type != TextDataViewType.Instance)
+            {
+                Console.WriteLine($"   (auto-detected TimeSeries: HorizonSteps={_cfg.TimeSeries.HorizonSteps})");
                 return TaskType.TimeSeries;
+            }
 
-            // Is label column text / bool → classification
+            // Is label text → classification
             var labelType = data.Schema[_cfg.LabelColumnName].Type;
             if (labelType == TextDataViewType.Instance)
-                return TaskType.MulticlassClassification; // will map to key; binary resolved below
+                return TaskType.MulticlassClassification;
 
-            // Sample distinct values to decide binary vs multi vs regression
+            // Sample up to 20 distinct values from the label column
             var distinctVals = data.GetColumn<float>(_cfg.LabelColumnName)
                                    .Distinct()
                                    .Take(20)
                                    .ToList();
 
-            // If all values are 0 or 1 → binary
+            // Binary: only 0 and 1
             if (distinctVals.All(v => v is 0f or 1f))
                 return TaskType.BinaryClassification;
 
-            // If a small integer set (≤ 20 distinct ints) → multiclass
-            if (distinctVals.Count <= 20 &&
-                distinctVals.All(v => v == MathF.Floor(v)))
+            // Multiclass: ≤ 10 distinct integers only.
+            // Threshold intentionally kept low: continuous quantities like
+            // QUANTITY_INVOICED have hundreds of distinct integer values and
+            // must be treated as Regression, not Multiclass.
+            if (distinctVals.Count <= 10 && distinctVals.All(v => v == MathF.Floor(v)))
                 return TaskType.MulticlassClassification;
 
-            // Otherwise → regression
             return TaskType.Regression;
         }
 

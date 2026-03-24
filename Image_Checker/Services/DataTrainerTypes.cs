@@ -93,41 +93,27 @@ namespace Image_Checker.Services
     /// </summary>
     public class TimeSeriesOptions
     {
-        /// <summary>
-        /// Name of the date/time column used for ordering.
-        /// The data should already be sorted by this column for best results.
-        /// </summary>
         public string? DateColumn { get; set; }
 
-        /// <summary>Number of future time steps to forecast. Default: 12.</summary>
-        public int HorizonSteps { get; set; } = 12;
+        /// <summary>Number of future time steps to forecast. 0 = not a TS task.</summary>
+        public int HorizonSteps { get; set; } = 0;  // ← FIXED: was 12
 
         /// <summary>
-        /// SSA sliding window size. Must be greater than
-        /// <see cref="HorizonSteps"/>. Default: 24.
+        /// SSA sliding window size. Must be greater than HorizonSteps.
+        /// 0 = auto-calculated during training.
         /// </summary>
-        public int WindowSize { get; set; } = 24;
+        public int WindowSize { get; set; } = 0;    // ← FIXED: was 24
 
         /// <summary>
-        /// Number of historical observations fed into the SSA decomposition.
-        /// Set to 0 to use all training rows automatically.
+        /// Number of historical observations fed into SSA decomposition.
+        /// 0 = use all training rows automatically.
         /// </summary>
-        public int SeriesLength { get; set; } = 100;
+        public int SeriesLength { get; set; } = 0;  // ← FIXED: was 100
 
-        /// <summary>
-        /// Number of rows used for training.
-        /// 0 = derived automatically from <see cref="DataTrainerConfig.TestFraction"/>.
-        /// </summary>
+        /// <summary>0 = derived automatically from TestFraction.</summary>
         public int TrainSize { get; set; } = 0;
 
-        /// <summary>Confidence level for prediction interval bands. Default: 0.95.</summary>
         public float ConfidenceLevel { get; set; } = 0.95f;
-
-        /// <summary>
-        /// Step granularity used when forecasting: "Day", "Month", or "Year".
-        /// Controls how period labels are generated in the prediction output.
-        /// Default: "Month".
-        /// </summary>
         public string Granularity { get; set; } = "Month";
     }
 

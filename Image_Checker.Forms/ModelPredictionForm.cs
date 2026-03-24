@@ -8,6 +8,7 @@
 using Image_Checker.Services;
 using Microsoft.ML;
 using Microsoft.ML.Data;
+using Microsoft.ML.Transforms.TimeSeries;
 using System;
 using System.Collections.Generic;
 using System.Data;
@@ -91,15 +92,40 @@ namespace Image_Checker.Forms
 
                 lblModelPath.Text = $"Loaded:  {Path.GetFileName(_modelPath)}";
 
+                // Enable/disable the Forecast tab based on task type.
+                // The SSA Forecast tab ONLY works with TimeSeries models.
+                // Tabular models (Regression / Classification) use Input Data tab.
+                tabForecast.Enabled = isTs;
+                tabForecast.ToolTipText = isTs
+                    ? ""
+                    : "Forecast tab is only available for Time Series (SSA) models.";
+
                 if (isTs)
                 {
                     SetupForecastFromMeta();
                     tabMain.SelectedTab = tabForecast;
+                    lblModelInfo.Text =
+                        $"Task: TimeSeries (SSA)  |  " +
+                        $"Label: {_meta?.LabelColumn ?? "?"}  |  " +
+                        $"Horizon: {_meta?.HorizonSteps} steps  |  " +
+                        $"Granularity: {_meta?.Granularity ?? "Month"}  |  " +
+                        $"Trained: {_meta?.TrainedAt ?? "?"}";
                 }
                 else
                 {
                     BuildInputGrid();
                     tabMain.SelectedTab = tabInput;
+
+                    // Disable forecast tab for non-TS models and show a tooltip
+                    tabForecast.Enabled = false;
+                    MessageBox.Show(
+                        $"This is a {_meta?.Task ?? "tabular"} model.\n\n" +
+                        "The Time-Series Forecast tab is only available when you load\n" +
+                        "the SSA model (bestModel-SSA-*.zip).\n\n" +
+                        "Use the Input Data tab to predict quantity for a specific\n" +
+                        "PARTY_NAME + INVENTORY_ITEM_ID combination.",
+                        "Tabular Model Loaded",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
 
                 SetStatus($"Model loaded: {Path.GetFileName(_modelPath)}", false);
@@ -118,11 +144,185 @@ namespace Image_Checker.Forms
             if (_meta.HorizonSteps > 0)
                 nudHorizonCount.Value = Math.Min(
                     _meta.HorizonSteps, nudHorizonCount.Maximum);
+
+            // Match granularity case-insensitively.
+            // If not found keep the default "Month" (SelectedIndex=1 set in Designer).
             if (!string.IsNullOrWhiteSpace(_meta.Granularity))
             {
-                int idx = cmbGranularity.Items.IndexOf(_meta.Granularity);
-                if (idx >= 0) cmbGranularity.SelectedIndex = idx;
+                for (int i = 0; i < cmbGranularity.Items.Count; i++)
+                {
+                    if (string.Equals(cmbGranularity.Items[i]?.ToString(),
+                        _meta.Granularity, StringComparison.OrdinalIgnoreCase))
+                    {
+                        cmbGranularity.SelectedIndex = i;
+                        break;
+                    }
+                }
             }
+            else
+            {
+                // Default to Month when granularity not stored in JSON
+                int monthIdx = 0;
+                for (int i = 0; i < cmbGranularity.Items.Count; i++)
+                    if (cmbGranularity.Items[i]?.ToString() == "Month") { monthIdx = i; break; }
+                cmbGranularity.SelectedIndex = monthIdx;
+            }
+
+            // Populate the filter grid from JSON feature columns so user can
+            // filter forecast by PARTY_NAME, INVENTORY_ITEM_ID etc.
+            BuildFilterGrid();
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  FILTER GRID  (per-series filtering for SSA forecast)
+        // ════════════════════════════════════════════════════════════════════
+
+        // Holds the filter DataGridView and its backing table — declared here
+        // so BuildFilterGrid and GetFilterValues can both access them.
+        private System.Windows.Forms.DataGridView? _dgvFilter;
+        private System.Windows.Forms.Panel? _pnlFilter;
+
+        private void BuildFilterGrid()
+        {
+            // Remove any existing filter panel from the forecast tab
+            if (_pnlFilter != null)
+            {
+                // Find and remove from the scroll panel inside tabForecast
+                foreach (System.Windows.Forms.Control c in tabForecast.Controls)
+                {
+                    if (c is System.Windows.Forms.Panel scroll)
+                    {
+                        foreach (System.Windows.Forms.Control inner in scroll.Controls)
+                        {
+                            if (inner is System.Windows.Forms.Panel pnl)
+                            {
+                                pnl.Controls.Remove(_pnlFilter);
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+                _pnlFilter.Dispose();
+                _pnlFilter = null;
+            }
+
+            // Show ALL feature columns as filterable — user can filter by any combination.
+            // Date column is included but ignored in filters (it's used for aggregation).
+            // Label column is excluded (it's what we're predicting).
+            var filterCols = _meta?.FeatureColumns?.ToArray();
+            if (filterCols == null || filterCols.Length == 0) return;
+
+            // Build grid with explicit column definitions — do NOT use DataSource on a
+            // DataGridView before it is parented/visible.  DataSource triggers async
+            // column auto-generation and Columns[0] would be empty → IndexOutOfRange.
+            _dgvFilter = new System.Windows.Forms.DataGridView
+            {
+                Height = Math.Min(filterCols.Length * 30 + 36, 280),
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                RowHeadersVisible = false,
+                AutoSizeColumnsMode = System.Windows.Forms.DataGridViewAutoSizeColumnsMode.Fill,
+                BackgroundColor = System.Drawing.Color.White,
+                BorderStyle = System.Windows.Forms.BorderStyle.None,
+                GridColor = System.Drawing.Color.FromArgb(220, 230, 245),
+                ColumnHeadersDefaultCellStyle = { BackColor = System.Drawing.Color.FromArgb(41, 98, 200),
+                                                  ForeColor = System.Drawing.Color.White },
+                EditMode = System.Windows.Forms.DataGridViewEditMode.EditOnEnter
+            };
+
+            // Add columns manually — this is synchronous, no async binding issues
+            _dgvFilter.Columns.Add(new System.Windows.Forms.DataGridViewTextBoxColumn
+            {
+                HeaderText = "Column",
+                Name = "ColName",
+                ReadOnly = true,
+                FillWeight = 40,
+                DefaultCellStyle = { BackColor = System.Drawing.Color.FromArgb(240, 245, 255),
+                                     ForeColor = System.Drawing.Color.FromArgb(30, 60, 120) }
+            });
+            _dgvFilter.Columns.Add(new System.Windows.Forms.DataGridViewTextBoxColumn
+            {
+                HeaderText = "Filter Value  (leave blank = include all rows)",
+                Name = "FilterVal",
+                ReadOnly = false,
+                FillWeight = 60
+            });
+
+            // Populate rows
+            foreach (var col in filterCols)
+                _dgvFilter.Rows.Add(col, "");
+
+            _pnlFilter = new System.Windows.Forms.Panel
+            {
+                Location = new System.Drawing.Point(12, 430),
+                Size = new System.Drawing.Size(760, _dgvFilter.Height + 52),
+                BackColor = System.Drawing.Color.White,
+                BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle
+            };
+
+            var lbl = new System.Windows.Forms.Label
+            {
+                Text = "Filter by column values — enter values for any columns you want " +
+                            "to filter on (leave blank = all). Supports any number of filters.",
+                Location = new System.Drawing.Point(8, 4),
+                Size = new System.Drawing.Size(740, 16),
+                Font = new System.Drawing.Font("Segoe UI", 8.5f, System.Drawing.FontStyle.Bold),
+                ForeColor = System.Drawing.Color.FromArgb(30, 70, 160)
+            };
+            var lbl2 = new System.Windows.Forms.Label
+            {
+                Text = "Example: PARTY_NAME = Acme Corp  +  INVENTORY_ITEM_ID = 12345  \u2192 forecasts qty for that customer+item combination",
+                Location = new System.Drawing.Point(8, 22),
+                Size = new System.Drawing.Size(740, 14),
+                Font = new System.Drawing.Font("Segoe UI", 7.5f),
+                ForeColor = System.Drawing.Color.DimGray
+            };
+            _dgvFilter.Location = new System.Drawing.Point(4, 40);
+            _dgvFilter.Width = 750;
+            _pnlFilter.Controls.Add(lbl);
+            _pnlFilter.Controls.Add(lbl2);
+            _pnlFilter.Controls.Add(_dgvFilter);
+
+            // Add to the inner pnl (first Panel inside the scroll Panel inside tabForecast)
+            foreach (System.Windows.Forms.Control c in tabForecast.Controls)
+            {
+                if (c is System.Windows.Forms.Panel scroll)
+                {
+                    foreach (System.Windows.Forms.Control inner in scroll.Controls)
+                    {
+                        if (inner is System.Windows.Forms.Panel pnl)
+                        {
+                            // Expand pnl height if needed
+                            if (pnl.Height < _pnlFilter.Bottom + 20)
+                                pnl.Height = _pnlFilter.Bottom + 20;
+                            pnl.Controls.Add(_pnlFilter);
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Returns the filter values the user typed into the filter grid.
+        /// Key = column name, Value = filter string (empty = no filter).
+        /// </summary>
+        private Dictionary<string, string> GetFilterValues()
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (_dgvFilter == null) return result;
+
+            // Read directly from grid rows (manually-built, no DataSource binding)
+            foreach (System.Windows.Forms.DataGridViewRow row in _dgvFilter.Rows)
+            {
+                string col = row.Cells["ColName"]?.Value?.ToString() ?? "";
+                string val = row.Cells["FilterVal"]?.Value?.ToString()?.Trim() ?? "";
+                if (col != "" && val != "")
+                    result[col] = val;
+            }
+            return result;
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -298,6 +498,26 @@ namespace Image_Checker.Forms
         {
             if (_model == null) { AlertNoModel(); return; }
 
+            // Guard: only SSA (TimeSeries) models can forecast.
+            // If user somehow reaches here with a tabular model, show a clear message.
+            bool modelIsTs = _meta?.Task?.Equals("TimeSeries",
+                StringComparison.OrdinalIgnoreCase) ?? false;
+
+            if (!modelIsTs)
+            {
+                MessageBox.Show(
+                    "The loaded model is a tabular model\n" +
+                    $"(Task: {_meta?.Task ?? "Unknown"})\n\n" +
+                    "Time-Series Forecast requires a model trained with\n" +
+                    "Task = Time Series (SSA).\n\n" +
+                    "Please load the SSA model file (bestModel-SSA-*.zip)\n" +
+                    "instead of the tabular model file.",
+                    "Wrong Model Type",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
             // Snapshot all UI values on the UI thread before Task.Run
             int horizon;
             string gran;
@@ -323,14 +543,20 @@ namespace Image_Checker.Forms
             }
 
             var labelCol = _meta?.LabelColumn ?? "?";
+            var filterVals = GetFilterValues();   // snapshot on UI thread
 
-            SetBusy(true, $"Forecasting {horizon} {gran}(s)...");
+            // Build a filter description for the output title
+            string filterDesc = filterVals.Count > 0
+                ? "  |  Filter: " + string.Join(", ", filterVals.Select(kv => $"{kv.Key}={kv.Value}"))
+                : "";
+
+            SetBusy(true, $"Forecasting {horizon} {gran}(s){(filterVals.Count > 0 ? " (filtered)" : "")}...");
             DataTable? result = null;
             Exception? err = null;
 
             await Task.Run(() =>
             {
-                try { result = RunSSAForecast(horizon, gran, startDate); }
+                try { result = RunSSAForecast(horizon, gran, startDate, filterVals); }
                 catch (Exception ex) { err = ex; }
             });
 
@@ -345,18 +571,46 @@ namespace Image_Checker.Forms
             }
 
             ShowOutput(result!,
-                $"Forecast: {horizon} {gran}(s)  |  Series: {labelCol}");
+                $"Forecast: {horizon} {gran}(s)  |  Series: {labelCol}{filterDesc}");
             tabMain.SelectedTab = tabOutput;
         }
 
-        private DataTable RunSSAForecast(int horizon, string gran, DateTime startDate)
+        private DataTable RunSSAForecast(int horizon, string gran, DateTime startDate,
+            Dictionary<string, string>? filterValues = null)
         {
+            // ── Decide: filtered per-series SSA vs global SSA ─────────────────
+            //
+            // FILTERED: user filled in PARTY_NAME / INVENTORY_ITEM_ID in the filter grid.
+            //   → Re-read the original raw CSV (path stored in companion JSON as RawDataPath)
+            //   → Keep only rows that match ALL filter conditions
+            //   → Aggregate by date period (same logic as training)
+            //   → Retrain a new SSA on that mini-series
+            //   → Return that forecast
+            //
+            // GLOBAL: no filters set → use the pre-trained SSA model directly.
+
+            bool hasFilters = filterValues != null && filterValues.Count > 0;
+            string? rawDataPath = _meta?.RawDataPath;
+
+            if (hasFilters && rawDataPath != null && File.Exists(rawDataPath)
+                && _meta?.DateColumn != null && _meta?.LabelColumn != null)
+            {
+                return RunFilteredSSAForecast(horizon, gran, startDate,
+                    filterValues!, rawDataPath,
+                    _meta.DateColumn, _meta.LabelColumn);
+            }
+
+            if (hasFilters && (rawDataPath == null || !File.Exists(rawDataPath)))
+            {
+                throw new InvalidOperationException(
+                    "Cannot filter forecast: the original training data file was not found.\n" +
+                    $"Expected path: {rawDataPath ?? "(not stored in model JSON)"}\n\n" +
+                    "Ensure the model was retrained after the latest update, " +
+                    "or run without filters for the global forecast.");
+            }
+
+            // ── Global forecast via pre-trained SSA model ──────────────────────
             // Build a dummy IDataView with schema { "Value": float }.
-            // The saved SSA model's input schema is { "Value": Single } because
-            // DataModelTrainer saved only the ssaModel (after CopyColumns renamed
-            // the original label to "Value").  We do NOT use CreateTimeSeriesEngine
-            // because that validates the full original schema (including the original
-            // column name) and throws "Could not find input column 'QUANTITY_INVOICED'".
             var rows = Enumerable.Repeat(new TsValueRow { Value = 0f }, horizon).ToList();
             var view = _ml.Data.LoadFromEnumerable(rows);
             var out_ = _model!.Transform(view);
@@ -364,12 +618,9 @@ namespace Image_Checker.Forms
             float[] fc, lo, hi;
             try
             {
-                fc = out_.GetColumn<float[]>("Forecast")
-                         .FirstOrDefault() ?? Array.Empty<float>();
-                lo = out_.GetColumn<float[]>("LowerBound")
-                         .FirstOrDefault() ?? Array.Empty<float>();
-                hi = out_.GetColumn<float[]>("UpperBound")
-                         .FirstOrDefault() ?? Array.Empty<float>();
+                fc = out_.GetColumn<float[]>("Forecast").FirstOrDefault() ?? Array.Empty<float>();
+                lo = out_.GetColumn<float[]>("LowerBound").FirstOrDefault() ?? Array.Empty<float>();
+                hi = out_.GetColumn<float[]>("UpperBound").FirstOrDefault() ?? Array.Empty<float>();
             }
             catch
             {
@@ -383,6 +634,229 @@ namespace Image_Checker.Forms
                     "Model produced no forecast values. " +
                     "Ensure it was trained as Time Series (SSA).");
 
+            return BuildForecastTable(fc, lo, hi, horizon, gran, startDate);
+        }
+
+        private DataTable RunFilteredSSAForecast(
+            int horizon, string gran, DateTime startDate,
+            Dictionary<string, string> filters,
+            string rawCsvPath, string dateCol, string labelCol)
+        {
+            // ── Step 1: Read raw CSV with proper quoted-field handling ─────────
+            // Simple Split(',') breaks on values like "Acme Corp, LLC" — use a
+            // proper CSV parser that respects quoted fields.
+            var allLines = File.ReadAllLines(rawCsvPath);
+            if (allLines.Length < 2)
+                throw new InvalidOperationException("Raw data file is empty.");
+
+            var headers = ParseCsvLine(allLines[0]);
+
+            int dateIdx = Array.FindIndex(headers,
+                h => string.Equals(h, dateCol, StringComparison.OrdinalIgnoreCase));
+            int labelIdx = Array.FindIndex(headers,
+                h => string.Equals(h, labelCol, StringComparison.OrdinalIgnoreCase));
+
+            if (dateIdx < 0) throw new InvalidOperationException(
+                $"Date column '{dateCol}' not found. CSV headers: {string.Join(", ", headers)}");
+            if (labelIdx < 0) throw new InvalidOperationException(
+                $"Label column '{labelCol}' not found. CSV headers: {string.Join(", ", headers)}");
+
+            // Map each filter column name → its CSV column index
+            var filterIdx = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in filters)
+            {
+                int idx = Array.FindIndex(headers,
+                    h => string.Equals(h, kv.Key, StringComparison.OrdinalIgnoreCase));
+                if (idx < 0) throw new InvalidOperationException(
+                    $"Filter column '{kv.Key}' not found. CSV headers: {string.Join(", ", headers)}");
+                filterIdx[kv.Key] = idx;
+            }
+
+            // ── Step 2: Filter rows, aggregate quantity by time period ─────────
+            string ToPeriodKey(string rawDate)
+            {
+                rawDate = rawDate.Trim().Trim('"');
+                if (DateTime.TryParse(rawDate, out var dt))
+                    return gran switch
+                    {
+                        "Year" => dt.ToString("yyyy"),
+                        "Day" => dt.ToString("yyyy-MM-dd"),
+                        _ => dt.ToString("yyyy-MM")   // Month
+                    };
+                // Fallback: use first 10 chars (handles yyyy-MM-dd already)
+                return rawDate.Length > 10 ? rawDate[..10] : rawDate;
+            }
+
+            // periodSums: period key → summed quantity, periodDates: key → parsed DateTime for sorting
+            var periodSums = new Dictionary<string, double>();
+            var periodDates = new Dictionary<string, DateTime>();
+            int matchedRows = 0;
+
+            for (int li = 1; li < allLines.Length; li++)
+            {
+                if (string.IsNullOrWhiteSpace(allLines[li])) continue;
+                var cells = ParseCsvLine(allLines[li]);
+
+                // ALL filter conditions must match (supports any number of filters)
+                bool match = filters.All(kv =>
+                {
+                    int ci = filterIdx[kv.Key];
+                    string cell = ci < cells.Length ? cells[ci] : "";
+                    return string.Equals(cell, kv.Value, StringComparison.OrdinalIgnoreCase);
+                });
+                if (!match) continue;
+                matchedRows++;
+
+                // Parse quantity (label)
+                string rawQty = labelIdx < cells.Length ? cells[labelIdx] : "";
+                if (!double.TryParse(rawQty,
+                        System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out double qty)) continue;
+
+                // Parse date → period key
+                string rawDate = dateIdx < cells.Length ? cells[dateIdx] : "";
+                string key = ToPeriodKey(rawDate);
+
+                if (periodSums.ContainsKey(key))
+                    periodSums[key] += qty;
+                else
+                {
+                    periodSums[key] = qty;
+                    if (DateTime.TryParse(rawDate, out var parsedDt))
+                        periodDates[key] = parsedDt;
+                }
+            }
+
+            Console.WriteLine($"   [Filter] {matchedRows:N0} rows matched → " +
+                $"{periodSums.Count} {gran} periods");
+
+            if (matchedRows == 0)
+                throw new InvalidOperationException(
+                    "No rows matched the filters.\n" +
+                    "Filters applied:\n" +
+                    string.Join("\n", filters.Select(kv => "  * " + kv.Key + " = " + kv.Value)) +
+                    "\n\nValues are case-sensitive. Check spelling and spaces.");
+
+            if (periodSums.Count < 4)
+                throw new InvalidOperationException(
+                    $"Only {periodSums.Count} period(s) after aggregation - SSA needs at least 4. " +
+                    $"Total matching rows: {matchedRows:N0}. " +
+                    "Try a broader filter or coarser granularity (Month instead of Day).");
+
+            // Sort periods chronologically using parsed DateTime when available,
+            // falling back to string sort (which works for yyyy-MM / yyyy-MM-dd / yyyy).
+            var sortedPeriods = periodSums.Keys
+                .OrderBy(k => periodDates.ContainsKey(k)
+                    ? periodDates[k]
+                    : DateTime.TryParse(k, out var dt) ? dt : DateTime.MaxValue)
+                .ToList();
+
+            var series = sortedPeriods.Select(k => (float)periodSums[k]).ToList();
+            var lastPeriod = sortedPeriods.Last();
+
+            // Derive the actual start date from the last observed period so the
+            // forecast periods continue from where the data ends (not DateTime.Today).
+            DateTime forecastStart = startDate; // user-supplied fallback
+            if (periodDates.ContainsKey(lastPeriod))
+                forecastStart = periodDates[lastPeriod];
+            else if (DateTime.TryParse(lastPeriod, out var lp))
+                forecastStart = lp;
+
+            // Print series summary
+            Console.WriteLine($"   Series: {sortedPeriods.First()} → {lastPeriod}");
+            Console.WriteLine($"   Values (first 6): " +
+                string.Join(", ", series.Take(6).Select(v => v.ToString("N0"))));
+
+            // ── Step 3: Train SSA on the filtered+aggregated series ───────────
+            var seriesRows = series.Select(v => new TsValueRow { Value = v }).ToList();
+            var seriesView = _ml.Data.LoadFromEnumerable(seriesRows);
+
+            int n = series.Count;
+            int trainSize = n;  // use all data for training (we're forecasting future, not testing)
+
+            // SSA constraints:
+            //   windowSize > horizon
+            //   windowSize ≤ seriesLength / 2
+            //   seriesLength ≤ trainSize
+            int seriesLen = trainSize;
+            int windowSize = Math.Max(horizon + 1, seriesLen / 3);  // 1/3 of series is a good default
+            if (windowSize > seriesLen / 2)
+                windowSize = Math.Max(2, seriesLen / 2);
+            if (windowSize <= horizon)
+                windowSize = horizon + 1;
+            // Final safety clamp
+            windowSize = Math.Min(windowSize, trainSize - 1);
+            windowSize = Math.Max(windowSize, 2);
+
+            Console.WriteLine($"   SSA params: n={n}, trainSize={trainSize}, " +
+                $"window={windowSize}, horizon={horizon}");
+
+            var ssaPipeline = _ml.Forecasting.ForecastBySsa(
+                outputColumnName: "Forecast",
+                inputColumnName: "Value",
+                windowSize: windowSize,
+                seriesLength: seriesLen,
+                trainSize: trainSize,
+                horizon: horizon,
+                confidenceLevel: 0.95f,
+                confidenceLowerBoundColumn: "LowerBound",
+                confidenceUpperBoundColumn: "UpperBound");
+
+            var ssaModel = ssaPipeline.Fit(seriesView);
+            var eng = ssaModel.CreateTimeSeriesEngine<TsValueRow, TsForecastRow>(_ml);
+            var forecast = eng.Predict();
+
+            // Show in-sample last-period accuracy
+            var transformed = ssaModel.Transform(seriesView);
+            var actualLast = series.Last();
+            var fcastFirst = transformed.GetColumn<float[]>("Forecast")
+                                           .LastOrDefault()?[0] ?? 0f;
+            Console.WriteLine($"   Last period actual: {actualLast:N2}, " +
+                $"SSA fitted: {fcastFirst:N2}");
+
+            return BuildForecastTable(
+                forecast.Forecast, forecast.LowerBound, forecast.UpperBound,
+                horizon, gran, forecastStart);
+        }
+
+        /// <summary>
+        /// Parses one CSV line respecting quoted fields (handles commas inside quotes).
+        /// Returns trimmed, unquoted field values.
+        /// </summary>
+        private static string[] ParseCsvLine(string line)
+        {
+            var fields = new List<string>();
+            var current = new System.Text.StringBuilder();
+            bool inQuote = false;
+
+            for (int i = 0; i < line.Length; i++)
+            {
+                char ch = line[i];
+                if (ch == '"')
+                {
+                    if (inQuote && i + 1 < line.Length && line[i + 1] == '"')
+                    {
+                        current.Append('"');  // escaped quote ""
+                        i++;
+                    }
+                    else inQuote = !inQuote;
+                }
+                else if (ch == ',' && !inQuote)
+                {
+                    fields.Add(current.ToString().Trim());
+                    current.Clear();
+                }
+                else current.Append(ch);
+            }
+            fields.Add(current.ToString().Trim());
+            return fields.ToArray();
+        }
+
+        private static DataTable BuildForecastTable(
+            float[] fc, float[] lo, float[] hi,
+            int horizon, string gran, DateTime startDate)
+        {
             var dt = new DataTable();
             dt.Columns.Add("Step", typeof(int));
             dt.Columns.Add("Period", typeof(string));
@@ -400,9 +874,9 @@ namespace Image_Checker.Forms
                     _ => startDate.AddMonths(i + 1).ToString("yyyy-MM")
                 };
                 dt.Rows.Add(i + 1, period,
-                    fc[i].ToString("G6"),
-                    lo.Length > i ? lo[i].ToString("G4") : "",
-                    hi.Length > i ? hi[i].ToString("G4") : "");
+                    fc[i].ToString("N2"),
+                    lo.Length > i ? lo[i].ToString("N2") : "",
+                    hi.Length > i ? hi[i].ToString("N2") : "");
             }
             return dt;
         }
@@ -590,5 +1064,8 @@ namespace Image_Checker.Forms
         public int WindowSize { get; set; }
         public double MAE { get; set; }
         public double RMSE { get; set; }
+        // Path to the original raw CSV used during training.
+        // Used by per-series filtering in RunSSAForecast.
+        public string? RawDataPath { get; set; }
     }
 }
