@@ -1,11 +1,5 @@
 ﻿// ══════════════════════════════════════════════════════════════════════════════
 //  ModelBuilderForm.Designer.cs  –  Professional redesign.
-//  Layout rules:
-//   • Every control has an explicit Location and Size – nothing is auto-sized
-//     inside a scrollable panel (prevents overlap).
-//   • Cleaning / Transform / Reduction use per-column DataGridViews.
-//   • Training tab uses a SplitContainer (algo list left, info+log right).
-//   • All panels use AutoScroll = true so nothing is ever hidden.
 // ══════════════════════════════════════════════════════════════════════════════
 
 using System;
@@ -55,7 +49,7 @@ namespace Image_Checker.Forms
         // training
         private Panel pnlAlgoScroll;
         private CheckBox chkSDCA, chkLBFGS, chkFastTree, chkFastForest,
-                            chkLightGBM, chkPerceptron, chkLinearSGD;
+                         chkLightGBM, chkPerceptron, chkLinearSGD;
         private Label lblAlgoTitle;
         private RichTextBox rtbAlgoDesc, rtbLog;
         private Button btnTrain, btnCancelTrain;
@@ -98,24 +92,9 @@ namespace Image_Checker.Forms
         // ═════════════════════════════════════════════════════════════════════
         private void BuildTopBar()
         {
-            pnlTop = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 56,
-                BackColor = Color.White
-            };
+            pnlTop = new Panel { Dock = DockStyle.Top, Height = 56, BackColor = Color.White };
             pnlTop.Paint += PaintBottomLine;
 
-            pnlTop.Resize += (s, e) =>
-            {
-                int centerY = (pnlTop.Height - txtFilePath.Height) / 2;
-
-                txtFilePath.Top = centerY;
-                btnBrowse.Top = centerY;
-                btnLoadFile.Top = centerY;
-
-                lblFileCaption.Top = centerY + 3;
-            };
             lblFileCaption = L("Data File  (CSV / XLSX / XLS):", 12, 10,
                 bold: true, color: Color.FromArgb(30, 50, 110));
 
@@ -130,42 +109,29 @@ namespace Image_Checker.Forms
                 Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             };
 
-            pnlTop.Resize += (s, e) =>
-            {
-                int rightPadding = 10;
-
-                // Position buttons first
-                btnLoadFile.Left = pnlTop.Width - btnLoadFile.Width - rightPadding;
-                btnBrowse.Left = btnLoadFile.Left - btnBrowse.Width - 10;
-
-                // Limit textbox width so it doesn't overlap buttons
-                txtFilePath.Width = btnBrowse.Left - txtFilePath.Left - 10;
-
-            };
             btnBrowse = Btn("📂  Browse", new Point(0, 5), 120, false);
             btnLoadFile = Btn("▶  Load File", new Point(0, 5), 130, true);
-
             btnBrowse.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnLoadFile.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-
-            // 🔥 Dynamic positioning (IMPORTANT)
-            pnlTop.Resize += (s, e) =>
-            {
-                btnLoadFile.Left = pnlTop.Width - btnLoadFile.Width - 10;
-                btnBrowse.Left = btnLoadFile.Left - btnBrowse.Width - 10;
-            };
 
             lblFileStats = L("", 230, 32, color: Color.FromArgb(50, 110, 185));
             lblFileStats.Font = new Font("Segoe UI", 8f);
 
-            pnlTop.Controls.AddRange(new Control[]
+            pnlTop.Resize += (s, e) =>
             {
-        lblFileCaption,
-        txtFilePath,
-        btnBrowse,
-        btnLoadFile,
-        lblFileStats
-            });
+                int centerY = (pnlTop.Height - txtFilePath.Height) / 2;
+                txtFilePath.Top = centerY;
+                btnBrowse.Top = centerY;
+                btnLoadFile.Top = centerY;
+                lblFileCaption.Top = centerY + 3;
+
+                btnLoadFile.Left = pnlTop.Width - btnLoadFile.Width - 10;
+                btnBrowse.Left = btnLoadFile.Left - btnBrowse.Width - 10;
+                txtFilePath.Width = btnBrowse.Left - txtFilePath.Left - 10;
+            };
+
+            pnlTop.Controls.AddRange(new Control[]
+                { lblFileCaption, txtFilePath, btnBrowse, btnLoadFile, lblFileStats });
         }
 
         // ═════════════════════════════════════════════════════════════════════
@@ -242,37 +208,24 @@ namespace Image_Checker.Forms
         }
 
         // ═════════════════════════════════════════════════════════════════════
-        //  COLUMNS TAB  –  3-panel layout
+        //  COLUMNS TAB
         // ═════════════════════════════════════════════════════════════════════
         private void BuildColumnsTab()
         {
-            // Master horizontal splitter: settings (380) | checklists (rest)
             var split = new SplitContainer
             {
                 Dock = DockStyle.Fill,
                 Orientation = Orientation.Vertical,
-
                 BorderStyle = BorderStyle.None,
                 BackColor = Color.FromArgb(242, 245, 252)
             };
-            split.Layout += (s, e) =>
-            {
-                if (split.Width > 0)
-                    split.SplitterDistance = 380; // 🔥 your desired width
-            };
+            split.Layout += (s, e) => { if (split.Width > 0) split.SplitterDistance = 380; };
 
-            // ── PANEL 1: settings (scrollable) ────────────────────────────
+            // ── LEFT: settings ───────────────────────────────────────────
             var left = new Panel
-            {
-                Dock = DockStyle.Fill,
-                AutoScroll = true,
-                BackColor = Color.White,
-                Padding = new Padding(0)
-            };
+            { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.White };
 
-            // Blue header strip
-            var hdr = new Panel
-            { Dock = DockStyle.Top, Height = 44, BackColor = Color.FromArgb(41, 98, 200) };
+            var hdr = new Panel { Dock = DockStyle.Top, Height = 44, BackColor = Color.FromArgb(41, 98, 200) };
             hdr.Controls.Add(new Label
             {
                 Text = "Model Configuration",
@@ -283,7 +236,6 @@ namespace Image_Checker.Forms
             });
             left.Controls.Add(hdr);
 
-            // Content using explicit coords inside a fixed-height container
             var lContent = new Panel
             {
                 Location = new Point(0, 44),
@@ -294,75 +246,34 @@ namespace Image_Checker.Forms
             };
 
             int y = 14;
-
-            // Label column
-            lContent.Controls.Add(FieldLabel("Prediction Target (Label Column)", 18, y));
-            y += 22;
-            cmbLabel = new ComboBox
-            {
-                Location = new Point(18, y),
-                Width = 330,
-                DropDownStyle = ComboBoxStyle.DropDownList
-            };
-            lContent.Controls.Add(cmbLabel);
-            y += 36;
+            lContent.Controls.Add(FieldLabel("Prediction Target (Label Column)", 18, y)); y += 22;
+            cmbLabel = new ComboBox { Location = new Point(18, y), Width = 330, DropDownStyle = ComboBoxStyle.DropDownList };
+            lContent.Controls.Add(cmbLabel); y += 36;
 
             lContent.Controls.Add(Divider(18, y)); y += 14;
-
-            // Task
             lContent.Controls.Add(FieldLabel("Task Type", 18, y)); y += 22;
-            cmbTask = new ComboBox
-            {
-                Location = new Point(18, y),
-                Width = 330,
-                DropDownStyle = ComboBoxStyle.DropDownList
-            };
+            cmbTask = new ComboBox { Location = new Point(18, y), Width = 330, DropDownStyle = ComboBoxStyle.DropDownList };
             cmbTask.Items.AddRange(new object[]
-            { "Auto Detect", "Binary Classification",
-              "Multiclass Classification", "Regression", "Time Series (SSA)" });
+            { "Auto Detect", "Binary Classification", "Multiclass Classification",
+              "Regression", "Time Series (SSA)" });
             cmbTask.SelectedIndex = 0;
-            lContent.Controls.Add(cmbTask);
-            y += 36;
+            lContent.Controls.Add(cmbTask); y += 36;
 
             lContent.Controls.Add(Divider(18, y)); y += 14;
-
-            // Split
             lContent.Controls.Add(FieldLabel("Train / Test Split", 18, y)); y += 22;
-            nudTestPct = new NumericUpDown
-            {
-                Location = new Point(18, y),
-                Width = 72,
-                Minimum = 5,
-                Maximum = 50,
-                Value = 20
-            };
+            nudTestPct = new NumericUpDown { Location = new Point(18, y), Width = 72, Minimum = 5, Maximum = 50, Value = 20 };
             lblTestPctSuffix = new Label
-            {
-                Location = new Point(96, y + 3),
-                AutoSize = true,
-                Text = "% of data used for testing",
-                ForeColor = Color.FromArgb(90, 100, 130)
-            };
+            { Location = new Point(96, y + 3), AutoSize = true, Text = "% of data used for testing", ForeColor = Color.FromArgb(90, 100, 130) };
             lContent.Controls.Add(nudTestPct);
-            lContent.Controls.Add(lblTestPctSuffix);
-            y += 36;
+            lContent.Controls.Add(lblTestPctSuffix); y += 36;
 
-            // Seed
             lContent.Controls.Add(FieldLabel("Random Seed", 18, y)); y += 22;
-            nudSeed = new NumericUpDown
-            {
-                Location = new Point(18, y),
-                Width = 110,
-                Minimum = 0,
-                Maximum = 99999,
-                Value = 42
-            };
-            lContent.Controls.Add(nudSeed);
-            y += 40;
+            nudSeed = new NumericUpDown { Location = new Point(18, y), Width = 110, Minimum = 0, Maximum = 99999, Value = 42 };
+            lContent.Controls.Add(nudSeed); y += 40;
 
             lContent.Controls.Add(Divider(18, y)); y += 14;
 
-            // Time-Series group (hidden until TS selected)
+            // ── Time-Series group ─────────────────────────────────────────
             grpTS = new GroupBox
             {
                 Text = "⏱  Time-Series Options",
@@ -376,61 +287,39 @@ namespace Image_Checker.Forms
             int ty = 26;
             void TSRow(string lbl, Control ctrl, string tooltip = "")
             {
-                var lb = new Label
+                grpTS.Controls.Add(new Label
                 {
                     Text = lbl,
                     Location = new Point(12, ty + 3),
                     Size = new Size(130, 18),
                     Font = new Font("Segoe UI", 8.5f),
                     ForeColor = Color.FromArgb(50, 60, 90)
-                };
-                ctrl.Location = new Point(150, ty);
-                ctrl.Width = 175;
-                grpTS.Controls.Add(lb);
+                });
+                ctrl.Location = new Point(150, ty); ctrl.Width = 175;
                 grpTS.Controls.Add(ctrl);
                 if (tooltip != "") tip.SetToolTip(ctrl, tooltip);
                 ty += 30;
             }
 
-            var lbDate = new Label
-            {
-                Text = "Date Column:",
-                Location = new Point(12, ty + 3),
-                Size = new Size(130, 18),
-                Font = new Font("Segoe UI", 8.5f)
-            };
-            cmbTsDate = new ComboBox
-            {
-                Location = new Point(150, ty),
-                Width = 175,
-                DropDownStyle = ComboBoxStyle.DropDownList
-            };
-            grpTS.Controls.Add(lbDate); grpTS.Controls.Add(cmbTsDate); ty += 30;
+            cmbTsDate = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
+            grpTS.Controls.Add(new Label { Text = "Date Column:", Location = new Point(12, ty + 3), Size = new Size(130, 18), Font = new Font("Segoe UI", 8.5f) });
+            cmbTsDate.Location = new Point(150, ty); cmbTsDate.Width = 175;
+            grpTS.Controls.Add(cmbTsDate); ty += 30;
 
-            var lbGran = new Label
-            {
-                Text = "Step Granularity:",
-                Location = new Point(12, ty + 3),
-                Size = new Size(130, 18),
-                Font = new Font("Segoe UI", 8.5f)
-            };
-            cmbTsGran = new ComboBox
-            {
-                Location = new Point(150, ty),
-                Width = 175,
-                DropDownStyle = ComboBoxStyle.DropDownList
-            };
+            cmbTsGran = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
             cmbTsGran.Items.AddRange(new object[] { "Day", "Month", "Year" });
             cmbTsGran.SelectedIndex = 1;
-            grpTS.Controls.Add(lbGran); grpTS.Controls.Add(cmbTsGran); ty += 30;
+            grpTS.Controls.Add(new Label { Text = "Step Granularity:", Location = new Point(12, ty + 3), Size = new Size(130, 18), Font = new Font("Segoe UI", 8.5f) });
+            cmbTsGran.Location = new Point(150, ty); cmbTsGran.Width = 175;
+            grpTS.Controls.Add(cmbTsGran); ty += 30;
 
             nudTsHorizon = new NumericUpDown { Minimum = 1, Maximum = 2000, Value = 12 };
-            TSRow("Forecast Horizon:", nudTsHorizon, "Future periods to predict.");
             nudTsWindow = new NumericUpDown { Minimum = 2, Maximum = 500, Value = 24 };
-            TSRow("Window Size:", nudTsWindow, "SSA window — must exceed horizon.");
             nudTsSeries = new NumericUpDown { Minimum = 10, Maximum = 5000, Value = 100 };
-            TSRow("Series Length:", nudTsSeries, "Historical points for SSA.");
             nudTsConf = new NumericUpDown { Minimum = 50, Maximum = 99, Value = 95 };
+            TSRow("Forecast Horizon:", nudTsHorizon, "Future periods to predict.");
+            TSRow("Window Size:", nudTsWindow, "SSA window — must exceed horizon.");
+            TSRow("Series Length:", nudTsSeries, "Historical points for SSA.");
             TSRow("Confidence %:", nudTsConf, "Prediction interval confidence.");
 
             lContent.Controls.Add(grpTS);
@@ -438,7 +327,7 @@ namespace Image_Checker.Forms
             left.Controls.Add(lContent);
             split.Panel1.Controls.Add(left);
 
-            // ── PANEL 2: feature + ignore checklists ─────────────────────
+            // ── RIGHT: feature + ignore checklists ───────────────────────
             var rightSplit = new SplitContainer
             {
                 Dock = DockStyle.Fill,
@@ -448,35 +337,26 @@ namespace Image_Checker.Forms
                 BackColor = Color.FromArgb(242, 245, 252)
             };
 
-            // Feature columns pane – Dock=Fill only; never read Width/Height at ctor time
             var pFeat = new Panel { Dock = DockStyle.Fill, BackColor = Color.White };
             var hFeat = ColPaneHeader("Feature Columns", "Check = include as model input",
-                Color.FromArgb(28, 148, 80));           // Dock Top added last → 68 px
-
-            var pBtns = new Panel
-            { Dock = DockStyle.Bottom, Height = 36, BackColor = Color.FromArgb(242, 245, 252) };
-            btnCheckAll = SmBtn("\u2714  Select All", new Point(8, 4), 130);
-            btnUncheckAll = SmBtn("\u2716  Clear All", new Point(146, 4), 130);
+                Color.FromArgb(28, 148, 80));
+            var pBtns = new Panel { Dock = DockStyle.Bottom, Height = 36, BackColor = Color.FromArgb(242, 245, 252) };
+            btnCheckAll = SmBtn("✔  Select All", new Point(8, 4), 130);
+            btnUncheckAll = SmBtn("✖  Clear All", new Point(146, 4), 130);
             pBtns.Controls.AddRange(new Control[] { btnCheckAll, btnUncheckAll });
-
             clbFeatures = new CheckedListBox
             {
-                Dock = DockStyle.Fill,   // fills space between Top header + Bottom buttons
+                Dock = DockStyle.Fill,
                 CheckOnClick = true,
                 BorderStyle = BorderStyle.None,
                 Font = new Font("Segoe UI", 9f),
                 BackColor = Color.White
             };
-            pFeat.Controls.Add(clbFeatures);    // Fill – resolved first
-            pFeat.Controls.Add(pBtns);          // Bottom
-            pFeat.Controls.Add(hFeat);          // Top
+            pFeat.Controls.Add(clbFeatures); pFeat.Controls.Add(pBtns); pFeat.Controls.Add(hFeat);
             rightSplit.Panel1.Controls.Add(pFeat);
 
-            // Ignore columns pane – same pattern
             var pIgn = new Panel { Dock = DockStyle.Fill, BackColor = Color.White };
-            var hIgn = ColPaneHeader("Ignore Columns",
-                "\u2611 = excluded from all processing", Color.FromArgb(190, 60, 40));
-
+            var hIgn = ColPaneHeader("Ignore Columns", "☑ = excluded from all processing", Color.FromArgb(190, 60, 40));
             clbIgnore = new CheckedListBox
             {
                 Dock = DockStyle.Fill,
@@ -485,8 +365,7 @@ namespace Image_Checker.Forms
                 Font = new Font("Segoe UI", 9f),
                 BackColor = Color.White
             };
-            pIgn.Controls.Add(clbIgnore);       // Fill
-            pIgn.Controls.Add(hIgn);            // Top
+            pIgn.Controls.Add(clbIgnore); pIgn.Controls.Add(hIgn);
             rightSplit.Panel2.Controls.Add(pIgn);
 
             split.Panel2.Controls.Add(rightSplit);
@@ -498,9 +377,7 @@ namespace Image_Checker.Forms
         // ═════════════════════════════════════════════════════════════════════
         private void BuildCleaningTab()
         {
-            // Top toolbar
-            var toolbar = new Panel
-            { Dock = DockStyle.Top, Height = 48, BackColor = Color.White };
+            var toolbar = new Panel { Dock = DockStyle.Top, Height = 48, BackColor = Color.White };
             toolbar.Paint += PaintBottomLine;
 
             chkDuplicates = new CheckBox
@@ -511,128 +388,29 @@ namespace Image_Checker.Forms
                 Checked = true,
                 Font = new Font("Segoe UI", 9f)
             };
-            btnCleanApplyAll = Btn("Apply to All Columns ▼",
-                new Point(300, 10), 190, false);
-            tip.SetToolTip(btnCleanApplyAll,
-                "Bulk-set the same missing/outlier strategy on every column.");
-
-            var hint = new Label
-            {
-                Text = "ℹ  Each row below represents one column in your dataset. " +
-                            "Configure cleaning individually per column.",
-                Location = new Point(510, 15),
-                AutoSize = true,
-                ForeColor = Color.FromArgb(80, 120, 185),
-                Font = new Font("Segoe UI", 8.5f)
-            };
+            btnCleanApplyAll = Btn("Apply to All Columns ▼", new Point(300, 10), 190, false);
+            tip.SetToolTip(btnCleanApplyAll, "Bulk-set the same missing/outlier strategy on every column.");
 
             toolbar.Controls.AddRange(new Control[]
-            { chkDuplicates, btnCleanApplyAll, hint });
+            {
+                chkDuplicates, btnCleanApplyAll,
+                new Label
+                {
+                    Text = "ℹ  Each row below represents one column. Configure cleaning individually per column.",
+                    Location = new Point(510, 15), AutoSize = true,
+                    ForeColor = Color.FromArgb(80, 120, 185), Font = new Font("Segoe UI", 8.5f)
+                }
+            });
 
-            // Per-column grid
             dgvCleaning = BuildCleanGrid();
-
             tpCleaning.Controls.Add(dgvCleaning);
             tpCleaning.Controls.Add(toolbar);
         }
 
         private DataGridView BuildCleanGrid()
         {
-            var g = StyledGrid(readOnly: false);
-            g.Dock = DockStyle.Fill;
-            g.RowTemplate.Height = 30;
-            g.AllowUserToAddRows = false;
-            g.AllowUserToDeleteRows = false;
-            g.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            g.EditMode = DataGridViewEditMode.EditOnEnter;
-
-            g.Columns.Add(new DataGridViewTextBoxColumn
-            {
-                Name = "ColName",
-                HeaderText = "Column Name",
-                ReadOnly = true,
-                Width = 180,
-                DefaultCellStyle = {
-                BackColor=Color.FromArgb(237,243,255),
-                Font=new Font("Segoe UI",9f,FontStyle.Bold) }
-            });
-
-            g.Columns.Add(new DataGridViewTextBoxColumn
-            { Name = "ColType", HeaderText = "Type", ReadOnly = true, Width = 85 });
-
-            g.Columns.Add(new DataGridViewComboBoxColumn
-            {
-                Name = "Missing",
-                HeaderText = "Missing Value Strategy",
-                Width = 200,
-                DataSource = new[]
-                { "Mean (average)", "Median (middle)", "Mode (most frequent)",
-                  "Delete Row", "None – leave as is" },
-                FlatStyle = FlatStyle.Flat
-            });
-
-            g.Columns.Add(new DataGridViewComboBoxColumn
-            {
-                Name = "OutlierMethod",
-                HeaderText = "Outlier Detection",
-                Width = 175,
-                DataSource = new[] { "None", "IQR  (Q1 – k×IQR  to  Q3 + k×IQR)",
-                    "Z-Score  ( |z| > threshold )" },
-                FlatStyle = FlatStyle.Flat
-            });
-
-            g.Columns.Add(new DataGridViewComboBoxColumn
-            {
-                Name = "OutlierAction",
-                HeaderText = "Outlier Action",
-                Width = 160,
-                DataSource = new[] { "Cap to boundary value", "Remove the row" },
-                FlatStyle = FlatStyle.Flat
-            });
-
-            g.Columns.Add(new DataGridViewTextBoxColumn
-            { Name = "IQRk", HeaderText = "IQR k", Width = 70 });
-
-            g.Columns.Add(new DataGridViewTextBoxColumn
-            { Name = "ZThresh", HeaderText = "Z Threshold", Width = 100 });
-
-            g.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.AllCells;
-            return g;
-        }
-
-        // ═════════════════════════════════════════════════════════════════════
-        //  TRANSFORM TAB
-        // ═════════════════════════════════════════════════════════════════════
-        private void BuildTransformTab()
-        {
-            var toolbar = new Panel
-            { Dock = DockStyle.Top, Height = 48, BackColor = Color.White };
-            toolbar.Paint += PaintBottomLine;
-
-            btnTransformApplyAll = Btn("Apply to All Columns ▼",
-                new Point(14, 10), 190, false);
-            var hint = new Label
-            {
-                Text = "ℹ  Normalization applies to numeric columns.  " +
-                            "Encoding applies to text/categorical columns.",
-                Location = new Point(220, 15),
-                AutoSize = true,
-                ForeColor = Color.FromArgb(80, 120, 185),
-                Font = new Font("Segoe UI", 8.5f)
-            };
-            toolbar.Controls.AddRange(new Control[] { btnTransformApplyAll, hint });
-
-            dgvTransform = BuildTransformGrid();
-
-            tpTransform.Controls.Add(dgvTransform);
-            tpTransform.Controls.Add(toolbar);
-        }
-
-        private DataGridView BuildTransformGrid()
-        {
             var g = StyledGrid(false);
-            g.Dock = DockStyle.Fill;
-            g.RowTemplate.Height = 30;
+            g.Dock = DockStyle.Fill; g.RowTemplate.Height = 30;
             g.AllowUserToAddRows = g.AllowUserToDeleteRows = false;
             g.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             g.EditMode = DataGridViewEditMode.EditOnEnter;
@@ -643,50 +421,98 @@ namespace Image_Checker.Forms
                 HeaderText = "Column Name",
                 ReadOnly = true,
                 Width = 180,
-                DefaultCellStyle = { BackColor=Color.FromArgb(237,243,255),
-                Font=new Font("Segoe UI",9f,FontStyle.Bold) }
+                DefaultCellStyle = { BackColor = Color.FromArgb(237, 243, 255), Font = new Font("Segoe UI", 9f, FontStyle.Bold) }
             });
+            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "ColType", HeaderText = "Type", ReadOnly = true, Width = 85 });
+            g.Columns.Add(new DataGridViewComboBoxColumn
+            {
+                Name = "Missing",
+                HeaderText = "Missing Value Strategy",
+                Width = 200,
+                FlatStyle = FlatStyle.Flat,
+                DataSource = new[] { "Mean (average)", "Median (middle)", "Mode (most frequent)", "Delete Row", "None – leave as is" }
+            });
+            g.Columns.Add(new DataGridViewComboBoxColumn
+            {
+                Name = "OutlierMethod",
+                HeaderText = "Outlier Detection",
+                Width = 175,
+                FlatStyle = FlatStyle.Flat,
+                DataSource = new[] { "None", "IQR  (Q1 – k×IQR  to  Q3 + k×IQR)", "Z-Score  ( |z| > threshold )" }
+            });
+            g.Columns.Add(new DataGridViewComboBoxColumn
+            {
+                Name = "OutlierAction",
+                HeaderText = "Outlier Action",
+                Width = 160,
+                FlatStyle = FlatStyle.Flat,
+                DataSource = new[] { "Cap to boundary value", "Remove the row" }
+            });
+            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "IQRk", HeaderText = "IQR k", Width = 70 });
+            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "ZThresh", HeaderText = "Z Threshold", Width = 100 });
+            g.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.AllCells;
+            return g;
+        }
+
+        // ═════════════════════════════════════════════════════════════════════
+        //  TRANSFORM TAB
+        // ═════════════════════════════════════════════════════════════════════
+        private void BuildTransformTab()
+        {
+            var toolbar = new Panel { Dock = DockStyle.Top, Height = 48, BackColor = Color.White };
+            toolbar.Paint += PaintBottomLine;
+            btnTransformApplyAll = Btn("Apply to All Columns ▼", new Point(14, 10), 190, false);
+            toolbar.Controls.AddRange(new Control[]
+            {
+                btnTransformApplyAll,
+                new Label
+                {
+                    Text = "ℹ  Normalization applies to numeric columns.  Encoding applies to text/categorical columns.",
+                    Location = new Point(220, 15), AutoSize = true,
+                    ForeColor = Color.FromArgb(80, 120, 185), Font = new Font("Segoe UI", 8.5f)
+                }
+            });
+            dgvTransform = BuildTransformGrid();
+            tpTransform.Controls.Add(dgvTransform);
+            tpTransform.Controls.Add(toolbar);
+        }
+
+        private DataGridView BuildTransformGrid()
+        {
+            var g = StyledGrid(false);
+            g.Dock = DockStyle.Fill; g.RowTemplate.Height = 30;
+            g.AllowUserToAddRows = g.AllowUserToDeleteRows = false;
+            g.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            g.EditMode = DataGridViewEditMode.EditOnEnter;
 
             g.Columns.Add(new DataGridViewTextBoxColumn
-            { Name = "ColType", HeaderText = "Type", ReadOnly = true, Width = 85 });
-
+            {
+                Name = "ColName",
+                HeaderText = "Column Name",
+                ReadOnly = true,
+                Width = 180,
+                DefaultCellStyle = { BackColor = Color.FromArgb(237, 243, 255), Font = new Font("Segoe UI", 9f, FontStyle.Bold) }
+            });
+            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "ColType", HeaderText = "Type", ReadOnly = true, Width = 85 });
             g.Columns.Add(new DataGridViewComboBoxColumn
             {
                 Name = "Norm",
                 HeaderText = "Normalization  (numeric)",
                 Width = 240,
-                DataSource = new[]
-                { "None – raw values", "Min-Max  →  [0, 1]",
-                  "Z-Score  →  (x − μ) / σ",
-                  "Decimal Scaling  →  ÷ 10ᵏ",
-                  "Log Transform  →  ln(x + 1)" },
-                FlatStyle = FlatStyle.Flat
+                FlatStyle = FlatStyle.Flat,
+                DataSource = new[] { "None – raw values", "Min-Max  →  [0, 1]", "Z-Score  →  (x − μ) / σ",
+                    "Decimal Scaling  →  ÷ 10ᵏ", "Log Transform  →  ln(x + 1)" }
             });
-
             g.Columns.Add(new DataGridViewComboBoxColumn
             {
                 Name = "Enc",
                 HeaderText = "Encoding  (categorical)",
                 Width = 250,
-                DataSource = new[]
-                { "One-Hot Encoding  (binary dummy columns)",
-                  "Label Encoding  (integer index)",
-                  "None – keep as text" },
-                FlatStyle = FlatStyle.Flat
+                FlatStyle = FlatStyle.Flat,
+                DataSource = new[] { "One-Hot Encoding  (binary dummy columns)", "Label Encoding  (integer index)", "None – keep as text" }
             });
-
-            g.Columns.Add(new DataGridViewCheckBoxColumn
-            {
-                Name = "Bin",
-                HeaderText = "Binning",
-                Width = 75,
-                TrueValue = true,
-                FalseValue = false
-            });
-
-            g.Columns.Add(new DataGridViewTextBoxColumn
-            { Name = "BinCount", HeaderText = "Bin Count", Width = 90 });
-
+            g.Columns.Add(new DataGridViewCheckBoxColumn { Name = "Bin", HeaderText = "Binning", Width = 75, TrueValue = true, FalseValue = false });
+            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "BinCount", HeaderText = "Bin Count", Width = 90 });
             return g;
         }
 
@@ -695,7 +521,6 @@ namespace Image_Checker.Forms
         // ═════════════════════════════════════════════════════════════════════
         private void BuildReductionTab()
         {
-            // ── Top hint ─────────────────────────────────────────────
             var hint = new Label
             {
                 Dock = DockStyle.Top,
@@ -707,11 +532,9 @@ namespace Image_Checker.Forms
                 Font = new Font("Segoe UI", 8.5f)
             };
 
-            // ── Grid ─────────────────────────────────────────────
             dgvReduction = BuildReductionGrid();
             dgvReduction.Dock = DockStyle.Fill;
 
-            // ── Bottom Group ─────────────────────────────────────
             grpGlobalReduction = new GroupBox
             {
                 Dock = DockStyle.Bottom,
@@ -722,7 +545,6 @@ namespace Image_Checker.Forms
                 BackColor = Color.White
             };
 
-            // ── Table Layout ─────────────────────────────────────
             var tbl = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -731,140 +553,56 @@ namespace Image_Checker.Forms
                 Padding = new Padding(12, 8, 12, 8),
                 AutoSize = true
             };
-
-            // Columns
-            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); // 0 label
-            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); // 1 rb
-            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); // 2 lbl
-            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); // 3 rb
-            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); // 4 lbl
-            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); // 5 rb
-            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); // 6 lbl
-            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); // 7 spacer
-            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); // 8 right label
-            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); // 9 input
-
+            for (int i = 0; i < 8; i++) tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             tbl.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             tbl.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
-            // ─────────────── ROW 1: PCA ───────────────
-            var lPCA = new Label
-            {
-                Text = "Dimensionality Reduction:",
-                AutoSize = true,
-                Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
-                Anchor = AnchorStyles.Left
-            };
-
-            rbNoPCA = new RadioButton { AutoSize = true };
-            var lblNoPCA = new Label { Text = "None", AutoSize = true };
-
+            // ── PCA row ───────────────────────────────────────────────────
+            rbNoPCA = new RadioButton { AutoSize = true, Checked = true };
             rbPCA = new RadioButton { AutoSize = true };
-            var lblPCA = new Label
-            {
-                Text = "PCA – Principal Component Analysis",
-                AutoSize = true,
-                MaximumSize = new Size(260, 0) // wraps if needed
-            };
+            nudPCAComp = new NumericUpDown { Width = 70, Minimum = 1, Maximum = 500, Value = 10, Enabled = false };
+            rbPCA.CheckedChanged += (s, e) => nudPCAComp.Enabled = rbPCA.Checked;
 
-            lblNoPCA.Click += (s, e) => rbNoPCA.Checked = true;
-            lblPCA.Click += (s, e) => rbPCA.Checked = true;
+            var lblNoPCA = MkClickLabel("None", rbNoPCA);
+            var lblPCA = MkClickLabel("PCA – Principal Component Analysis", rbPCA);
 
-            var lPCAComp = new Label
-            {
-                Text = "Components:",
-                AutoSize = true,
-                Anchor = AnchorStyles.Right
-            };
-
-            nudPCAComp = new NumericUpDown
-            {
-                Width = 70,
-                Minimum = 1,
-                Maximum = 500,
-                Value = 10,
-                Enabled = false
-            };
-
-            rbPCA.CheckedChanged += (s, e) =>
-            {
-                nudPCAComp.Enabled = rbPCA.Checked;
-            };
-
-            tbl.Controls.Add(lPCA, 0, 0);
-            tbl.Controls.Add(rbNoPCA, 1, 0);
-            tbl.Controls.Add(lblNoPCA, 2, 0);
-            tbl.Controls.Add(rbPCA, 3, 0);
-            tbl.Controls.Add(lblPCA, 4, 0);
-            tbl.Controls.Add(lPCAComp, 8, 0);
+            tbl.Controls.Add(new Label { Text = "Dimensionality Reduction:", AutoSize = true, Font = new Font("Segoe UI", 8.5f, FontStyle.Bold), Anchor = AnchorStyles.Left }, 0, 0);
+            tbl.Controls.Add(rbNoPCA, 1, 0); tbl.Controls.Add(lblNoPCA, 2, 0);
+            tbl.Controls.Add(rbPCA, 3, 0); tbl.Controls.Add(lblPCA, 4, 0);
+            tbl.Controls.Add(new Label { Text = "Components:", AutoSize = true, Anchor = AnchorStyles.Right }, 8, 0);
             tbl.Controls.Add(nudPCAComp, 9, 0);
 
-            // ─────────────── ROW 2: Sampling ───────────────
-            var lSam = new Label
-            {
-                Text = "Data Sampling:",
-                AutoSize = true,
-                Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
-                Anchor = AnchorStyles.Left
-            };
-
-            rbNoSample = new RadioButton { AutoSize = true };
-            var lblNoSample = new Label { Text = "No sampling", AutoSize = true };
-
+            // ── Sampling row ──────────────────────────────────────────────
+            rbNoSample = new RadioButton { AutoSize = true, Checked = true };
             rbRandSample = new RadioButton { AutoSize = true };
-            var lblRand = new Label { Text = "Simple Random", AutoSize = true };
-
             rbStratSample = new RadioButton { AutoSize = true };
-            var lblStrat = new Label
-            {
-                Text = "Stratified (per class)",
-                AutoSize = true,
-                MaximumSize = new Size(180, 0)
-            };
+            nudSamplePct = new NumericUpDown { Width = 70, Minimum = 10, Maximum = 99, Value = 80 };
 
-            lblNoSample.Click += (s, e) => rbNoSample.Checked = true;
-            lblRand.Click += (s, e) => rbRandSample.Checked = true;
-            lblStrat.Click += (s, e) => rbStratSample.Checked = true;
-
-            var lSamPct = new Label
-            {
-                Text = "Keep %:",
-                AutoSize = true,
-                Anchor = AnchorStyles.Right
-            };
-
-            nudSamplePct = new NumericUpDown
-            {
-                Width = 70,
-                Minimum = 10,
-                Maximum = 99,
-                Value = 80
-            };
-
-            tbl.Controls.Add(lSam, 0, 1);
-            tbl.Controls.Add(rbNoSample, 1, 1);
-            tbl.Controls.Add(lblNoSample, 2, 1);
-            tbl.Controls.Add(rbRandSample, 3, 1);
-            tbl.Controls.Add(lblRand, 4, 1);
-            tbl.Controls.Add(rbStratSample, 5, 1);
-            tbl.Controls.Add(lblStrat, 6, 1);
-            tbl.Controls.Add(lSamPct, 8, 1);
+            tbl.Controls.Add(new Label { Text = "Data Sampling:", AutoSize = true, Font = new Font("Segoe UI", 8.5f, FontStyle.Bold), Anchor = AnchorStyles.Left }, 0, 1);
+            tbl.Controls.Add(rbNoSample, 1, 1); tbl.Controls.Add(MkClickLabel("No sampling", rbNoSample), 2, 1);
+            tbl.Controls.Add(rbRandSample, 3, 1); tbl.Controls.Add(MkClickLabel("Simple Random", rbRandSample), 4, 1);
+            tbl.Controls.Add(rbStratSample, 5, 1); tbl.Controls.Add(MkClickLabel("Stratified (per class)", rbStratSample), 6, 1);
+            tbl.Controls.Add(new Label { Text = "Keep %:", AutoSize = true, Anchor = AnchorStyles.Right }, 8, 1);
             tbl.Controls.Add(nudSamplePct, 9, 1);
 
             grpGlobalReduction.Controls.Add(tbl);
 
-            // ── Final layout ─────────────────────────────────────
             tpReduction.Controls.Clear();
             tpReduction.Controls.Add(dgvReduction);
             tpReduction.Controls.Add(grpGlobalReduction);
             tpReduction.Controls.Add(hint);
         }
 
+        private static Label MkClickLabel(string text, RadioButton rb) =>
+            new Label { Text = text, AutoSize = true }.Also(l => l.Click += (s, e) => rb.Checked = true);
+
         private DataGridView BuildReductionGrid()
         {
             var g = StyledGrid(false);
-            g.Dock = DockStyle.Fill;
-            g.RowTemplate.Height = 30;
+            g.Dock = DockStyle.Fill; g.RowTemplate.Height = 30;
             g.AllowUserToAddRows = g.AllowUserToDeleteRows = false;
             g.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             g.EditMode = DataGridViewEditMode.EditOnEnter;
@@ -875,37 +613,20 @@ namespace Image_Checker.Forms
                 HeaderText = "Column Name",
                 ReadOnly = true,
                 Width = 180,
-                DefaultCellStyle ={ BackColor=Color.FromArgb(237,243,255),
-                Font=new Font("Segoe UI",9f,FontStyle.Bold) }
+                DefaultCellStyle = { BackColor = Color.FromArgb(237, 243, 255), Font = new Font("Segoe UI", 9f, FontStyle.Bold) }
             });
-
-            g.Columns.Add(new DataGridViewTextBoxColumn
-            { Name = "ColType", HeaderText = "Type", ReadOnly = true, Width = 85 });
-
-            g.Columns.Add(new DataGridViewCheckBoxColumn
-            {
-                Name = "Include",
-                HeaderText = "Include",
-                Width = 80,
-                TrueValue = true,
-                FalseValue = false
-            });
-
+            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "ColType", HeaderText = "Type", ReadOnly = true, Width = 85 });
+            g.Columns.Add(new DataGridViewCheckBoxColumn { Name = "Include", HeaderText = "Include", Width = 80, TrueValue = true, FalseValue = false });
             g.Columns.Add(new DataGridViewComboBoxColumn
             {
                 Name = "Strategy",
                 HeaderText = "Feature Selection Strategy",
                 Width = 270,
-                DataSource = new[]
-                { "Always include",
-                  "Variance Filter  (drop near-zero variance)",
-                  "Top-N Correlation  (with label column)",
-                  "Exclude this column" },
-                FlatStyle = FlatStyle.Flat
+                FlatStyle = FlatStyle.Flat,
+                DataSource = new[] { "Always include", "Variance Filter  (drop near-zero variance)",
+                    "Top-N Correlation  (with label column)", "Exclude this column" }
             });
-
-            g.Columns.Add(new DataGridViewTextBoxColumn
-            { Name = "VarThresh", HeaderText = "Variance Threshold", Width = 160 });
+            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "VarThresh", HeaderText = "Variance Threshold", Width = 160 });
             g.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.AllCells;
             return g;
         }
@@ -915,28 +636,19 @@ namespace Image_Checker.Forms
         // ═════════════════════════════════════════════════════════════════════
         private void BuildTrainingTab()
         {
-            // Left (algo list, 340 fixed) | Right (info card + log)
             var outer = new SplitContainer
             {
                 Dock = DockStyle.Fill,
                 Orientation = Orientation.Vertical,
-                SplitterDistance = 340,
                 FixedPanel = FixedPanel.Panel1,
                 BorderStyle = BorderStyle.None
             };
-            outer.Layout += (s, e) =>
-            {
-                if (outer.Width > 0)
-                    outer.SplitterDistance = 340; // 🔥 your desired width
-            };
+            outer.Layout += (s, e) => { if (outer.Width > 0) outer.SplitterDistance = 340; };
 
-            // ── LEFT ──────────────────────────────────────────────────────
-            pnlAlgoScroll = new Panel
-            { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.White };
+            // ── LEFT: algorithm list ──────────────────────────────────────
+            pnlAlgoScroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.White };
 
-            // Blue header
-            var ah = new Panel
-            { Dock = DockStyle.Top, Height = 44, BackColor = Color.FromArgb(41, 98, 200) };
+            var ah = new Panel { Dock = DockStyle.Top, Height = 44, BackColor = Color.FromArgb(41, 98, 200) };
             ah.Controls.Add(new Label
             {
                 Text = "Select Algorithms",
@@ -948,32 +660,8 @@ namespace Image_Checker.Forms
             pnlAlgoScroll.Controls.Add(ah);
 
             int ay = 52;
-            void Sec(string t)
-            {
-                pnlAlgoScroll.Controls.Add(new Label
-                {
-                    Text = t,
-                    Location = new Point(12, ay),
-                    Size = new Size(308, 18),
-                    ForeColor = Color.FromArgb(85, 108, 175),
-                    Font = new Font("Segoe UI", 8.5f, FontStyle.Bold)
-                });
-                ay += 24;
-            }
-            CheckBox AC(string t, bool on)
-            {
-                var c = new CheckBox
-                {
-                    Text = t,
-                    Checked = on,
-                    Location = new Point(12, ay),
-                    Size = new Size(314, 24),
-                    Font = new Font("Segoe UI", 9f)
-                };
-                pnlAlgoScroll.Controls.Add(c);
-                ay += 26;
-                return c;
-            }
+            void Sec(string t) { pnlAlgoScroll.Controls.Add(new Label { Text = t, Location = new Point(12, ay), Size = new Size(308, 18), ForeColor = Color.FromArgb(85, 108, 175), Font = new Font("Segoe UI", 8.5f, FontStyle.Bold) }); ay += 24; }
+            CheckBox AC(string t, bool on) { var c = new CheckBox { Text = t, Checked = on, Location = new Point(12, ay), Size = new Size(314, 24), Font = new Font("Segoe UI", 9f) }; pnlAlgoScroll.Controls.Add(c); ay += 26; return c; }
 
             Sec("── Classification  /  General ─────────────────");
             chkSDCA = AC("SDCA  (Stochastic Dual Coordinate Ascent)", true);
@@ -1009,16 +697,13 @@ namespace Image_Checker.Forms
                 Cursor = Cursors.Hand
             };
             btnTrain.FlatAppearance.BorderSize = 0;
-            pnlAlgoScroll.Controls.Add(btnTrain);
-            ay += 50;
-
+            pnlAlgoScroll.Controls.Add(btnTrain); ay += 50;
             btnCancelTrain = Btn("⏹  Cancel", new Point(12, ay), 130, false);
             btnCancelTrain.Enabled = false;
             pnlAlgoScroll.Controls.Add(btnCancelTrain);
-
             outer.Panel1.Controls.Add(pnlAlgoScroll);
 
-            // ── RIGHT ─────────────────────────────────────────────────────
+            // ── RIGHT: info card + log ────────────────────────────────────
             var rightSplit = new SplitContainer
             {
                 Dock = DockStyle.Fill,
@@ -1026,25 +711,14 @@ namespace Image_Checker.Forms
                 FixedPanel = FixedPanel.Panel1,
                 BorderStyle = BorderStyle.None
             };
-            // Set SplitterDistance safely after layout so Panel height is known
             rightSplit.Layout += (s, e) =>
             {
-                try
-                {
-                    int desired = 300;
-                    if (rightSplit.Height > desired + rightSplit.SplitterWidth + 40)
-                        rightSplit.SplitterDistance = desired;
-                }
-                catch { /* ignore if not yet laid out */ }
+                try { if (rightSplit.Height > 340 + rightSplit.SplitterWidth + 40) rightSplit.SplitterDistance = 300; }
+                catch { }
             };
 
-            // Info card
             var infoPanel = new Panel
-            {
-                Dock = DockStyle.Fill,
-                BackColor = Color.FromArgb(235, 243, 255),
-                Padding = new Padding(14, 12, 14, 10)
-            };
+            { Dock = DockStyle.Fill, BackColor = Color.FromArgb(235, 243, 255), Padding = new Padding(14, 12, 14, 10) };
             lblAlgoTitle = new Label
             {
                 Dock = DockStyle.Top,
@@ -1066,21 +740,9 @@ namespace Image_Checker.Forms
             infoPanel.Controls.Add(lblAlgoTitle);
             rightSplit.Panel1.Controls.Add(infoPanel);
 
-            // Training log
-            var logHdr = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 32,
-                BackColor = Color.FromArgb(22, 28, 42)
-            };
+            var logHdr = new Panel { Dock = DockStyle.Top, Height = 32, BackColor = Color.FromArgb(22, 28, 42) };
             logHdr.Controls.Add(new Label
-            {
-                Text = "  Training Log",
-                ForeColor = Color.White,
-                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-                Location = new Point(4, 8),
-                AutoSize = true
-            });
+            { Text = "  Training Log", ForeColor = Color.White, Font = new Font("Segoe UI", 9f, FontStyle.Bold), Location = new Point(4, 8), AutoSize = true });
             rtbLog = new RichTextBox
             {
                 Dock = DockStyle.Fill,
@@ -1139,7 +801,6 @@ namespace Image_Checker.Forms
                 BackColor = Color.White
             };
             pBtns.Paint += PaintTopLine;
-
             btnSaveModel = Btn("💾  Save Best Model", Point.Empty, 195, true);
             btnExportReport = Btn("📄  Export Prediction Report", Point.Empty, 225, false);
             btnSaveModel.Enabled = btnExportReport.Enabled = false;
@@ -1154,7 +815,6 @@ namespace Image_Checker.Forms
         // ═════════════════════════════════════════════════════════════════════
         //  FACTORY HELPERS
         // ═════════════════════════════════════════════════════════════════════
-
         private Button Btn(string text, Point loc, int w, bool accent)
         {
             var b = new Button
@@ -1167,17 +827,8 @@ namespace Image_Checker.Forms
                 Cursor = Cursors.Hand,
                 Font = new Font("Segoe UI", 9f)
             };
-            if (accent)
-            {
-                b.BackColor = Color.FromArgb(41, 98, 200); b.ForeColor = Color.White;
-                b.FlatAppearance.BorderSize = 0;
-            }
-            else
-            {
-                b.BackColor = Color.FromArgb(224, 232, 248);
-                b.ForeColor = Color.FromArgb(38, 58, 118);
-                b.FlatAppearance.BorderColor = Color.FromArgb(180, 200, 234);
-            }
+            if (accent) { b.BackColor = Color.FromArgb(41, 98, 200); b.ForeColor = Color.White; b.FlatAppearance.BorderSize = 0; }
+            else { b.BackColor = Color.FromArgb(224, 232, 248); b.ForeColor = Color.FromArgb(38, 58, 118); b.FlatAppearance.BorderColor = Color.FromArgb(180, 200, 234); }
             return b;
         }
 
@@ -1195,72 +846,32 @@ namespace Image_Checker.Forms
                 FlatAppearance = { BorderColor = Color.FromArgb(180, 200, 234) }
             };
 
-        private static TabPage MkTab(string t)
-        {
-            var p = new TabPage(t)
-            { UseVisualStyleBackColor = false, BackColor = Color.FromArgb(242, 245, 252) };
-            return p;
-        }
+        private static TabPage MkTab(string t) =>
+            new TabPage(t) { UseVisualStyleBackColor = false, BackColor = Color.FromArgb(242, 245, 252) };
 
-        private static Label L(string text, int x, int y,
-            bool bold = false, Color? color = null)
+        private static Label L(string text, int x, int y, bool bold = false, Color? color = null)
         {
-            var l = new Label
-            {
-                Text = text,
-                Location = new Point(x, y),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 9f, bold ? FontStyle.Bold : FontStyle.Regular)
-            };
+            var l = new Label { Text = text, Location = new Point(x, y), AutoSize = true, Font = new Font("Segoe UI", 9f, bold ? FontStyle.Bold : FontStyle.Regular) };
             if (color.HasValue) l.ForeColor = color.Value;
             return l;
         }
 
         private static Label FieldLabel(string text, int x, int y) =>
-            new Label
-            {
-                Text = text,
-                Location = new Point(x, y),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
-                ForeColor = Color.FromArgb(45, 72, 155)
-            };
+            new Label { Text = text, Location = new Point(x, y), AutoSize = true, Font = new Font("Segoe UI", 8.5f, FontStyle.Bold), ForeColor = Color.FromArgb(45, 72, 155) };
 
         private static Panel Divider(int x, int y) =>
-            new Panel
-            {
-                Location = new Point(x, y),
-                Size = new Size(340, 1),
-                BackColor = Color.FromArgb(215, 225, 245)
-            };
+            new Panel { Location = new Point(x, y), Size = new Size(340, 1), BackColor = Color.FromArgb(215, 225, 245) };
 
-        // Column checklist pane header
         private static Panel ColPaneHeader(string title, string subtitle, Color accent)
         {
             var p = new Panel { Dock = DockStyle.Top, Height = 68, BackColor = Color.White };
             p.Paint += (s, e) =>
             {
-                var g = e.Graphics;
-                g.FillRectangle(new SolidBrush(accent), 0, 0, 4, 68);
-                g.DrawLine(new Pen(Color.FromArgb(215, 225, 245)),
-                    0, 67, ((Control)s!).Width, 67);
+                e.Graphics.FillRectangle(new SolidBrush(accent), 0, 0, 4, 68);
+                e.Graphics.DrawLine(new Pen(Color.FromArgb(215, 225, 245)), 0, 67, ((Control)s!).Width, 67);
             };
-            p.Controls.Add(new Label
-            {
-                Text = title,
-                Location = new Point(14, 12),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 10f, FontStyle.Bold),
-                ForeColor = Color.FromArgb(25, 40, 90)
-            });
-            p.Controls.Add(new Label
-            {
-                Text = subtitle,
-                Location = new Point(14, 36),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 8.5f),
-                ForeColor = Color.FromArgb(90, 105, 140)
-            });
+            p.Controls.Add(new Label { Text = title, Location = new Point(14, 12), AutoSize = true, Font = new Font("Segoe UI", 10f, FontStyle.Bold), ForeColor = Color.FromArgb(25, 40, 90) });
+            p.Controls.Add(new Label { Text = subtitle, Location = new Point(14, 36), AutoSize = true, Font = new Font("Segoe UI", 8.5f), ForeColor = Color.FromArgb(90, 105, 140) });
             return p;
         }
 
@@ -1295,9 +906,9 @@ namespace Image_Checker.Forms
         private static void PaintBottomLine(object? s, PaintEventArgs e)
         {
             var c = (Control)s!;
-            e.Graphics.DrawLine(new Pen(Color.FromArgb(210, 222, 244)),
-                0, c.Height - 1, c.Width, c.Height - 1);
+            e.Graphics.DrawLine(new Pen(Color.FromArgb(210, 222, 244)), 0, c.Height - 1, c.Width, c.Height - 1);
         }
+
         private static void PaintTopLine(object? s, PaintEventArgs e)
         {
             var c = (Control)s!;
@@ -1309,5 +920,13 @@ namespace Image_Checker.Forms
             if (disposing) { components?.Dispose(); tip?.Dispose(); }
             base.Dispose(disposing);
         }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  Small extension helper — lets us call .Also() inline
+    // ════════════════════════════════════════════════════════════════════════
+    internal static class ControlExt
+    {
+        public static T Also<T>(this T obj, Action<T> action) { action(obj); return obj; }
     }
 }

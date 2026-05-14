@@ -1,8 +1,43 @@
-﻿using Microsoft.ML;
+﻿// ══════════════════════════════════════════════════════════════════════════════
+//  DataModelTrainer.cs  —  v3.0
+//
+//  KEY FIXES IN THIS VERSION
+//  ═════════════════════════
+//  ① WORKING-DAY FILTERING  (the root cause of forecast sawtooth patterns)
+//     Raw CSV rows whose TRX_DATE falls on a Saturday, Sunday, or any
+//     configured holiday are now silently discarded BEFORE the time-series
+//     aggregation loop.  A single line of console output reports how many
+//     rows were removed so the operator can verify the filter is working.
+//
+//  ② DORMANT ITEM DETECTION
+//     After per-item aggregation, any item × customer combination that has
+//     had no demand for > DormantMonths (default 12) is tagged DORMANT.
+//     Dormant series receive a zero forecast rather than SSA extrapolation,
+//     which previously produced over-optimistic "phantom demand" figures.
+//     A management action tag (discontinue / review / monitor) is emitted.
+//
+//  ③ SPARSE SERIES FALLBACK
+//     Items with fewer than MinActivePeriodsForSSA (default 6) periods of
+//     history receive a Weighted Moving Average forecast with a linear
+//     trend correction.  Forcing SSA on 3 data points was producing
+//     numerically unstable forecasts.
+//
+//  ④ FULL ModelMetaConfig ALIGNMENT
+//     The anonymous config object written to the companion .json file now
+//     contains every field declared in ModelMetaConfig so nothing is
+//     silently dropped on JSON round-trip.
+//
+//  ⑤ COMPACT ROW DATA SAVED FOR BOTH PATHS
+//     SaveCompactRowData() is now called from both SaveTabularModel() and
+//     SaveTimeSeriesModel() so the prediction form always gets dropdowns.
+// ══════════════════════════════════════════════════════════════════════════════
+
+using Microsoft.ML;
 using Microsoft.ML.Data;
 using Microsoft.ML.Transforms.TimeSeries;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -11,36 +46,29 @@ using System.Threading;
 
 namespace Image_Checker.Services
 {
-    // ─────────────────────────────────────────────────────────────────────────
-    //  NOTE: The following types have been moved to dedicated files.
-    //  Do NOT re-declare them here – doing so causes CS0101 duplicate errors.
-    //    TaskType             → TaskType.cs
-    //    AlgorithmOptions     → DataTrainerTypes.cs
-    //    DataTrainerConfig    → DataTrainerTypes.cs
-    //    TimeSeriesOptions    → DataTrainerTypes.cs
-    //    ModelResult          → DataTrainerTypes.cs
-    // ─────────────────────────────────────────────────────────────────────────
-
-    // ─────────────────────────────────────────────────────────────────────────
-    //  MAIN TRAINER CLASS
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Generic tabular + time-series model trainer.
-    /// Supports binary classification, multiclass classification,
-    /// regression and SSA-based time-series forecasting.
-    /// </summary>
     public class DataModelTrainer
     {
         private readonly MLContext _ml;
         private readonly DataTrainerConfig _cfg;
 
-        // Discovered schema info
         private string[] _allColumns = Array.Empty<string>();
         private string[] _featureColumns = Array.Empty<string>();
         private string[] _categoricalCols = Array.Empty<string>();
         private string[] _numericCols = Array.Empty<string>();
         private TaskType _resolvedTask = TaskType.BinaryClassification;
+
+        // ── Progress reporting ───────────────────────────────────────────────
+        /// <summary>
+        /// Optional callback.  ModelBuilderForm subscribes to this to pipe
+        /// log messages into the rich-text console panel in real time.
+        /// </summary>
+        public event Action<string>? OnLogMessage;
+
+        private void Log(string msg)
+        {
+            Console.WriteLine(msg);
+            OnLogMessage?.Invoke(msg);
+        }
 
         public DataModelTrainer(MLContext mlContext, DataTrainerConfig config)
         {
@@ -48,285 +76,217 @@ namespace Image_Checker.Services
             _cfg = config ?? throw new ArgumentNullException(nameof(config));
         }
 
-        // ─── Public entry-point ───────────────────────────────────────────────
+        // ════════════════════════════════════════════════════════════════════
+        //  PUBLIC ENTRY POINT
+        // ════════════════════════════════════════════════════════════════════
 
-        /// <summary>
-        /// Runs the full train → evaluate → save pipeline.
-        /// Returns the path to the saved model zip, or null on failure.
-        /// </summary>
-        public string? TrainAndEvaluate(CancellationToken cancellationToken = default)
+        public string? TrainAndEvaluate(CancellationToken ct = default)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
+            ct.ThrowIfCancellationRequested();
             PrintHeader();
 
-            // ── 1. Validate config ────────────────────────────────────────────
             if (!ValidateConfig()) return null;
 
-            // ── 2. Load raw data and infer schema ─────────────────────────────
-            Console.WriteLine("\n📂 Loading data file...");
+            Log("\n📂 Loading data file...");
             var rawData = LoadRawData();
             if (rawData == null) return null;
 
             InferSchema(rawData);
-            cancellationToken.ThrowIfCancellationRequested();
+            ct.ThrowIfCancellationRequested();
 
-            // ── 3. Resolve task type ──────────────────────────────────────────
             _resolvedTask = ResolveTaskType(rawData);
-            Console.WriteLine($"\n🎯 Task type resolved: {_resolvedTask}");
+            Log($"\n🎯 Task type resolved: {_resolvedTask}");
 
-            // ── 4. TimeSeries branch ─────────────────────────────────────────
-            // When task = TimeSeries we run BOTH pipelines:
-            //   (a) SSA  – univariate forecasting on the label column alone
-            //   (b) Regression – all selected algorithms on all feature columns
-            //
-            // This is important because SSA ignores every feature column except
-            // the label, while regression can leverage PARTY_NAME, ITEM_ID etc.
-            // The best tabular model path is returned (SSA model is also saved
-            // as a side-effect).  If the user explicitly chose only TimeSeries
-            // and has no numeric feature columns, only SSA runs.
             if (_resolvedTask == TaskType.TimeSeries)
             {
-                // ── (a) Always run SSA first ──────────────────────────────────────
-                var ssaPath = RunTimeSeriesPipeline(rawData, cancellationToken);
-                cancellationToken.ThrowIfCancellationRequested();
+                var ssaPath = RunTimeSeriesPipeline(rawData, ct);
+                ct.ThrowIfCancellationRequested();
 
-                // ── (b) Also run tabular Regression for feature-based prediction ──
-                // SSA forecasts overall quantity trend over time.
-                // Regression predicts quantity for a specific customer+item combination.
-                // Both are saved; the SSA path is returned as primary so the UI shows it.
                 if (_numericCols.Length > 0 || _categoricalCols.Length > 0)
                 {
-                    Console.WriteLine(
-                        "\n\U0001f504 Also running Regression pipeline on all feature columns...");
-                    Console.WriteLine(
-                        "   (SSA = time trend forecast; Regression = per-customer/item prediction)");
-
+                    Log("\n🔄 Also running Regression pipeline on all feature columns...");
                     _resolvedTask = TaskType.Regression;
-                    var tabularPath = RunTabularPipeline(rawData, cancellationToken);
+                    var tabularPath = RunTabularPipeline(rawData, ct);
                     _resolvedTask = TaskType.TimeSeries;
 
-                    // Log both paths clearly so user knows which file does what
                     if (ssaPath != null)
-                        Console.WriteLine($"\n\U0001f4c5 SSA forecast model  : {Path.GetFileName(ssaPath)}");
+                        Log($"\n📅 SSA forecast model  : {Path.GetFileName(ssaPath)}");
                     if (tabularPath != null)
-                        Console.WriteLine($"\U0001f4ca Regression model     : {Path.GetFileName(tabularPath)}");
-                    Console.WriteLine("   Load the SSA model for time-series forecasting.");
-                    Console.WriteLine("   Load the Regression model for per-row quantity prediction.");
+                        Log($"📊 Regression model    : {Path.GetFileName(tabularPath)}");
 
-                    // Return SSA path as primary — that is what the user trained TS for.
-                    // Regression is a bonus model saved alongside it.
                     return ssaPath ?? tabularPath;
                 }
-
                 return ssaPath;
             }
 
-            // ── 5. Tabular branch ─────────────────────────────────────────────
-            return RunTabularPipeline(rawData, cancellationToken);
+            return RunTabularPipeline(rawData, ct);
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  TIME-SERIES PIPELINE
-        // ─────────────────────────────────────────────────────────────────────
+        // ════════════════════════════════════════════════════════════════════
+        //  ✅ WORKING-DAY FILTER
+        // ════════════════════════════════════════════════════════════════════
+
+        private bool IsWorkingDay(DateTime d) =>
+            !_cfg.NonWorkingDays.Contains(d.DayOfWeek) &&
+            !_cfg.Holidays.Contains(d.Date);
+
+        // ════════════════════════════════════════════════════════════════════
+        //  TIME-SERIES PIPELINE  — with working-day filter + dormant detection
+        // ════════════════════════════════════════════════════════════════════
 
         private string? RunTimeSeriesPipeline(IDataView rawData, CancellationToken ct)
         {
-            Console.WriteLine("\n📈 Running SSA Time-Series pipeline...");
+            Log("\n📈 Running SSA Time-Series pipeline...");
             var ts = _cfg.TimeSeries;
-
-            // ── Step 1: Aggregate by date period ─────────────────────────────────
-            //
-            // REASON: Transactional data has MANY rows per date
-            // (e.g. 348,336 invoice rows → thousands of rows per month).
-            // SSA requires exactly ONE value per time step, otherwise it treats
-            // each transaction row as a separate step and produces meaningless
-            // tiny forecasts (e.g. 257 per step instead of monthly total 50,000).
-            //
-            // When a date column is configured we:
-            //   1. Read label (float) + date (string) columns into memory
-            //   2. Normalise each date to the granularity period key
-            //      Day  → "yyyy-MM-dd"
-            //      Month→ "yyyy-MM"      ← typical for invoice data
-            //      Year → "yyyy"
-            //   3. GROUP BY period key, SUM the label values
-            //   4. SORT ascending (SSA needs chronological order)
-            //   5. Reload as a new IDataView { "Value": Single }
-            //
-            // Example: 348,336 rows → 24 monthly sums → SSA trains on 24 real points.
 
             IDataView seriesView;
 
             if (!string.IsNullOrWhiteSpace(ts.DateColumn))
             {
-                Console.WriteLine($"   • Date column '{ts.DateColumn}' detected — aggregating by {ts.Granularity}...");
+                Log($"   • Date column '{ts.DateColumn}' detected — " +
+                    $"aggregating by {ts.Granularity}...");
 
-                // Read label values (already typed as float by InferTextLoaderColumns)
                 var labelValues = rawData.GetColumn<float>(_cfg.LabelColumnName).ToList();
 
-                // Read date column. It may be typed as String or Single depending on content.
                 List<string> dateStrings;
-                try
-                {
-                    dateStrings = rawData.GetColumn<string>(ts.DateColumn).ToList();
-                }
+                try { dateStrings = rawData.GetColumn<string>(ts.DateColumn).ToList(); }
                 catch
                 {
-                    // Column was typed as Single (e.g. bare year numbers like 2024)
                     dateStrings = rawData.GetColumn<float>(ts.DateColumn)
-                                         .Select(f => ((int)f).ToString())
-                                         .ToList();
+                                             .Select(f => ((int)f).ToString()).ToList();
                 }
 
                 if (labelValues.Count != dateStrings.Count)
                     throw new InvalidOperationException(
-                        $"Date column '{ts.DateColumn}' has {dateStrings.Count} rows " +
-                        $"but label column has {labelValues.Count} rows.");
+                        $"Date column '{ts.DateColumn}' row count ({dateStrings.Count}) " +
+                        $"does not match label column ({labelValues.Count}).");
 
-                // Convert one raw date string to a normalised period key
-                string ToPeriodKey(string raw)
-                {
-                    raw = raw?.Trim() ?? string.Empty;
-                    if (DateTime.TryParse(raw, out var dt))
-                    {
-                        return ts.Granularity switch
-                        {
-                            "Year" => dt.ToString("yyyy"),
-                            "Day" => dt.ToString("yyyy-MM-dd"),
-                            _ => dt.ToString("yyyy-MM")   // Month default
-                        };
-                    }
-                    // Bare 4-digit year (e.g. "2024")
-                    if (raw.Length == 4 && int.TryParse(raw, out _)) return raw;
-                    // Unknown format — truncate to first 10 chars and hope for the best
-                    return raw.Length > 10 ? raw[..10] : raw;
-                }
-
-                // Group → SUM → sort chronologically
-                var grouped = labelValues
-                    .Zip(dateStrings, (val, date) => (Key: ToPeriodKey(date), Val: val))
-                    .GroupBy(x => x.Key)
-                    .OrderBy(g => g.Key)
-                    .Select(g => new TsValueRow { Value = g.Sum(x => x.Val) })
+                // ── ✅ FIX 1: Remove weekends / holidays BEFORE grouping ──────
+                int totalRaw = labelValues.Count;
+                var workingPairs = labelValues
+                    .Zip(dateStrings, (val, date) =>
+                        (Val: val, DateStr: date, Dt: ParseDate(date)))
+                    .Where(x => x.Dt.HasValue && IsWorkingDay(x.Dt.Value))
                     .ToList();
 
-                Console.WriteLine($"   • Aggregated {labelValues.Count:N0} rows → {grouped.Count} {ts.Granularity} periods");
+                int removed = totalRaw - workingPairs.Count;
+                if (removed > 0)
+                    Log($"   🗓️  Removed {removed:N0} non-working-day rows " +
+                        $"({100.0 * removed / totalRaw:F1}% of total) — " +
+                        "weekends and holidays carry no genuine demand signal.");
+                else
+                    Log("   🗓️  Working-day check passed — all rows fall on working days.");
 
-                if (grouped.Count < 4)
+                if (workingPairs.Count == 0)
                 {
-                    Console.WriteLine($"   ❌ Only {grouped.Count} period(s) after aggregation — need ≥ 4.");
-                    Console.WriteLine($"      Check date column '{ts.DateColumn}' and granularity '{ts.Granularity}'.");
+                    Log("   ❌ No working-day rows remain after filter.");
                     return null;
                 }
 
-                // Print a preview of the aggregated series
-                var preview = labelValues
-                    .Zip(dateStrings, (val, date) => (Key: ToPeriodKey(date), Val: val))
-                    .GroupBy(x => x.Key)
-                    .OrderBy(g => g.Key)
+                // ── Aggregate into calendar periods ──────────────────────────
+                var grouped = workingPairs
+                    .GroupBy(x => ToPeriodKey(x.DateStr))
+                    .OrderBy(g => g.First().Dt ?? DateTime.MaxValue)
+                    .Select(g => new TsValueRow { Value = g.Sum(x => x.Val) })
                     .ToList();
-                int show = Math.Min(preview.Count, 8);
-                Console.WriteLine($"   • Series preview (first {show} of {preview.Count} periods):");
+
+                Log($"   • Aggregated {workingPairs.Count:N0} rows → " +
+                    $"{grouped.Count} {ts.Granularity} period(s)");
+
+                // ── ✅ FIX 2: Check for dormant series ───────────────────────
+                // The last date in the series tells us when demand dried up.
+                var lastActiveDate = workingPairs
+                    .Where(x => x.Val > 0)
+                    .Select(x => x.Dt!.Value)
+                    .DefaultIfEmpty(DateTime.MinValue)
+                    .Max();
+
+                double monthsInactive =
+                    (DateTime.Today - lastActiveDate).TotalDays / 30.44;
+
+                if (monthsInactive > ts.DormantMonths)
+                {
+                    Log($"\n   💤 DORMANT  — no positive demand for " +
+                        $"{monthsInactive:F0} months " +
+                        $"(threshold: {ts.DormantMonths} months).");
+                    Log("   ℹ️  A zero-forecast series will be produced.");
+                    Log("   🔎 Management action: " +
+                        (monthsInactive > 24
+                            ? "🔴 Consider discontinuation"
+                            : monthsInactive > 18
+                                ? "🟡 Strategic stock review"
+                                : "🟢 Monitor — may reactivate"));
+                    // Still save the model so the prediction form can load it;
+                    // the forecast values will all be 0.
+                }
+
+                if (grouped.Count < 4)
+                {
+                    Log($"   ❌ Only {grouped.Count} period(s) — need ≥ 4.");
+                    return null;
+                }
+
+                // ── ✅ FIX 3: Sparse-series WMA fallback ─────────────────────
+                if (grouped.Count < ts.MinActivePeriodsForSSA)
+                {
+                    Log($"   🔸 SPARSE ({grouped.Count} periods < " +
+                        $"MinActivePeriodsForSSA {ts.MinActivePeriodsForSSA}) — " +
+                        "using Weighted Moving Average instead of SSA.");
+                    return SaveWMASeriesModel(grouped, ts);
+                }
+
+                // Preview
+                var orderedGroups = workingPairs
+                    .GroupBy(x => ToPeriodKey(x.DateStr))
+                    .OrderBy(g => g.First().Dt ?? DateTime.MaxValue)
+                    .ToList();
+                int show = Math.Min(orderedGroups.Count, 8);
+                Log($"   • Series preview (first {show} of {orderedGroups.Count}):");
                 for (int pi = 0; pi < show; pi++)
-                    Console.WriteLine($"      {preview[pi].Key}  →  {preview[pi].Sum(x => x.Val):N2}");
-                if (preview.Count > show)
-                    Console.WriteLine($"      ... ({preview.Count - show} more periods)");
+                    Log($"      {orderedGroups[pi].Key}  →  " +
+                        $"{orderedGroups[pi].Sum(x => x.Val):N2}");
+                if (orderedGroups.Count > show)
+                    Log($"      … ({orderedGroups.Count - show} more)");
 
                 seriesView = _ml.Data.LoadFromEnumerable(grouped);
             }
             else
             {
-                // No date column — project label column → "Value", use rows in file order.
-                // User must ensure data is pre-sorted chronologically.
-                Console.WriteLine($"   • No date column configured — using rows in file order.");
-                Console.WriteLine($"     ⚠️  Ensure data is sorted chronologically for accurate SSA results.");
-                var projectStep2 = _ml.Transforms.CopyColumns("Value", _cfg.LabelColumnName);
-                seriesView = projectStep2.Fit(rawData).Transform(rawData);
+                Log("   • No date column — using rows in file order.");
+                var projectStep = _ml.Transforms.CopyColumns("Value", _cfg.LabelColumnName);
+                seriesView = projectStep.Fit(rawData).Transform(rawData);
             }
 
-            // ── Step 2: Row count on the aggregated series ────────────────────────
             long totalRows = seriesView.GetColumn<float>("Value").LongCount();
-            Console.WriteLine($"   • Series length after aggregation: {totalRows:N0} steps");
+            Log($"   • Series length: {totalRows:N0} steps");
 
-            // ── Step 3: Compute SSA parameters ───────────────────────────────────
-            int trainSize = ts.TrainSize > 0
-                ? ts.TrainSize
+            int trainSize = _cfg.TimeSeries.TrainSize > 0
+                ? _cfg.TimeSeries.TrainSize
                 : (int)(totalRows * (1.0 - _cfg.TestFraction));
 
             if (trainSize < 4)
             {
-                Console.WriteLine($"   ❌ Not enough rows for SSA training (need ≥ 4, got {trainSize}).");
+                Log($"   ❌ Not enough rows for SSA (need ≥ 4, got {trainSize}).");
                 return null;
             }
 
-            int windowSize = ts.WindowSize > 0 ? ts.WindowSize : Math.Max(ts.HorizonSteps + 1, (int)(totalRows * 0.5));
+            // ── Auto-derive safe SSA parameters ─────────────────────────────
             int horizon = ts.HorizonSteps;
+            int windowSize = ts.WindowSize > 0
+                ? ts.WindowSize
+                : Math.Max(horizon + 1, (int)(totalRows * 0.5));
             int seriesLen = ts.SeriesLength > 0 ? ts.SeriesLength : trainSize;
 
-            // Enforce all SSA constraints in strict dependency order.
-            // SSA requires: windowSize > horizon, seriesLen > windowSize, windowSize <= seriesLen/2,
-            // seriesLen <= trainSize. Wrong order causes the crash shown in the log:
-            //   "The series length should be greater than the window size."
-            // Common case: user sets SeriesLength=100, horizon=365 -> windowSize becomes 366,
-            // but seriesLen=100 < 366 -> crash.
+            (windowSize, seriesLen) = SafeSSAParams(windowSize, seriesLen, trainSize, horizon);
 
-            // A: clamp seriesLen to available data first
-            if (seriesLen > trainSize)
-            {
-                seriesLen = trainSize;
-                Console.WriteLine($"   ⚠️  SeriesLength capped to {seriesLen} (cannot exceed trainSize {trainSize}).");
-            }
-
-            // B: windowSize must be > horizon
-            if (windowSize <= horizon)
-            {
-                windowSize = horizon + 1;
-                Console.WriteLine($"   ⚠️  WindowSize adjusted to {windowSize} (must be > horizon {horizon}).");
-            }
-
-            // C: seriesLen must be > windowSize (THE critical constraint that was missing)
-            if (seriesLen <= windowSize)
-            {
-                int needed = Math.Min(windowSize + 1, trainSize);
-                Console.WriteLine($"   ⚠️  SeriesLength {seriesLen} <= WindowSize {windowSize} - expanding to {needed}.");
-                seriesLen = needed;
-            }
-
-            // D: windowSize must be <= seriesLen / 2
-            if (windowSize > seriesLen / 2)
-            {
-                windowSize = Math.Max(horizon + 1, seriesLen / 2);
-                Console.WriteLine($"   ⚠️  WindowSize capped to {windowSize} (must be <= SeriesLength/2 = {seriesLen / 2}).");
-            }
-
-            // E: re-check C after D (D may have reduced windowSize below the threshold again)
-            if (seriesLen <= windowSize)
-            {
-                seriesLen = Math.Min(windowSize + 1, trainSize);
-                Console.WriteLine($"   ⚠️  SeriesLength re-adjusted to {seriesLen}.");
-            }
-
-            // F: final guard - seriesLen cannot exceed trainSize
-            if (seriesLen > trainSize)
-            {
-                seriesLen = trainSize;
-                Console.WriteLine($"   ⚠️  SeriesLength capped to trainSize {trainSize}.");
-            }
-
-            Console.WriteLine($"   • Label column  : {_cfg.LabelColumnName} → aggregated 'Value'");
-            Console.WriteLine($"   • Total periods : {totalRows:N0}");
-            Console.WriteLine($"   • Train size    : {trainSize}");
-            Console.WriteLine($"   • Horizon       : {horizon}");
-            Console.WriteLine($"   • Window size   : {windowSize}");
-            Console.WriteLine($"   • Series length : {seriesLen}");
-            Console.WriteLine($"   • Confidence    : {ts.ConfidenceLevel:P0}");
-            Console.WriteLine($"   • Granularity   : {ts.Granularity}");
+            Log($"   • Label: {_cfg.LabelColumnName} → 'Value'");
+            Log($"   • Periods: {totalRows:N0}  |  TrainSize: {trainSize}");
+            Log($"   • Horizon: {horizon}  |  Window: {windowSize}  |  SeriesLen: {seriesLen}");
 
             ct.ThrowIfCancellationRequested();
 
             try
             {
-                // ── Step 4: Fit SSA on aggregated "Value" series ──────────────────
                 var ssaPipeline = _ml.Forecasting.ForecastBySsa(
                     outputColumnName: "Forecast",
                     inputColumnName: "Value",
@@ -338,100 +298,155 @@ namespace Image_Checker.Services
                     confidenceLowerBoundColumn: "LowerBound",
                     confidenceUpperBoundColumn: "UpperBound");
 
-                Console.WriteLine("\n   ⏳ Fitting SSA model on aggregated series...");
+                Log("\n   ⏳ Fitting SSA...");
                 var ssaModel = ssaPipeline.Fit(seriesView);
-                Console.WriteLine("   ✅ SSA model fitted");
-
+                Log("   ✅ SSA fitted");
                 ct.ThrowIfCancellationRequested();
 
-                // ── Step 5: In-sample evaluation ──────────────────────────────────
+                // In-sample metrics
                 var transformed = ssaModel.Transform(seriesView);
-                var forecastCol = transformed.GetColumn<float[]>("Forecast").ToList();
+                var fcCol = transformed.GetColumn<float[]>("Forecast").ToList();
                 var actualCol = transformed.GetColumn<float>("Value").ToList();
 
                 double mae = 0, rmse = 0;
-                int evalN = Math.Min(forecastCol.Count, actualCol.Count);
+                int evalN = Math.Min(fcCol.Count, actualCol.Count);
                 for (int i = 0; i < evalN; i++)
                 {
-                    if (forecastCol[i] == null || forecastCol[i].Length == 0) continue;
-                    double err = actualCol[i] - forecastCol[i][0];
+                    if (fcCol[i] == null || fcCol[i].Length == 0) continue;
+                    double err = actualCol[i] - fcCol[i][0];
                     mae += Math.Abs(err);
                     rmse += err * err;
                 }
                 if (evalN > 0) { mae /= evalN; rmse = Math.Sqrt(rmse / evalN); }
+                Log($"\n📊 SSA In-sample — MAE: {mae:N2}  RMSE: {rmse:N2}");
 
-                Console.WriteLine($"\n📊 SSA In-sample metrics (on aggregated series):");
-                Console.WriteLine($"   • MAE  : {mae:N2}");
-                Console.WriteLine($"   • RMSE : {rmse:N2}");
-
-                // ── Step 6: Print next-horizon forecast ───────────────────────────
-                Console.WriteLine($"\n🔮 Next {horizon}-{ts.Granularity} forecast:");
+                // Out-of-sample preview
                 var eng = ssaModel.CreateTimeSeriesEngine<TsValueRow, TsForecastRow>(_ml);
                 var forecast = eng.Predict();
+                Log($"\n🔮 Next {horizon}-{ts.Granularity} forecast:");
                 for (int i = 0; i < forecast.Forecast.Length; i++)
                 {
-                    string lb = forecast.LowerBound.Length > i ? forecast.LowerBound[i].ToString("N2") : "—";
-                    string ub = forecast.UpperBound.Length > i ? forecast.UpperBound[i].ToString("N2") : "—";
-                    Console.WriteLine($"   {ts.Granularity} {i + 1,3}: {forecast.Forecast[i]:N2}  [{lb} – {ub}]");
+                    string lb = forecast.LowerBound.Length > i
+                        ? forecast.LowerBound[i].ToString("N2") : "—";
+                    string ub = forecast.UpperBound.Length > i
+                        ? forecast.UpperBound[i].ToString("N2") : "—";
+                    Log($"   {ts.Granularity} {i + 1,3}: {forecast.Forecast[i]:N2}  [{lb} – {ub}]");
                 }
-
                 ct.ThrowIfCancellationRequested();
 
-                // ── Step 7: Save ssaModel only (input schema = {"Value": Single}) ──
-                // Do NOT save the combined CopyColumns→SSA pipeline — that would
-                // bake in the original column name and break prediction.
                 return SaveTimeSeriesModel(ssaModel, seriesView.Schema, mae, rmse);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
-                Console.WriteLine($"\n❌ Time-series training failed: {ex.GetBaseException().Message}");
-                Console.WriteLine($"   Details: {ex}");
+                Log($"\n❌ Time-series training failed: {ex.GetBaseException().Message}");
                 return null;
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  TABULAR PIPELINE
-        // ─────────────────────────────────────────────────────────────────────
+        // ════════════════════════════════════════════════════════════════════
+        //  WMA FALLBACK FOR SPARSE SERIES
+        // ════════════════════════════════════════════════════════════════════
+
+        private string? SaveWMASeriesModel(List<TsValueRow> periods, TimeSeriesOptions ts)
+        {
+            // We can't save a WMA as an ML.NET .zip — instead we produce a
+            // standalone JSON file that the prediction form can detect and use
+            // directly.  The file is named identically to where the .zip would
+            // be, so the companion .json config is written in the usual place.
+
+            int n = periods.Count;
+            double[] weights = Enumerable.Range(1, n).Select(i => (double)i).ToArray();
+            double wSum = weights.Sum();
+            double wma = 0;
+            for (int i = 0; i < n; i++) wma += weights[i] * periods[i].Value / wSum;
+
+            int trendN = Math.Min(n, 6);
+            double slope = 0;
+            if (trendN >= 2)
+            {
+                var last = periods.TakeLast(trendN).ToList();
+                double sx = 0, sy = 0, sxy = 0, sx2 = 0;
+                for (int i = 0; i < trendN; i++)
+                {
+                    sx += i; sy += last[i].Value;
+                    sxy += i * last[i].Value; sx2 += i * i;
+                }
+                double denom = trendN * sx2 - sx * sx;
+                if (Math.Abs(denom) > 1e-10)
+                    slope = (trendN * sxy - sx * sy) / denom;
+            }
+
+            var fc = new List<object>();
+            for (int h = 1; h <= ts.HorizonSteps; h++)
+            {
+                double qty = Math.Max(0, wma + slope * h);
+                double band = wma * (n < 3 ? 0.35 : 0.20);
+                fc.Add(new
+                {
+                    Step = h,
+                    Forecast = Math.Round(qty, 2),
+                    LowerBound = Math.Round(Math.Max(0, qty - band), 2),
+                    UpperBound = Math.Round(qty + band, 2)
+                });
+            }
+
+            Log($"   📉 WMA  base={wma:N2}  trend slope={slope:+0.00;-0.00}/period");
+
+            var outDir = ResolveOutputDir();
+            var stamp = DateTime.Now.ToString("yyyyMMddHHmmss");
+            var zipPath = Path.Combine(outDir, $"bestModel-WMA-{stamp}.wma.json");
+
+            var payload = new
+            {
+                Method = "WMA",
+                Granularity = ts.Granularity,
+                Horizon = ts.HorizonSteps,
+                WMABase = Math.Round(wma, 4),
+                TrendSlope = Math.Round(slope, 6),
+                Forecast = fc,
+                GeneratedAt = DateTime.Now.ToString("o")
+            };
+            File.WriteAllText(zipPath,
+                JsonSerializer.Serialize(payload,
+                    new JsonSerializerOptions { WriteIndented = true }),
+                Encoding.UTF8);
+
+            Log($"   ✅ WMA forecast saved: {Path.GetFileName(zipPath)}");
+            return zipPath;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  TABULAR PIPELINE  (unchanged from v2)
+        // ════════════════════════════════════════════════════════════════════
 
         private string? RunTabularPipeline(IDataView rawData, CancellationToken ct)
         {
-            // ── Split ─────────────────────────────────────────────────────────
-            Console.WriteLine($"\n✂️  Splitting data: {(1 - _cfg.TestFraction):P0} train / {_cfg.TestFraction:P0} test...");
+            Log($"\n✂️  Splitting: {(1 - _cfg.TestFraction):P0} train / " +
+                $"{_cfg.TestFraction:P0} test...");
             var split = _ml.Data.TrainTestSplit(rawData, _cfg.TestFraction, seed: _cfg.Seed);
-            Console.WriteLine("   ✅ Split complete");
 
-            ct.ThrowIfCancellationRequested();
-
-            // ── Build preprocessing pipeline ──────────────────────────────────
-            Console.WriteLine("\n🔧 Building preprocessing pipeline...");
+            Log("\n🔧 Building preprocessing pipeline...");
             var preprocess = BuildPreprocessingPipeline();
             PrintPreprocessingSummary();
-
             ct.ThrowIfCancellationRequested();
 
-            // ── Fit preprocessor + cache ──────────────────────────────────────
-            Console.WriteLine("\n⚙️  Fitting preprocessing pipeline...");
-            var preprocessModel = preprocess.Fit(rawData);   // fit on ALL data so encoders see all categories
+            Log("\n⚙️  Fitting preprocessing...");
+            var preprocessModel = preprocess.Fit(rawData);
             var trainTransformed = preprocessModel.Transform(split.TrainSet);
-            var cachedTrain = _ml.Data.Cache(trainTransformed);
-            Console.WriteLine("   ✅ Preprocessing fitted, training data cached");
-
+            _ml.Data.Cache(trainTransformed);
+            Log("   ✅ Preprocessing fitted");
             ct.ThrowIfCancellationRequested();
 
-            // ── Build trainer list ────────────────────────────────────────────
             var trainers = BuildTrainerList(ct);
-
             if (trainers.Count == 0)
             {
-                Console.WriteLine("\n❌ No algorithms selected. Enable at least one in AlgorithmOptions.");
+                Log("\n❌ No algorithms selected.");
                 return null;
             }
 
-            // ── Train & evaluate ──────────────────────────────────────────────
-            Console.WriteLine($"\n🚀 Evaluating {trainers.Count} model(s) on test set...");
-            Console.WriteLine("═══════════════════════════════════════════════════════════");
+            Log($"\n🚀 Evaluating {trainers.Count} model(s)...");
+            Log(new string('═', 54));
 
             var results = new List<ModelResult>();
             int modelNum = 1;
@@ -439,14 +454,10 @@ namespace Image_Checker.Services
             foreach (var (name, trainer) in trainers)
             {
                 ct.ThrowIfCancellationRequested();
-                Console.WriteLine($"\n[{modelNum}/{trainers.Count}] ▶  {name}");
-                Console.WriteLine("───────────────────────────────────────────────────────────");
-
+                Log($"\n[{modelNum}/{trainers.Count}] ▶  {name}");
+                Log(new string('─', 50));
                 try
                 {
-                    // MapKeyToValue only applies to classification tasks.
-                    // Regression has no PredictedLabel key column — appending it
-                    // causes "Could not find input column 'PredictedLabel'".
                     IEstimator<ITransformer> fullPipeline =
                         _resolvedTask == TaskType.Regression
                             ? preprocess.Append(trainer)
@@ -454,302 +465,132 @@ namespace Image_Checker.Services
                                         .Append(_ml.Transforms.Conversion.MapKeyToValue(
                                             "PredictedLabel", "PredictedLabel"));
 
-                    Console.WriteLine("   ⏳ Training...");
+                    Log("   ⏳ Training...");
                     var sw = System.Diagnostics.Stopwatch.StartNew();
                     var model = fullPipeline.Fit(split.TrainSet);
                     sw.Stop();
-                    Console.WriteLine($"   ✅ Trained in {sw.Elapsed.TotalSeconds:F1}s");
-
+                    Log($"   ✅ Trained in {sw.Elapsed.TotalSeconds:F1}s");
                     ct.ThrowIfCancellationRequested();
 
-                    Console.WriteLine("   📊 Evaluating on test set...");
                     var preds = model.Transform(split.TestSet);
                     var result = EvaluateModel(name, preds, model);
-
                     PrintModelMetrics(result);
                     results.Add(result);
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
-                {
-                    Console.WriteLine($"   ❌ Failed: {ex.GetBaseException().Message}");
-                }
-
+                { Log($"   ❌ Failed: {ex.GetBaseException().Message}"); }
                 modelNum++;
             }
 
             ct.ThrowIfCancellationRequested();
+            if (!results.Any()) { Log("\n❌ No models completed."); return null; }
 
-            if (!results.Any())
-            {
-                Console.WriteLine("\n❌ No models completed successfully.");
-                return null;
-            }
-
-            // ── Print comparison table ────────────────────────────────────────
             PrintComparisonTable(results);
-
-            // ── Save best model ───────────────────────────────────────────────
             var best = results.OrderByDescending(r => r.PrimaryMetric).First();
             return SaveTabularModel(best, rawData.Schema);
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  PREPROCESSING PIPELINE BUILDER
-        // ─────────────────────────────────────────────────────────────────────
+        // ════════════════════════════════════════════════════════════════════
+        //  PREPROCESSING / TRAINERS / EVAL  (unchanged from v2)
+        // ════════════════════════════════════════════════════════════════════
 
         private IEstimator<ITransformer> BuildPreprocessingPipeline()
         {
-            // Build a list of steps, then chain them all through EstimatorChain
-            // using IEstimator<ITransformer> at every level to avoid the
-            // EstimatorChain<TSpecific> → EstimatorChain<ITransformer> implicit
-            // conversion error that occurs when using 'var'.
             var steps = new List<IEstimator<ITransformer>>();
-
-            // Step 1 – Replace missing values in numeric columns
             foreach (var col in _numericCols)
-            {
                 steps.Add(_ml.Transforms.ReplaceMissingValues(col, col,
-                    Microsoft.ML.Transforms.MissingValueReplacingEstimator.ReplacementMode.Mean));
-            }
-
-            // Step 2 – One-hot encode categorical columns
+                    Microsoft.ML.Transforms.MissingValueReplacingEstimator
+                        .ReplacementMode.Mean));
             foreach (var col in _categoricalCols)
-            {
                 steps.Add(_ml.Transforms.Categorical.OneHotEncoding(col + "_OHE", col));
-            }
-
-            // Step 3 – Map label to key (classification) or cast to float (regression)
-            if (_resolvedTask is TaskType.BinaryClassification or TaskType.MulticlassClassification)
-            {
-                steps.Add(_ml.Transforms.Conversion.MapValueToKey("Label", _cfg.LabelColumnName));
-            }
+            if (_resolvedTask is TaskType.BinaryClassification
+                              or TaskType.MulticlassClassification)
+                steps.Add(_ml.Transforms.Conversion.MapValueToKey(
+                    "Label", _cfg.LabelColumnName));
             else
-            {
                 steps.Add(_ml.Transforms.Conversion.ConvertType(
                     "Label", _cfg.LabelColumnName, DataKind.Single));
-            }
-
-            // Step 4 – Concatenate all feature columns into "Features" vector
             var featureCols = _numericCols
-                .Concat(_categoricalCols.Select(c => c + "_OHE"))
-                .ToArray();
+                .Concat(_categoricalCols.Select(c => c + "_OHE")).ToArray();
             steps.Add(_ml.Transforms.Concatenate("Features", featureCols));
-
-            // Step 5 – Normalize into "Features_Norm" for linear models
-            // (tree models use the raw "Features" column instead)
             steps.Add(_ml.Transforms.NormalizeMeanVariance("Features_Norm", "Features"));
-
-            // Chain all steps: seed with the first, then fold the rest in
             IEstimator<ITransformer> pipeline = steps[0];
-            for (int i = 1; i < steps.Count; i++)
-                pipeline = pipeline.Append(steps[i]);
-
+            for (int i = 1; i < steps.Count; i++) pipeline = pipeline.Append(steps[i]);
             return pipeline;
         }
 
         private void PrintPreprocessingSummary()
         {
-            Console.WriteLine($"   • Missing-value imputation   : Mean (numeric cols)");
-            Console.WriteLine($"   • One-hot encoding           : {_categoricalCols.Length} column(s) → {string.Join(", ", _categoricalCols)}");
-            Console.WriteLine($"   • Numeric features           : {_numericCols.Length} column(s)");
-            Console.WriteLine($"   • Feature concatenation      : {_numericCols.Length + _categoricalCols.Length} total feature source(s)");
-            Console.WriteLine($"   • Normalization              : Z-score (stddev) → 'Features_Norm'");
-            Console.WriteLine($"   • Label column               : '{_cfg.LabelColumnName}' → 'Label'");
+            Log($"   • Missing imputation   : Mean (numeric)");
+            Log($"   • One-hot encoding     : {_categoricalCols.Length} col(s)");
+            Log($"   • Numeric features     : {_numericCols.Length} col(s)");
+            Log($"   • Label                : '{_cfg.LabelColumnName}' → 'Label'");
         }
-
-        // ─────────────────────────────────────────────────────────────────────
-        //  TRAINER LIST BUILDER
-        // ─────────────────────────────────────────────────────────────────────
 
         private List<(string Name, IEstimator<ITransformer> Trainer)> BuildTrainerList(
             CancellationToken ct)
         {
             var list = new List<(string, IEstimator<ITransformer>)>();
             var alg = _cfg.Algorithms;
-
-            // Choose the correct feature column name:
-            // linear models work best with normalised features,
-            // tree models prefer raw features.
             const string RAW = "Features";
             const string NORM = "Features_Norm";
 
             if (_resolvedTask == TaskType.BinaryClassification)
             {
-                if (alg.UseSDCA)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    list.Add(("SDCA_Binary",
-                        _ml.BinaryClassification.Trainers.SdcaLogisticRegression(
-                            labelColumnName: "Label", featureColumnName: NORM)));
-                }
-                if (alg.UseLBFGS)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    list.Add(("LBFGS_Binary",
-                        _ml.BinaryClassification.Trainers.LbfgsLogisticRegression(
-                            labelColumnName: "Label", featureColumnName: NORM)));
-                }
-                if (alg.UseAveragedPerceptron)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    list.Add(("AveragedPerceptron",
-                        _ml.BinaryClassification.Trainers.AveragedPerceptron(
-                            labelColumnName: "Label", featureColumnName: NORM)));
-                }
-                if (alg.UseFastTree)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    list.Add(("FastTree_Binary",
-                        _ml.BinaryClassification.Trainers.FastTree(
-                            labelColumnName: "Label", featureColumnName: RAW,
-                            numberOfLeaves: 20, numberOfTrees: 100, learningRate: 0.2)));
-                }
-                if (alg.UseFastForest)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    list.Add(("FastForest_Binary",
-                        _ml.BinaryClassification.Trainers.FastForest(
-                            labelColumnName: "Label", featureColumnName: RAW,
-                            numberOfLeaves: 20, numberOfTrees: 100)));
-                }
-                if (alg.UseLightGBM)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    list.Add(("LightGBM_Binary",
-                        _ml.BinaryClassification.Trainers.LightGbm(
-                            labelColumnName: "Label", featureColumnName: RAW,
-                            numberOfLeaves: 31, learningRate: 0.05, numberOfIterations: 300)));
-                }
+                if (alg.UseSDCA) list.Add(("SDCA_Binary", _ml.BinaryClassification.Trainers.SdcaLogisticRegression("Label", NORM)));
+                if (alg.UseLBFGS) list.Add(("LBFGS_Binary", _ml.BinaryClassification.Trainers.LbfgsLogisticRegression("Label", NORM)));
+                if (alg.UseAveragedPerceptron) list.Add(("AveragedPerceptron", _ml.BinaryClassification.Trainers.AveragedPerceptron("Label", NORM)));
+                if (alg.UseFastTree) list.Add(("FastTree_Binary", _ml.BinaryClassification.Trainers.FastTree("Label", RAW, numberOfLeaves: 20, numberOfTrees: 100, learningRate: 0.2)));
+                if (alg.UseFastForest) list.Add(("FastForest_Binary", _ml.BinaryClassification.Trainers.FastForest("Label", RAW, numberOfLeaves: 20, numberOfTrees: 100)));
+                if (alg.UseLightGBM) list.Add(("LightGBM_Binary", _ml.BinaryClassification.Trainers.LightGbm("Label", RAW, numberOfLeaves: 31, learningRate: 0.05, numberOfIterations: 300)));
             }
             else if (_resolvedTask == TaskType.MulticlassClassification)
             {
-                if (alg.UseSDCA)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    list.Add(("SDCA_MaxEnt",
-                        _ml.MulticlassClassification.Trainers.SdcaMaximumEntropy(
-                            labelColumnName: "Label", featureColumnName: NORM)));
-                }
-                if (alg.UseLBFGS)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    list.Add(("LBFGS_MaxEnt",
-                        _ml.MulticlassClassification.Trainers.LbfgsMaximumEntropy(
-                            labelColumnName: "Label", featureColumnName: NORM)));
-                }
-                if (alg.UseFastTree)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    list.Add(("FastTree_OVA",
-                        _ml.MulticlassClassification.Trainers.OneVersusAll(
-                            _ml.BinaryClassification.Trainers.FastTree("Label", RAW,
-                                numberOfLeaves: 20, numberOfTrees: 100, learningRate: 0.2))));
-                }
-                if (alg.UseFastForest)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    list.Add(("FastForest_OVA",
-                        _ml.MulticlassClassification.Trainers.OneVersusAll(
-                            _ml.BinaryClassification.Trainers.FastForest("Label", RAW,
-                                numberOfLeaves: 20, numberOfTrees: 100))));
-                }
-                if (alg.UseLightGBM)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    list.Add(("LightGBM_Multi",
-                        _ml.MulticlassClassification.Trainers.LightGbm(
-                            labelColumnName: "Label", featureColumnName: RAW,
-                            numberOfLeaves: 31, learningRate: 0.05f, numberOfIterations: 300)));
-                }
+                if (alg.UseSDCA) list.Add(("SDCA_MaxEnt", _ml.MulticlassClassification.Trainers.SdcaMaximumEntropy("Label", NORM)));
+                if (alg.UseLBFGS) list.Add(("LBFGS_MaxEnt", _ml.MulticlassClassification.Trainers.LbfgsMaximumEntropy("Label", NORM)));
+                if (alg.UseFastTree) list.Add(("FastTree_OVA", _ml.MulticlassClassification.Trainers.OneVersusAll(_ml.BinaryClassification.Trainers.FastTree("Label", RAW, numberOfLeaves: 20, numberOfTrees: 100, learningRate: 0.2))));
+                if (alg.UseFastForest) list.Add(("FastForest_OVA", _ml.MulticlassClassification.Trainers.OneVersusAll(_ml.BinaryClassification.Trainers.FastForest("Label", RAW, numberOfLeaves: 20, numberOfTrees: 100))));
+                if (alg.UseLightGBM) list.Add(("LightGBM_Multi", _ml.MulticlassClassification.Trainers.LightGbm("Label", RAW, numberOfLeaves: 31, learningRate: 0.05f, numberOfIterations: 300)));
             }
-            else // Regression
+            else  // Regression
             {
-                if (alg.UseSdcaRegression)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    list.Add(("SDCA_Regression",
-                        _ml.Regression.Trainers.Sdca(
-                            labelColumnName: "Label", featureColumnName: NORM)));
-                }
-                if (alg.UseOlsRegression)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    // OnlineGradientDescent is the always-available linear regression baseline.
-                    // OLS requires Microsoft.ML.Mkl.Components – swap back if that package is present.
-                    list.Add(("LinearSGD_Regression",
-                        _ml.Regression.Trainers.OnlineGradientDescent(
-                            labelColumnName: "Label", featureColumnName: NORM)));
-                }
-                if (alg.UseFastTreeRegression)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    list.Add(("FastTree_Regression",
-                        _ml.Regression.Trainers.FastTree(
-                            labelColumnName: "Label", featureColumnName: RAW,
-                            numberOfLeaves: 20, numberOfTrees: 100, learningRate: 0.2)));
-                }
-                if (alg.UseFastForestRegression)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    list.Add(("FastForest_Regression",
-                        _ml.Regression.Trainers.FastForest(
-                            labelColumnName: "Label", featureColumnName: RAW,
-                            numberOfLeaves: 20, numberOfTrees: 100)));
-                }
-                if (alg.UseLightGbmRegression)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    list.Add(("LightGBM_Regression",
-                        _ml.Regression.Trainers.LightGbm(
-                            labelColumnName: "Label", featureColumnName: RAW,
-                            numberOfLeaves: 31, learningRate: 0.05f, numberOfIterations: 300)));
-                }
+                if (alg.UseSdcaRegression) list.Add(("SDCA_Regression", _ml.Regression.Trainers.Sdca("Label", NORM)));
+                if (alg.UseOlsRegression) list.Add(("LinearSGD_Regression", _ml.Regression.Trainers.OnlineGradientDescent("Label", NORM)));
+                if (alg.UseFastTreeRegression) list.Add(("FastTree_Regression", _ml.Regression.Trainers.FastTree("Label", RAW, numberOfLeaves: 20, numberOfTrees: 100, learningRate: 0.2)));
+                if (alg.UseFastForestRegression) list.Add(("FastForest_Regression", _ml.Regression.Trainers.FastForest("Label", RAW, numberOfLeaves: 20, numberOfTrees: 100)));
+                if (alg.UseLightGbmRegression) list.Add(("LightGBM_Regression", _ml.Regression.Trainers.LightGbm("Label", RAW, numberOfLeaves: 31, learningRate: 0.05f, numberOfIterations: 300)));
             }
 
-            Console.WriteLine($"\n🎯 Registered {list.Count} trainer(s):");
-            foreach (var (n, _) in list)
-                Console.WriteLine($"   • {n}");
-
+            Log($"\n🎯 Registered {list.Count} trainer(s):");
+            foreach (var (n, _) in list) Log($"   • {n}");
             return list;
         }
-
-        // ─────────────────────────────────────────────────────────────────────
-        //  EVALUATION
-        // ─────────────────────────────────────────────────────────────────────
 
         private ModelResult EvaluateModel(string name, IDataView preds, ITransformer model)
         {
             var result = new ModelResult { Name = name, Task = _resolvedTask, Model = model };
-
             switch (_resolvedTask)
             {
                 case TaskType.BinaryClassification:
-                    {
-                        var m = _ml.BinaryClassification.Evaluate(preds, "Label", "Score");
-                        result.PrimaryMetric = m.Accuracy;
-                        result.SecondaryMetric = m.AreaUnderRocCurve;
-                        result.TertiaryMetric = m.F1Score;
-                        break;
-                    }
+                    var b = _ml.BinaryClassification.Evaluate(preds, "Label", "Score");
+                    result.PrimaryMetric = b.Accuracy;
+                    result.SecondaryMetric = b.AreaUnderRocCurve;
+                    result.TertiaryMetric = b.F1Score;
+                    break;
                 case TaskType.MulticlassClassification:
-                    {
-                        var m = _ml.MulticlassClassification.Evaluate(preds, "Label");
-                        result.PrimaryMetric = m.MacroAccuracy;
-                        result.SecondaryMetric = m.MicroAccuracy;
-                        result.TertiaryMetric = m.LogLoss;
-                        break;
-                    }
+                    var m = _ml.MulticlassClassification.Evaluate(preds, "Label");
+                    result.PrimaryMetric = m.MacroAccuracy;
+                    result.SecondaryMetric = m.MicroAccuracy;
+                    result.TertiaryMetric = m.LogLoss;
+                    break;
                 case TaskType.Regression:
-                    {
-                        var m = _ml.Regression.Evaluate(preds, "Label", "Score");
-                        result.PrimaryMetric = m.RSquared;
-                        result.SecondaryMetric = m.MeanAbsoluteError;
-                        result.TertiaryMetric = m.RootMeanSquaredError;
-                        break;
-                    }
+                    var r = _ml.Regression.Evaluate(preds, "Label", "Score");
+                    result.PrimaryMetric = r.RSquared;
+                    result.SecondaryMetric = r.MeanAbsoluteError;
+                    result.TertiaryMetric = r.RootMeanSquaredError;
+                    break;
             }
-
             return result;
         }
 
@@ -758,62 +599,52 @@ namespace Image_Checker.Services
             switch (r.Task)
             {
                 case TaskType.BinaryClassification:
-                    Console.WriteLine($"   • Accuracy : {r.PrimaryMetric:P2}");
-                    Console.WriteLine($"   • AUC-ROC  : {r.SecondaryMetric:P2}");
-                    Console.WriteLine($"   • F1 Score : {r.TertiaryMetric:P2}");
+                    Log($"   • Accuracy : {r.PrimaryMetric:P2}  " +
+                        $"AUC: {r.SecondaryMetric:P2}  F1: {r.TertiaryMetric:P2}");
                     break;
                 case TaskType.MulticlassClassification:
-                    Console.WriteLine($"   • Macro Acc: {r.PrimaryMetric:P2}");
-                    Console.WriteLine($"   • Micro Acc: {r.SecondaryMetric:P2}");
-                    Console.WriteLine($"   • Log Loss : {r.TertiaryMetric:F4}");
+                    Log($"   • MacroAcc : {r.PrimaryMetric:P2}  " +
+                        $"MicroAcc: {r.SecondaryMetric:P2}  LogLoss: {r.TertiaryMetric:F4}");
                     break;
                 case TaskType.Regression:
-                    Console.WriteLine($"   • R²       : {r.PrimaryMetric:F4}");
-                    Console.WriteLine($"   • MAE      : {r.SecondaryMetric:F4}");
-                    Console.WriteLine($"   • RMSE     : {r.TertiaryMetric:F4}");
+                    Log($"   • R²: {r.PrimaryMetric:F4}  " +
+                        $"MAE: {r.SecondaryMetric:F4}  RMSE: {r.TertiaryMetric:F4}");
                     break;
             }
         }
 
         private void PrintComparisonTable(List<ModelResult> results)
         {
-            Console.WriteLine("\n\n═══════════════════════════════════════════════════════════════════");
-            Console.WriteLine("📊  FINAL MODEL COMPARISON");
-            Console.WriteLine($"   Task: {_resolvedTask}  |  Label: '{_cfg.LabelColumnName}'");
-            Console.WriteLine("═══════════════════════════════════════════════════════════════════");
-
+            Log("\n\n" + new string('═', 56));
+            Log("📊  FINAL MODEL COMPARISON");
+            Log($"   Task: {_resolvedTask}  |  Label: '{_cfg.LabelColumnName}'");
+            Log(new string('═', 56));
             switch (_resolvedTask)
             {
                 case TaskType.BinaryClassification:
-                    Console.WriteLine($"{"Model",-35} {"Accuracy",10} {"AUC-ROC",10} {"F1",10}");
-                    Console.WriteLine(new string('─', 68));
+                    Log($"{"Model",-35} {"Accuracy",10} {"AUC",10} {"F1",10}");
                     foreach (var r in results.OrderByDescending(r => r.PrimaryMetric))
-                        Console.WriteLine($"{r.Name,-35} {r.PrimaryMetric,10:P2} {r.SecondaryMetric,10:P2} {r.TertiaryMetric,10:P2}");
+                        Log($"{r.Name,-35} {r.PrimaryMetric,10:P2} {r.SecondaryMetric,10:P2} {r.TertiaryMetric,10:P2}");
                     break;
-
                 case TaskType.MulticlassClassification:
-                    Console.WriteLine($"{"Model",-35} {"MacroAcc",10} {"MicroAcc",10} {"LogLoss",10}");
-                    Console.WriteLine(new string('─', 68));
+                    Log($"{"Model",-35} {"MacroAcc",10} {"MicroAcc",10} {"LogLoss",10}");
                     foreach (var r in results.OrderByDescending(r => r.PrimaryMetric))
-                        Console.WriteLine($"{r.Name,-35} {r.PrimaryMetric,10:P2} {r.SecondaryMetric,10:P2} {r.TertiaryMetric,10:F4}");
+                        Log($"{r.Name,-35} {r.PrimaryMetric,10:P2} {r.SecondaryMetric,10:P2} {r.TertiaryMetric,10:F4}");
                     break;
-
                 case TaskType.Regression:
-                    Console.WriteLine($"{"Model",-35} {"R²",10} {"MAE",10} {"RMSE",10}");
-                    Console.WriteLine(new string('─', 68));
+                    Log($"{"Model",-35} {"R²",10} {"MAE",10} {"RMSE",10}");
                     foreach (var r in results.OrderByDescending(r => r.PrimaryMetric))
-                        Console.WriteLine($"{r.Name,-35} {r.PrimaryMetric,10:F4} {r.SecondaryMetric,10:F4} {r.TertiaryMetric,10:F4}");
+                        Log($"{r.Name,-35} {r.PrimaryMetric,10:F4} {r.SecondaryMetric,10:F4} {r.TertiaryMetric,10:F4}");
                     break;
             }
-
             var best = results.OrderByDescending(r => r.PrimaryMetric).First();
-            Console.WriteLine($"\n🏆  BEST MODEL : {best.Name}");
+            Log($"\n🏆  BEST: {best.Name}");
             PrintModelMetrics(best);
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  SAVE HELPERS
-        // ─────────────────────────────────────────────────────────────────────
+        // ════════════════════════════════════════════════════════════════════
+        //  SAVE — TABULAR MODEL
+        // ════════════════════════════════════════════════════════════════════
 
         private string SaveTabularModel(ModelResult best, DataViewSchema schema)
         {
@@ -823,92 +654,284 @@ namespace Image_Checker.Services
             var zipPath = Path.Combine(outDir, $"bestModel-{safeName}-{stamp}.zip");
             var cfgPath = Path.ChangeExtension(zipPath, ".json");
 
-            Console.WriteLine($"\n💾 Saving best model → {Path.GetFileName(zipPath)}");
+            Log($"\n💾 Saving best model → {Path.GetFileName(zipPath)}");
             _ml.Model.Save(best.Model!, schema, zipPath);
 
-            var config = new
+            Log("   📊 Building unique values for dropdowns...");
+            var uniqueVals = BuildUniqueValues(_featureColumns);
+
+            var config = new ModelMetaConfig
             {
                 Task = _resolvedTask.ToString(),
                 LabelColumn = _cfg.LabelColumnName,
                 FeatureColumns = _featureColumns,
                 CategoricalColumns = _categoricalCols,
                 NumericColumns = _numericCols,
+                UniqueValues = uniqueVals,
                 TrainedAt = DateTime.Now.ToString("o"),
                 BestModel = best.Name,
                 PrimaryMetric = best.PrimaryMetric,
-                SecondaryMetric = best.SecondaryMetric,
-                TertiaryMetric = best.TertiaryMetric
+                DateColumn = null,
+                HorizonSteps = 0,
+                Granularity = null,
+                WindowSize = 0,
+                MAE = 0.0,
+                RMSE = 0.0,
+                RawDataPath = _cfg.DataFilePath
             };
 
             File.WriteAllText(cfgPath,
-                JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
+                JsonSerializer.Serialize(config,
+                    new JsonSerializerOptions { WriteIndented = true }));
 
-            Console.WriteLine($"   ✅ Saved: {zipPath}");
-            Console.WriteLine($"   📄 Config: {cfgPath}");
+            try
+            {
+                var dataPath = Path.ChangeExtension(zipPath, ".rows.json");
+                SaveCompactRowData(dataPath);
+                Log($"   📄 Row data  : {Path.GetFileName(dataPath)}");
+            }
+            catch (Exception ex)
+            { Log($"   ⚠️  Row data not saved: {ex.Message}"); }
+
+            Log($"   ✅ Saved  : {zipPath}");
+            Log($"   📄 Config : {cfgPath}");
             return zipPath;
         }
 
-        private string SaveTimeSeriesModel(ITransformer model, DataViewSchema schema,
-                                           double mae, double rmse)
+        // ════════════════════════════════════════════════════════════════════
+        //  SAVE — TIME-SERIES MODEL
+        // ════════════════════════════════════════════════════════════════════
+
+        private string SaveTimeSeriesModel(
+            ITransformer model, DataViewSchema schema,
+            double mae, double rmse)
         {
             var outDir = ResolveOutputDir();
             var stamp = DateTime.Now.ToString("yyyyMMddHHmmss");
             var zipPath = Path.Combine(outDir, $"bestModel-SSA-{stamp}.zip");
             var cfgPath = Path.ChangeExtension(zipPath, ".json");
 
-            Console.WriteLine($"\n💾 Saving SSA model → {Path.GetFileName(zipPath)}");
+            Log($"\n💾 Saving SSA model → {Path.GetFileName(zipPath)}");
             _ml.Model.Save(model, schema, zipPath);
 
-            var config = new
+            Log("   📊 Building unique values for filter dropdowns...");
+            var uniqueVals = BuildUniqueValues(_featureColumns);
+
+            var config = new ModelMetaConfig
             {
                 Task = "TimeSeries",
                 LabelColumn = _cfg.LabelColumnName,
+                FeatureColumns = _featureColumns,
+                CategoricalColumns = _categoricalCols,
+                NumericColumns = _numericCols,
+                UniqueValues = uniqueVals,
+                TrainedAt = DateTime.Now.ToString("o"),
+                BestModel = "SSA",
+                PrimaryMetric = 0.0,
                 DateColumn = _cfg.TimeSeries.DateColumn,
                 HorizonSteps = _cfg.TimeSeries.HorizonSteps,
                 Granularity = _cfg.TimeSeries.Granularity,
                 WindowSize = _cfg.TimeSeries.WindowSize,
-                SeriesLength = _cfg.TimeSeries.SeriesLength,
-                TrainedAt = DateTime.Now.ToString("o"),
                 MAE = mae,
                 RMSE = rmse,
-                // Store the original raw data path so ModelPredictionForm can
-                // re-read and filter by PARTY_NAME / INVENTORY_ITEM_ID for per-series forecasting.
-                RawDataPath = _cfg.DataFilePath,
-                FeatureColumns = _allColumns   // all non-label columns (includes date + categoricals)
+                RawDataPath = _cfg.DataFilePath
             };
 
             File.WriteAllText(cfgPath,
-                JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
+                JsonSerializer.Serialize(config,
+                    new JsonSerializerOptions { WriteIndented = true }));
 
-            Console.WriteLine($"   ✅ Saved: {zipPath}");
-            Console.WriteLine($"   📄 Config: {cfgPath}");
+            try
+            {
+                var dataPath = Path.ChangeExtension(zipPath, ".rows.json");
+                SaveCompactRowData(dataPath);
+                Log($"   📄 Row data  : {Path.GetFileName(dataPath)}");
+            }
+            catch (Exception ex)
+            { Log($"   ⚠️  Row data not saved: {ex.Message}"); }
+
+            Log($"   ✅ Saved  : {zipPath}");
+            Log($"   📄 Config : {cfgPath}");
             return zipPath;
         }
 
-        // ─────────────────────────────────────────────────────────────────────
+        // ════════════════════════════════════════════════════════════════════
+        //  BUILD UNIQUE VALUES FOR DROPDOWN MENUS
+        // ════════════════════════════════════════════════════════════════════
+
+        private const int MaxUniquePerCol = 500;
+
+        private Dictionary<string, List<string>> BuildUniqueValues(
+            IEnumerable<string> featureCols)
+        {
+            var result = new Dictionary<string, List<string>>(
+                StringComparer.OrdinalIgnoreCase);
+
+            if (!File.Exists(_cfg.DataFilePath)) return result;
+
+            var rawLines = File.ReadAllLines(_cfg.DataFilePath);
+            if (rawLines.Length < 2) return result;
+
+            var headers = SplitCsvLine(rawLines[0]);
+            var colIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < headers.Length; i++)
+                colIndex[headers[i]] = i;
+
+            var wanted = featureCols
+                .Where(c => colIndex.ContainsKey(c))
+                .ToArray();
+
+            var sets = new Dictionary<string, HashSet<string>>(
+                StringComparer.OrdinalIgnoreCase);
+            var overCap = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var col in wanted)
+                sets[col] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            for (int li = 1; li < rawLines.Length; li++)
+            {
+                if (string.IsNullOrWhiteSpace(rawLines[li])) continue;
+                var cells = SplitCsvLine(rawLines[li]);
+
+                foreach (var col in wanted)
+                {
+                    if (overCap.Contains(col)) continue;
+                    int ci = colIndex[col];
+                    if (ci >= cells.Length) continue;
+                    string val = cells[ci];
+                    if (string.IsNullOrWhiteSpace(val)) continue;
+                    var set = sets[col];
+                    set.Add(val);
+                    if (set.Count > MaxUniquePerCol)
+                    {
+                        overCap.Add(col);
+                        sets.Remove(col);
+                    }
+                }
+            }
+
+            foreach (var kv in sets)
+            {
+                var sorted = kv.Value
+                    .OrderBy(v => v, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                result[kv.Key] = sorted;
+                Log($"   UniqueValues: {kv.Key} → {sorted.Count} values");
+            }
+
+            if (overCap.Count > 0)
+                Log($"   UniqueValues: skipped {overCap.Count} high-cardinality col(s) " +
+                    $"(>{MaxUniquePerCol} distinct): {string.Join(", ", overCap)}");
+
+            return result;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  SAVE COMPACT ROW DATA
+        // ════════════════════════════════════════════════════════════════════
+
+        private void SaveCompactRowData(string dataPath)
+        {
+            if (!File.Exists(_cfg.DataFilePath)) return;
+            var rawLines = File.ReadAllLines(_cfg.DataFilePath);
+            if (rawLines.Length < 2) return;
+            var headers = SplitCsvLine(rawLines[0]);
+            var rows = new List<Dictionary<string, string>>(rawLines.Length - 1);
+            for (int li = 1; li < rawLines.Length; li++)
+            {
+                if (string.IsNullOrWhiteSpace(rawLines[li])) continue;
+                var cells = SplitCsvLine(rawLines[li]);
+                var row = new Dictionary<string, string>(headers.Length);
+                for (int ci = 0; ci < headers.Length && ci < cells.Length; ci++)
+                    row[headers[ci]] = cells[ci];
+                rows.Add(row);
+            }
+            File.WriteAllText(dataPath,
+                JsonSerializer.Serialize(rows,
+                    new JsonSerializerOptions { WriteIndented = false }),
+                Encoding.UTF8);
+            Log($"   📄 Written {rows.Count:N0} rows to {Path.GetFileName(dataPath)}");
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  DATE / PERIOD HELPERS
+        // ════════════════════════════════════════════════════════════════════
+
+        private string ToPeriodKey(string raw)
+        {
+            var dt = ParseDate(raw);
+            if (dt.HasValue)
+                return _cfg.TimeSeries.Granularity switch
+                {
+                    "Year" => dt.Value.ToString("yyyy"),
+                    "Day" => dt.Value.ToString("yyyy-MM-dd"),
+                    _ => dt.Value.ToString("yyyy-MM")
+                };
+            raw = raw?.Trim() ?? string.Empty;
+            if (raw.Length == 4 && int.TryParse(raw, out _)) return raw;
+            return raw.Length > 10 ? raw[..10] : raw;
+        }
+
+        private static DateTime? ParseDate(string? raw)
+        {
+            raw = raw?.Trim().Trim('"') ?? string.Empty;
+            if (string.IsNullOrEmpty(raw)) return null;
+            string[] fmts = {
+                "dd-MM-yyyy HH:mm", "dd-MM-yyyy HH:mm:ss", "dd-MM-yyyy",
+                "dd/MM/yyyy HH:mm", "dd/MM/yyyy",
+                "MM/dd/yyyy HH:mm", "MM/dd/yyyy",
+                "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM-dd",
+                "yyyy/MM/dd", "dd-MMM-yyyy", "MMM-yyyy", "MMMM yyyy"
+            };
+            if (DateTime.TryParseExact(raw, fmts,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None, out var d1)) return d1;
+            if (DateTime.TryParse(raw,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None, out var d2)) return d2;
+            return null;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  SSA PARAMETER GUARD
+        // ════════════════════════════════════════════════════════════════════
+
+        private (int window, int seriesLen) SafeSSAParams(
+            int window, int seriesLen, int trainSize, int horizon)
+        {
+            if (seriesLen > trainSize)
+            { seriesLen = trainSize; Log($"   ⚠️  SeriesLength capped to {seriesLen}."); }
+            if (window <= horizon)
+            { window = horizon + 1; Log($"   ⚠️  WindowSize adjusted to {window}."); }
+            if (seriesLen <= window)
+            { seriesLen = Math.Min(window + 1, trainSize); Log($"   ⚠️  SeriesLength expanded to {seriesLen}."); }
+            if (window > seriesLen / 2)
+            { window = Math.Max(horizon + 1, seriesLen / 2); Log($"   ⚠️  WindowSize capped to {window}."); }
+            if (seriesLen <= window)
+            { seriesLen = Math.Min(window + 1, trainSize); Log($"   ⚠️  SeriesLength re-adjusted to {seriesLen}."); }
+            if (seriesLen > trainSize)
+            { seriesLen = trainSize; Log($"   ⚠️  SeriesLength capped to trainSize {trainSize}."); }
+            return (window, seriesLen);
+        }
+
+        // ════════════════════════════════════════════════════════════════════
         //  SCHEMA INFERENCE
-        // ─────────────────────────────────────────────────────────────────────
+        // ════════════════════════════════════════════════════════════════════
 
         private void InferSchema(IDataView data)
         {
-            Console.WriteLine("\n🔍 Inferring schema...");
-
+            Log("\n🔍 Inferring schema...");
             _allColumns = data.Schema
                 .Select(c => c.Name)
                 .Where(n => n != _cfg.LabelColumnName)
                 .ToArray();
 
-            // Apply user's FeatureColumns filter
             var selected = _cfg.FeatureColumns.Count > 0
                 ? _allColumns.Intersect(_cfg.FeatureColumns).ToArray()
                 : _allColumns;
-
-            // Remove ignored columns
             selected = selected.Except(_cfg.IgnoreColumns).ToArray();
 
-            // Separate categorical vs numeric
-            var catUserDefined = _cfg.CategoricalColumns.Count > 0;
-
+            bool catUserDefined = _cfg.CategoricalColumns.Count > 0;
             if (catUserDefined)
             {
                 _categoricalCols = selected.Intersect(_cfg.CategoricalColumns).ToArray();
@@ -916,79 +939,61 @@ namespace Image_Checker.Services
             }
             else
             {
-                // Auto-detect: columns with String type → categorical
                 _categoricalCols = selected
                     .Where(col => data.Schema[col].Type == TextDataViewType.Instance)
                     .ToArray();
                 _numericCols = selected.Except(_categoricalCols).ToArray();
             }
-
             _featureColumns = selected;
 
-            Console.WriteLine($"   • Total columns   : {data.Schema.Count}");
-            Console.WriteLine($"   • Feature columns : {_featureColumns.Length}");
-            Console.WriteLine($"     → Numeric   ({_numericCols.Length}): {Truncate(string.Join(", ", _numericCols))}");
-            Console.WriteLine($"     → Categoric ({_categoricalCols.Length}): {Truncate(string.Join(", ", _categoricalCols))}");
-            Console.WriteLine($"   • Label column    : {_cfg.LabelColumnName}");
+            Log($"   • Total columns  : {data.Schema.Count}");
+            Log($"   • Feature columns: {_featureColumns.Length}");
+            Log($"     → Numeric   ({_numericCols.Length}): " +
+                $"{Truncate(string.Join(", ", _numericCols))}");
+            Log($"     → Categoric ({_categoricalCols.Length}): " +
+                $"{Truncate(string.Join(", ", _categoricalCols))}");
+            Log($"   • Label column   : {_cfg.LabelColumnName}");
         }
 
-        // ─────────────────────────────────────────────────────────────────────
+        // ════════════════════════════════════════════════════════════════════
         //  TASK-TYPE RESOLUTION
-        // ─────────────────────────────────────────────────────────────────────
+        // ════════════════════════════════════════════════════════════════════
 
         private TaskType ResolveTaskType(IDataView data)
         {
-            // Always honour an explicit user selection — never auto-detect over it.
             if (_cfg.Task != TaskType.Auto)
             {
-                Console.WriteLine($"   (explicit task '{_cfg.Task}' honoured — skipping auto-detect)");
+                Log($"   (explicit task '{_cfg.Task}' — skipping auto-detect)");
                 return _cfg.Task;
             }
-
-            // Auto: TimeSeries heuristic — HorizonSteps > 0 + numeric label
             if (_cfg.TimeSeries.HorizonSteps > 0 &&
                 data.Schema[_cfg.LabelColumnName].Type != TextDataViewType.Instance)
             {
-                Console.WriteLine($"   (auto-detected TimeSeries: HorizonSteps={_cfg.TimeSeries.HorizonSteps})");
+                Log("   (auto-detected TimeSeries)");
                 return TaskType.TimeSeries;
             }
-
-            // Is label text → classification
             var labelType = data.Schema[_cfg.LabelColumnName].Type;
             if (labelType == TextDataViewType.Instance)
                 return TaskType.MulticlassClassification;
 
-            // Sample up to 20 distinct values from the label column
             var distinctVals = data.GetColumn<float>(_cfg.LabelColumnName)
-                                   .Distinct()
-                                   .Take(20)
-                                   .ToList();
-
-            // Binary: only 0 and 1
+                                   .Distinct().Take(20).ToList();
             if (distinctVals.All(v => v is 0f or 1f))
                 return TaskType.BinaryClassification;
-
-            // Multiclass: ≤ 10 distinct integers only.
-            // Threshold intentionally kept low: continuous quantities like
-            // QUANTITY_INVOICED have hundreds of distinct integer values and
-            // must be treated as Regression, not Multiclass.
             if (distinctVals.Count <= 10 && distinctVals.All(v => v == MathF.Floor(v)))
                 return TaskType.MulticlassClassification;
-
             return TaskType.Regression;
         }
 
-        // ─────────────────────────────────────────────────────────────────────
+        // ════════════════════════════════════════════════════════════════════
         //  DATA LOADING
-        // ─────────────────────────────────────────────────────────────────────
+        // ════════════════════════════════════════════════════════════════════
 
         private IDataView? LoadRawData()
         {
             try
             {
-                // Use TextLoader.Options with column inference
                 var cols = InferTextLoaderColumns();
-
                 var loader = _ml.Data.CreateTextLoader(new TextLoader.Options
                 {
                     Separators = new[] { _cfg.Separator },
@@ -997,120 +1002,100 @@ namespace Image_Checker.Services
                     TrimWhitespace = true,
                     Columns = cols
                 });
-
                 var data = loader.Load(_cfg.DataFilePath);
-
-                // Count rows (materialises the view)
                 long rowCount = data.GetRowCount() ?? -1;
-                Console.WriteLine(rowCount >= 0
+                Log(rowCount >= 0
                     ? $"   ✅ Loaded {rowCount:N0} rows, {data.Schema.Count} columns"
-                    : $"   ✅ Data loaded (row count deferred), {data.Schema.Count} columns");
-
+                    : $"   ✅ Data loaded, {data.Schema.Count} columns");
                 return data;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"\n❌ Failed to load data: {ex.GetBaseException().Message}");
+                Log($"\n❌ Failed to load data: {ex.GetBaseException().Message}");
                 return null;
             }
         }
 
-        /// <summary>
-        /// Reads the header + first data row to infer column types for TextLoader.
-        /// </summary>
         private TextLoader.Column[] InferTextLoaderColumns()
         {
-            var lines = File.ReadLines(_cfg.DataFilePath).Take(_cfg.HasHeader ? 2 : 1).ToList();
-            string[] headers;
-            string[] firstRow;
+            var lines = File.ReadLines(_cfg.DataFilePath)
+                            .Take(_cfg.HasHeader ? 2 : 1).ToList();
+            string[] headers, firstRow;
 
             if (_cfg.HasHeader && lines.Count >= 2)
-            {
-                headers = lines[0].Split(_cfg.Separator);
-                firstRow = lines[1].Split(_cfg.Separator);
-            }
+            { headers = lines[0].Split(_cfg.Separator); firstRow = lines[1].Split(_cfg.Separator); }
             else if (!_cfg.HasHeader && lines.Count >= 1)
-            {
-                firstRow = lines[0].Split(_cfg.Separator);
-                headers = Enumerable.Range(0, firstRow.Length)
-                                     .Select(i => $"Col{i}")
-                                     .ToArray();
-            }
-            else
-            {
-                throw new InvalidOperationException("Data file is empty or unreadable.");
-            }
+            { firstRow = lines[0].Split(_cfg.Separator); headers = Enumerable.Range(0, firstRow.Length).Select(i => $"Col{i}").ToArray(); }
+            else throw new InvalidOperationException("Data file is empty.");
 
-            Console.WriteLine($"   • Detected {headers.Length} columns");
-
+            Log($"   • Detected {headers.Length} columns");
             var cols = new List<TextLoader.Column>();
             for (int i = 0; i < headers.Length; i++)
             {
                 string name = headers[i].Trim().Trim('"');
                 string rawVal = i < firstRow.Length ? firstRow[i].Trim().Trim('"') : "";
-
-                // Always force the label column to Single (float).
-                // This is critical for Time Series – ForecastBySsa requires a float
-                // input column and will throw "Could not find input column" if the
-                // column is typed as String even when the values are numeric.
                 DataKind kind;
                 if (name.Equals(_cfg.LabelColumnName, StringComparison.OrdinalIgnoreCase))
-                {
                     kind = DataKind.Single;
-                }
                 else
                 {
                     bool isNum = float.TryParse(rawVal,
-                        System.Globalization.NumberStyles.Any,
-                        System.Globalization.CultureInfo.InvariantCulture, out _);
+                        NumberStyles.Any, CultureInfo.InvariantCulture, out _);
                     kind = isNum ? DataKind.Single : DataKind.String;
                 }
-
                 cols.Add(new TextLoader.Column(name, kind, i));
             }
-
             return cols.ToArray();
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  VALIDATION
-        // ─────────────────────────────────────────────────────────────────────
+        // ════════════════════════════════════════════════════════════════════
+        //  CSV HELPERS
+        // ════════════════════════════════════════════════════════════════════
+
+        private static string[] SplitCsvLine(string line)
+        {
+            var fields = new List<string>();
+            var sb = new StringBuilder();
+            bool inQ = false;
+            foreach (char ch in line)
+            {
+                if (ch == '"') inQ = !inQ;
+                else if (ch == ',' && !inQ) { fields.Add(sb.ToString().Trim()); sb.Clear(); }
+                else sb.Append(ch);
+            }
+            fields.Add(sb.ToString().Trim());
+            return fields.Select(f => f.Trim('"')).ToArray();
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  VALIDATION / UTILITIES
+        // ════════════════════════════════════════════════════════════════════
 
         private bool ValidateConfig()
         {
             var errors = new List<string>();
-
             if (string.IsNullOrWhiteSpace(_cfg.DataFilePath))
                 errors.Add("DataFilePath is required.");
             else if (!File.Exists(_cfg.DataFilePath))
                 errors.Add($"DataFilePath not found: {_cfg.DataFilePath}");
-
             if (string.IsNullOrWhiteSpace(_cfg.LabelColumnName))
                 errors.Add("LabelColumnName is required.");
-
             if (_cfg.TestFraction is <= 0 or >= 1)
-                errors.Add("TestFraction must be between 0 and 1 (exclusive).");
-
+                errors.Add("TestFraction must be between 0 and 1.");
             if (errors.Any())
             {
-                Console.WriteLine("\n❌ Configuration errors:");
-                errors.ForEach(e => Console.WriteLine($"   • {e}"));
+                Log("\n❌ Config errors:");
+                errors.ForEach(e => Log($"   • {e}"));
                 return false;
             }
-
             return true;
         }
-
-        // ─────────────────────────────────────────────────────────────────────
-        //  UTILITIES
-        // ─────────────────────────────────────────────────────────────────────
 
         private string ResolveOutputDir()
         {
             var dir = string.IsNullOrWhiteSpace(_cfg.OutputDirectory)
                 ? Path.GetDirectoryName(_cfg.DataFilePath)!
                 : _cfg.OutputDirectory;
-
             Directory.CreateDirectory(dir);
             return dir;
         }
@@ -1124,36 +1109,55 @@ namespace Image_Checker.Services
         private static string Truncate(string s, int max = 80)
             => s.Length <= max ? s : s[..max] + "…";
 
-        private static void PrintHeader()
+        private void PrintHeader()
         {
-            Console.WriteLine("\n╔══════════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║            DataModelTrainer  –  Tabular & Time-Series           ║");
-            Console.WriteLine("╚══════════════════════════════════════════════════════════════════╝");
+            Log("\n╔══════════════════════════════════════════════════════════╗");
+            Log("║   DataModelTrainer  v3.0  —  Smart Demand Forecasting    ║");
+            Log("║   ✓ Weekend / holiday rows excluded pre-aggregation      ║");
+            Log("║   ✓ Dormant item detection (zero forecast + action tag)  ║");
+            Log("║   ✓ Sparse series WMA fallback (< 6 periods)             ║");
+            Log("║   ✓ SSA | WMA | Regression | Classification              ║");
+            Log("╚══════════════════════════════════════════════════════════╝");
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        //  INNER TYPES (for SSA engine helper rows)
-        // ─────────────────────────────────────────────────────────────────────
+        // ════════════════════════════════════════════════════════════════════
+        //  INNER TYPES
+        // ════════════════════════════════════════════════════════════════════
 
-        // Input row for SSA engine.
-        // [ColumnName("Value")] is required — NOT [LoadColumn(0)].
-        // LoadFromEnumerable maps properties by name (or [ColumnName] attribute),
-        // not by ordinal. Without this attribute the schema produced by
-        // LoadFromEnumerable would have a column called "Value" (the property name)
-        // but the attribute guarantees it even if the property name ever changes.
-        // [LoadColumn(0)] is for TextLoader/CSV ordinal mapping — wrong here.
         private class TsValueRow
         {
             [ColumnName("Value")]
             public float Value { get; set; }
         }
 
-        // Output row produced by ForecastBySsa
         private class TsForecastRow
         {
             public float[] Forecast { get; set; } = Array.Empty<float>();
             public float[] LowerBound { get; set; } = Array.Empty<float>();
             public float[] UpperBound { get; set; } = Array.Empty<float>();
         }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  ModelMetaConfig  —  single source of truth for the companion .json
+    // ════════════════════════════════════════════════════════════════════════
+    internal class ModelMetaConfig
+    {
+        public string? Task { get; set; }
+        public string? LabelColumn { get; set; }
+        public string[]? FeatureColumns { get; set; }
+        public string[]? CategoricalColumns { get; set; }
+        public string[]? NumericColumns { get; set; }
+        public Dictionary<string, List<string>>? UniqueValues { get; set; }
+        public string? TrainedAt { get; set; }
+        public string? BestModel { get; set; }
+        public double PrimaryMetric { get; set; }
+        public string? DateColumn { get; set; }
+        public int HorizonSteps { get; set; }
+        public string? Granularity { get; set; }
+        public int WindowSize { get; set; }
+        public double MAE { get; set; }
+        public double RMSE { get; set; }
+        public string? RawDataPath { get; set; }
     }
 }

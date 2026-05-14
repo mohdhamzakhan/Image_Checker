@@ -579,7 +579,7 @@
             MinimumSize = new Size(1918, 1080);
             Name = "Form1";
             StartPosition = FormStartPosition.CenterScreen;
-            Text = "Image Checker - True Incremental Learning System";
+            Text = "MEAI Image Checking System - Suggested By Hirai San";
             menuStrip.ResumeLayout(false);
             menuStrip.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)grid).EndInit();

@@ -314,10 +314,39 @@ namespace Image_Checker.WinForm
             }
         }
 
+        // In ModelBuilderForm constructor or BtnStartTraining_Click validation
+        private bool ValidateAlgorithmSelection()
+        {
+            bool useSDCA = chkSDCA.Checked;
+            bool useLBFGS = chkLBFGS.Checked;
+            bool useFastTree = chkFastTree.Checked;
+            bool useLightGBM = chkLightGBM.Checked;
+            bool useTransfer = chkTransferLearning.Checked;
 
+            // Only linear models selected — warn strongly
+            if ((useSDCA || useLBFGS) && !useFastTree && !useLightGBM && !useTransfer)
+            {
+                var result = MessageBox.Show(
+                    "⚠️ WARNING: You have only selected linear classifiers (SDCA/LBFGS).\n\n" +
+                    "These models work on raw flattened pixels and almost always\n" +
+                    "predict the same class for image data.\n\n" +
+                    "RECOMMENDED: Enable FastTree or LightGBM instead.\n\n" +
+                    "Continue anyway?",
+                    "Poor Algorithm Choice for Images",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Warning);
+
+                return result == DialogResult.Yes;
+            }
+            return true;
+        }
 
         private async void BtnStartTraining_Click(object sender, EventArgs e)
         {
+
+            if (!ValidateAlgorithmSelection())  // ← add this
+                return;
+
             if (string.IsNullOrEmpty(_datasetPath))
             {
                 MessageBox.Show("Please select a dataset folder.", "Missing Dataset", MessageBoxButtons.OK, MessageBoxIcon.Warning);

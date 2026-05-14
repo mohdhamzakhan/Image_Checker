@@ -28,6 +28,7 @@ namespace Image_Checker.WinForm
         private int _abnormalCount = 0;
         private int _criticalMissCount = 0;
         private int _falseAlarmCount = 0;
+        private Size _trainingImageSize = new Size(224, 224); // default fallback
         public Form1()
         {
             InitializeComponent();
@@ -608,6 +609,7 @@ namespace Image_Checker.WinForm
                     var json = File.ReadAllText(cfgPath);
                     var cfg = System.Text.Json.JsonSerializer.Deserialize<RoiConfig>(json);
                     _roiRect = new Rectangle(cfg.RoiX, cfg.RoiY, cfg.RoiW, cfg.RoiH);
+                    _trainingImageSize = new Size(cfg.ImageWidth, cfg.ImageHeight);
                 }
             }
             catch (Exception ex)
@@ -633,6 +635,8 @@ namespace Image_Checker.WinForm
                 Math.Min(_roiRect.Height, bmp.Height));
 
             using var cropped = bmp.Clone(safeRoi, bmp.PixelFormat);
+
+            using var resized = new Bitmap(cropped, _trainingImageSize);
 
             // Here you could also resize to training size if needed
 
@@ -736,21 +740,34 @@ namespace Image_Checker.WinForm
             {
                 string subfolder = new DirectoryInfo(Path.GetDirectoryName(file)).Name;
 
-                // Use PredictWithConfidence to get both label and confidence
-                var (pred, confidence) = _predictor.PredictWithConfidence(file);
+                string processedPath = PreprocessForPrediction(file);
+                bool isTempFile = processedPath != file;
 
-                // Clean the prediction label - remove any quotes
-                string cleanPred = pred?.Trim().Trim('"') ?? "Unknown";
-
-                _results.Add(new ImageResult
+                try
                 {
-                    FileName = Path.GetFileName(file),
-                    ImagePath = file,
-                    Subfolder = subfolder,
-                    PredictedLabel = cleanPred,
-                    CorrectedLabel = cleanPred,
-                    Confidence = confidence
-                });
+
+                    // Use PredictWithConfidence to get both label and confidence
+                    var (pred, confidence) = _predictor.PredictWithConfidence(processedPath);
+
+                    // Clean the prediction label - remove any quotes
+                    string cleanPred = pred?.Trim().Trim('"') ?? "Unknown";
+
+                    _results.Add(new ImageResult
+                    {
+                        FileName = Path.GetFileName(file),
+                        ImagePath = file,
+                        Subfolder = subfolder,
+                        PredictedLabel = cleanPred,
+                        CorrectedLabel = cleanPred,
+                        Confidence = confidence
+                    });
+                }
+                finally
+                {
+                    // ← Clean up temp file
+                    if (isTempFile && File.Exists(processedPath))
+                        File.Delete(processedPath);
+                }
 
                 processed++;
                 if (processed % 10 == 0)
@@ -2527,6 +2544,8 @@ namespace Image_Checker.WinForm
             public int RoiY { get; set; }
             public int RoiW { get; set; }
             public int RoiH { get; set; }
+            public int ImageWidth { get; set; } = 224;   // add these
+            public int ImageHeight { get; set; } = 224;  // add these
         }
         public class ImageResult
         {

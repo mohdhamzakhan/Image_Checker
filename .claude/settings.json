@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow_file_write": true,
+    "allow_command_execution": true
+  },
+  "style": {
+    "strict_mode": true,
+    "use_comments": true
+  }
+}

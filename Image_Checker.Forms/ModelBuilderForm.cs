@@ -278,7 +278,7 @@ namespace Image_Checker.Forms
                 tr.Cells["ColType"].Value = t;
                 tr.Cells["Norm"].Value = "None – raw values";
                 tr.Cells["Enc"].Value = num ? "None – keep as text"
-                                                  : "One-Hot Encoding  (binary dummy columns)";
+                                                : "One-Hot Encoding  (binary dummy columns)";
                 tr.Cells["Bin"].Value = false;
                 tr.Cells["BinCount"].Value = "10";
                 if (!num) tr.Cells["Norm"].ReadOnly = true;
@@ -298,14 +298,6 @@ namespace Image_Checker.Forms
         // ─────────────────────────────────────────────────────────────────
         //  LABEL COLUMN CHANGED
         // ─────────────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Called whenever the selected label column changes.
-        /// • Unchecks the label in the feature checklist (it is the target, not a feature).
-        /// • Hides its row in the Cleaning, Transform, and Reduction grids (no point
-        ///   configuring preprocessing for the column being predicted).
-        /// • Re-checks the previously selected label (if any) so it returns to the feature list.
-        /// </summary>
         private string _previousLabel = string.Empty;
 
         private void OnLabelChanged()
@@ -313,19 +305,16 @@ namespace Image_Checker.Forms
             string newLabel = cmbLabel.SelectedItem?.ToString() ?? string.Empty;
             if (newLabel == string.Empty) return;
 
-            // ── Feature checklist ─────────────────────────────────────────────
-            // Restore previous label to checked (it is now just a regular feature)
+            // ── Feature checklist ─────────────────────────────────────────
             if (!string.IsNullOrEmpty(_previousLabel))
             {
                 int prevIdx = clbFeatures.Items.IndexOf(_previousLabel);
                 if (prevIdx >= 0) clbFeatures.SetItemChecked(prevIdx, true);
             }
-            // Uncheck the new label
             int lblIdx = clbFeatures.Items.IndexOf(newLabel);
             if (lblIdx >= 0) clbFeatures.SetItemChecked(lblIdx, false);
 
-            // ── Preprocessing grids ───────────────────────────────────────────
-            // Hide the label's row; show all others.
+            // ── Preprocessing grids ───────────────────────────────────────
             HideGridRow(dgvCleaning, newLabel, _previousLabel);
             HideGridRow(dgvTransform, newLabel, _previousLabel);
             HideGridRow(dgvReduction, newLabel, _previousLabel);
@@ -333,10 +322,6 @@ namespace Image_Checker.Forms
             _previousLabel = newLabel;
         }
 
-        /// <summary>
-        /// Hides the row whose "ColName" cell equals <paramref name="labelName"/>,
-        /// and restores the row for <paramref name="previousLabel"/> (if any).
-        /// </summary>
         private static void HideGridRow(DataGridView grid,
                                          string labelName, string previousLabel)
         {
@@ -346,20 +331,17 @@ namespace Image_Checker.Forms
 
                 if (colName == labelName)
                 {
-                    // Style as hidden: zero height + distinct background
                     row.Height = 0;
                     row.ReadOnly = true;
                     row.DefaultCellStyle.BackColor = Color.FromArgb(220, 228, 245);
                     row.DefaultCellStyle.ForeColor = Color.FromArgb(180, 185, 210);
-                    row.Visible = false;           // hides it completely
+                    row.Visible = false;
                 }
                 else if (colName == previousLabel && !string.IsNullOrEmpty(previousLabel))
                 {
-                    // Restore the previously hidden row
                     row.Visible = true;
                     row.ReadOnly = false;
                     row.Height = 30;
-                    // Reset cell styles to default
                     row.DefaultCellStyle.BackColor = Color.Empty;
                     row.DefaultCellStyle.ForeColor = Color.Empty;
                 }
@@ -394,23 +376,13 @@ namespace Image_Checker.Forms
         }
 
         // ─────────────────────────────────────────────────────────────────
-        //  BUILD CONFIGS  – use SnapshotTrainerConfig() instead
-        //  (declared below; reads all UI on the UI thread safely)
+        //  SNAPSHOT TRAINER CONFIG  (call only on UI thread)
         // ─────────────────────────────────────────────────────────────────
-
-        // ── Snapshot trainer config from UI (call only on UI thread) ────────
-        /// <summary>
-        /// Reads every relevant UI control and returns a fully populated
-        /// DataTrainerConfig with plain-data fields only.
-        /// Safe to call from the UI thread; the result can be used freely
-        /// on any background thread because it contains no Control references.
-        /// </summary>
         private DataTrainerConfig SnapshotTrainerConfig()
         {
             bool ts = ParseTask() == TaskType.TimeSeries;
             return new DataTrainerConfig
             {
-                // DataFilePath / FeatureColumns filled later from preprocessor output
                 DataFilePath = string.Empty,
                 Separator = ',',
                 HasHeader = true,
@@ -426,8 +398,6 @@ namespace Image_Checker.Forms
                 {
                     DateColumn = cmbTsDate.SelectedIndex > 0
                                         ? cmbTsDate.SelectedItem?.ToString() : null,
-                    // Ensure HorizonSteps > 0 — ResolveTaskType checks this to confirm TS.
-                    // If the spinner is 0 (default before user sets it), use 12 as a safe default.
                     HorizonSteps = (int)nudTsHorizon.Value > 0 ? (int)nudTsHorizon.Value : 12,
                     Granularity = cmbTsGran.SelectedItem?.ToString() ?? "Month",
                     WindowSize = (int)nudTsWindow.Value,
@@ -453,7 +423,6 @@ namespace Image_Checker.Forms
 
         private FullPreprocessingConfig BuildPPConfig()
         {
-            // Dominant values from per-column grids
             string DomVal(DataGridView g, string col) =>
                 g.Rows.Cast<DataGridViewRow>()
                  .Select(r => r.Cells[col].Value?.ToString() ?? "")
@@ -465,10 +434,10 @@ namespace Image_Checker.Forms
             string domOutlier = DomVal(dgvCleaning, "OutlierMethod");
             string domNorm = DomVal(dgvTransform, "Norm");
             bool useOneHot = dgvTransform.Rows.Cast<DataGridViewRow>()
-                                  .Any(r => r.Cells["Enc"].Value?.ToString()?
-                                       .StartsWith("One-Hot") == true);
+                                     .Any(r => r.Cells["Enc"].Value?.ToString()?
+                                          .StartsWith("One-Hot") == true);
             bool useBin = dgvTransform.Rows.Cast<DataGridViewRow>()
-                                  .Any(r => r.Cells["Bin"].Value is true);
+                                     .Any(r => r.Cells["Bin"].Value is true);
             string domStrategy = DomVal(dgvReduction, "Strategy");
 
             double iqrK = 1.5, zT = 3.0, varT = 0.01;
@@ -476,7 +445,8 @@ namespace Image_Checker.Forms
                 if (r.Cells["OutlierMethod"].Value?.ToString() != "None")
                 {
                     double.TryParse(r.Cells["IQRk"].Value?.ToString(), out iqrK);
-                    double.TryParse(r.Cells["ZThresh"].Value?.ToString(), out zT); break;
+                    double.TryParse(r.Cells["ZThresh"].Value?.ToString(), out zT);
+                    break;
                 }
             foreach (DataGridViewRow r in dgvReduction.Rows)
                 if (r.Cells["Strategy"].Value?.ToString()?.Contains("Variance") == true)
@@ -531,8 +501,8 @@ namespace Image_Checker.Forms
                     VarianceThreshold = varT,
                     TopNFeatures = 10,
                     Sampling = rbRandSample.Checked ? SamplingMethod.Random
-                             : rbStratSample.Checked ? SamplingMethod.Stratified
-                             : SamplingMethod.None,
+                                      : rbStratSample.Checked ? SamplingMethod.Stratified
+                                      : SamplingMethod.None,
                     SampleFraction = (double)nudSamplePct.Value / 100.0,
                     SamplingSeed = (int)nudSeed.Value
                 }
@@ -561,12 +531,10 @@ namespace Image_Checker.Forms
                 .Where(c => c != "" && feat.Contains(c))
                 .ToList();
 
-            // ── Snapshot ALL UI values on the UI thread BEFORE Task.Run ────────
-            // Accessing any Control property from a background thread causes the
-            // "Cross-thread operation not valid" exception.
+            // ── Snapshot ALL UI values on the UI thread BEFORE Task.Run ────
             var filePath = txtFilePath.Text;
-            var ppConfig = BuildPPConfig();          // reads grids – must be on UI thread
-            var trainerBase = SnapshotTrainerConfig();  // reads combos/nudges – must be on UI thread
+            var ppConfig = BuildPPConfig();
+            var trainerBase = SnapshotTrainerConfig();
 
             var logW = new RtbWriter(rtbLog, this);
             var old = Console.Out;
@@ -594,20 +562,11 @@ namespace Image_Checker.Forms
                     try
                     {
                         ct.ThrowIfCancellationRequested();
-
-                        // All parameters are plain data – zero UI access here
                         prep = _pp.Run(filePath, lbl, feat, catCols, ign, ppConfig);
-
                         ct.ThrowIfCancellationRequested();
 
-                        // Build final trainer config from the snapshot + preprocessed paths
                         var cfg = new DataTrainerConfig
                         {
-                            // For TimeSeries: use the ORIGINAL raw file, not the preprocessed CSV.
-                            // The SSA pipeline needs TRX_DATE and raw QUANTITY_INVOICED values
-                            // for date-based aggregation. The preprocessed CSV has those columns
-                            // stripped / one-hot encoded and cannot be used for TS aggregation.
-                            // For tabular tasks: use prep.TempCsvPath (cleaned, encoded data).
                             DataFilePath = trainerBase.Task == TaskType.TimeSeries
                                                     ? filePath
                                                     : prep.TempCsvPath,
@@ -637,19 +596,14 @@ namespace Image_Checker.Forms
 
                 _savedModel = mPath; _lastPrep = prep;
 
-                // When task = TimeSeries, mPath is the SSA model.
-                // The regression companion was also saved in the same folder.
-                // Store the SSA path explicitly so the Results tab can show both.
                 if (ParseTask() == TaskType.TimeSeries && mPath != null)
                 {
                     _savedSsaModel = mPath;
-                    // Find the regression companion (most recent bestModel-* in same dir that is NOT SSA)
                     var dir = Path.GetDirectoryName(mPath) ?? "";
                     var regressionZip = Directory.GetFiles(dir, "bestModel-*_Regression-*.zip")
                         .OrderByDescending(f => File.GetLastWriteTime(f))
                         .FirstOrDefault();
-                    if (regressionZip != null)
-                        _savedModel = regressionZip; // keep regression as "tabular" model too
+                    if (regressionZip != null) _savedModel = regressionZip;
                 }
                 else
                 {
@@ -667,8 +621,11 @@ namespace Image_Checker.Forms
             { Console.SetOut(old); LogColor($"\n❌ {ex.Message}", Color.OrangeRed); SetStatus("Error.", false); }
             finally
             {
-                SetBusy(false, ""); btnTrain.Enabled = true; btnCancelTrain.Enabled = false;
-                _cts?.Dispose(); _cts = null;
+                SetBusy(false, "");
+                btnTrain.Enabled = true;
+                btnCancelTrain.Enabled = false;
+                _cts?.Dispose();
+                _cts = null;
             }
         }
 
@@ -732,11 +689,10 @@ namespace Image_Checker.Forms
 
             if (isTs && _savedSsaModel != null)
             {
-                // Print clear instructions directly in the log panel
                 void Ln(string t, Color c)
                 {
                     rtbResultLog.SelectionColor = c;
-                    rtbResultLog.AppendText(t + "");
+                    rtbResultLog.AppendText(t + "\n");
                 }
                 Ln("TWO MODELS WERE SAVED", Color.Cyan);
                 Ln("═══════════════════════════════════════════════════", Color.FromArgb(100, 145, 215));
@@ -765,7 +721,7 @@ namespace Image_Checker.Forms
             }
             else if (_lastPrep != null)
             {
-                foreach (var l in _lastPrep.Log) rtbResultLog.AppendText(l + "");
+                foreach (var l in _lastPrep.Log) rtbResultLog.AppendText(l + "\n");
             }
 
             btnSaveModel.Enabled = btnExportReport.Enabled = true;
@@ -784,7 +740,8 @@ namespace Image_Checker.Forms
             File.Copy(_savedModel, d.FileName, true);
             var j = Path.ChangeExtension(_savedModel, ".json");
             if (File.Exists(j)) File.Copy(j, Path.ChangeExtension(d.FileName, ".json"), true);
-            MessageBox.Show($"Saved to:\n{d.FileName}", "Done", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show($"Saved to:\n{d.FileName}", "Done",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private async void OnExport(object? s, EventArgs e)
@@ -794,7 +751,6 @@ namespace Image_Checker.Forms
             if (d.ShowDialog() != DialogResult.OK) return;
             SetBusy(true, "Exporting…");
 
-            // Snapshot UI values before Task.Run
             var labelCol = cmbLabel.SelectedItem?.ToString() ?? "Label";
             var task = ParseTask();
             var savedModel = _savedModel!;
@@ -807,9 +763,11 @@ namespace Image_Checker.Forms
                 await Task.Run(() => (csv, html) = PredictionReportExporter.Export(
                     _ml, savedModel, tempCsv, labelCol, task, outDir));
                 SetStatus("Exported.", false);
-                if (MessageBox.Show($"CSV: {Path.GetFileName(csv)}\nHTML: {Path.GetFileName(html)}\n\nOpen HTML?",
-                    "Done", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(html) { UseShellExecute = true });
+                if (MessageBox.Show(
+                        $"CSV: {Path.GetFileName(csv)}\nHTML: {Path.GetFileName(html)}\n\nOpen HTML?",
+                        "Done", MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
+                    System.Diagnostics.Process.Start(
+                        new System.Diagnostics.ProcessStartInfo(html) { UseShellExecute = true });
             }
             catch (Exception ex)
             { MessageBox.Show(ex.Message, "Export Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
@@ -834,8 +792,10 @@ namespace Image_Checker.Forms
             int n = 0, t = 0;
             foreach (DataRow r in _raw.Rows)
             {
-                var v = r[col]?.ToString(); if (string.IsNullOrWhiteSpace(v)) continue;
-                if (double.TryParse(v, out _)) n++; if (++t >= 30) break;
+                var v = r[col]?.ToString();
+                if (string.IsNullOrWhiteSpace(v)) continue;
+                if (double.TryParse(v, out _)) n++;
+                if (++t >= 30) break;
             }
             return t > 0 && (double)n / t > 0.75;
         }
@@ -849,29 +809,37 @@ namespace Image_Checker.Forms
         private void SetBusy(bool b, string msg)
         {
             if (InvokeRequired) { Invoke(() => SetBusy(b, msg)); return; }
-            tsspb.Visible = b; if (msg != "") tssl.Text = msg;
+            tsspb.Visible = b;
+            if (msg != "") tssl.Text = msg;
         }
+
         private void SetStatus(string msg, bool b)
         {
             if (InvokeRequired) { Invoke(() => SetStatus(msg, b)); return; }
             tssl.Text = msg; tsspb.Visible = b;
         }
+
         private void LogColor(string t, Color c)
         {
             if (InvokeRequired) { Invoke(() => LogColor(t, c)); return; }
-            rtbLog.SelectionStart = rtbLog.TextLength; rtbLog.SelectionLength = 0;
-            rtbLog.SelectionColor = c; rtbLog.AppendText(t + "\n"); rtbLog.ScrollToCaret();
+            rtbLog.SelectionStart = rtbLog.TextLength;
+            rtbLog.SelectionLength = 0;
+            rtbLog.SelectionColor = c;
+            rtbLog.AppendText(t + "\n");
+            rtbLog.ScrollToCaret();
         }
+
         private static void Warn(string msg) =>
             MessageBox.Show(msg, "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    //  Console → RichTextBox
+    //  Console → RichTextBox writer
     // ════════════════════════════════════════════════════════════════════════
     internal class RtbWriter : System.IO.TextWriter
     {
-        private readonly RichTextBox _r; private readonly Control _o;
+        private readonly RichTextBox _r;
+        private readonly Control _o;
         public override Encoding Encoding => Encoding.UTF8;
         public RtbWriter(RichTextBox r, Control o) { _r = r; _o = o; }
         public override void WriteLine(string? v) => Write(v + "\n");
@@ -886,33 +854,38 @@ namespace Image_Checker.Forms
                   : Color.FromArgb(188, 210, 188);
             void Do()
             {
-                _r.SelectionStart = _r.TextLength; _r.SelectionLength = 0;
-                _r.SelectionColor = c; _r.AppendText(v); _r.ScrollToCaret();
+                _r.SelectionStart = _r.TextLength;
+                _r.SelectionLength = 0;
+                _r.SelectionColor = c;
+                _r.AppendText(v);
+                _r.ScrollToCaret();
             }
             if (_o.InvokeRequired) _o.BeginInvoke(Do); else Do();
         }
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    //  Apply-all dialogs
+    //  Bulk-apply dialogs
     // ════════════════════════════════════════════════════════════════════════
     internal class ApplyCleaningDialog : Form
     {
         public bool SetMissing, SetOutlier;
-        public string Missing = "Mean (average)", OutlierMethod = "None", OutlierAction = "Cap to boundary value";
+        public string Missing = "Mean (average)", OutlierMethod = "None",
+               OutlierAction = "Cap to boundary value";
 
         public ApplyCleaningDialog()
         {
-            Text = "Bulk Apply – Cleaning"; Size = new Size(480, 240);
+            Text = "Bulk Apply – Cleaning";
+            Size = new Size(480, 240);
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
-            Font = new Font("Segoe UI", 9f); BackColor = Color.White;
+            Font = new Font("Segoe UI", 9f);
+            BackColor = Color.White;
 
             int y = 16;
             void Row(string lbl, CheckBox chk, ComboBox cmb, string[] items, int sel = 0)
             {
-                chk.Location = new Point(14, y); chk.AutoSize = true;
-                chk.Text = lbl;
+                chk.Location = new Point(14, y); chk.AutoSize = true; chk.Text = lbl;
                 cmb.Location = new Point(240, y - 2); cmb.Width = 200;
                 cmb.DropDownStyle = ComboBoxStyle.DropDownList;
                 cmb.Items.AddRange(items.Cast<object>().ToArray());
@@ -922,11 +895,13 @@ namespace Image_Checker.Forms
 
             var chkM = new CheckBox(); var cmbM = new ComboBox();
             Row("Set Missing Strategy:", chkM, cmbM,
-                new[] { "Mean (average)", "Median (middle)", "Mode (most frequent)", "Delete Row", "None – leave as is" });
+                new[] { "Mean (average)", "Median (middle)", "Mode (most frequent)",
+                        "Delete Row", "None – leave as is" });
 
             var chkO = new CheckBox(); var cmbO = new ComboBox();
             Row("Set Outlier Method:", chkO, cmbO,
-                new[] { "None", "IQR  (Q1 – k×IQR  to  Q3 + k×IQR)", "Z-Score  ( |z| > threshold )" });
+                new[] { "None", "IQR  (Q1 – k×IQR  to  Q3 + k×IQR)",
+                        "Z-Score  ( |z| > threshold )" });
 
             var chkA = new CheckBox(); var cmbA = new ComboBox();
             Row("Set Outlier Action:", chkA, cmbA,
@@ -953,8 +928,10 @@ namespace Image_Checker.Forms
                 FlatStyle = FlatStyle.Flat
             };
 
-            ok.Click += (_, _) => {
-                SetMissing = chkM.Checked; Missing = cmbM.SelectedItem?.ToString() ?? "";
+            ok.Click += (_, _) =>
+            {
+                SetMissing = chkM.Checked;
+                Missing = cmbM.SelectedItem?.ToString() ?? "";
                 SetOutlier = chkO.Checked || chkA.Checked;
                 OutlierMethod = cmbO.SelectedItem?.ToString() ?? "";
                 OutlierAction = cmbA.SelectedItem?.ToString() ?? "";
@@ -968,26 +945,32 @@ namespace Image_Checker.Forms
     internal class ApplyTransformDialog : Form
     {
         public bool SetNorm, SetEnc;
-        public string Norm = "None – raw values", Enc = "One-Hot Encoding  (binary dummy columns)";
+        public string Norm = "None – raw values",
+               Enc = "One-Hot Encoding  (binary dummy columns)";
 
         public ApplyTransformDialog()
         {
-            Text = "Bulk Apply – Transform"; Size = new Size(480, 190);
+            Text = "Bulk Apply – Transform";
+            Size = new Size(480, 190);
             StartPosition = FormStartPosition.CenterParent;
             FormBorderStyle = FormBorderStyle.FixedDialog;
-            Font = new Font("Segoe UI", 9f); BackColor = Color.White;
+            Font = new Font("Segoe UI", 9f);
+            BackColor = Color.White;
 
             int y = 16;
             var chkN = new CheckBox { Text = "Set Normalization (numeric):", Location = new Point(14, y), AutoSize = true };
             var cmbN = new ComboBox { Location = new Point(240, y - 2), Width = 200, DropDownStyle = ComboBoxStyle.DropDownList };
-            cmbN.Items.AddRange(new object[]{"None – raw values","Min-Max  →  [0, 1]",
-                "Z-Score  →  (x − μ) / σ","Decimal Scaling  →  ÷ 10ᵏ","Log Transform  →  ln(x + 1)"});
+            cmbN.Items.AddRange(new object[] {
+                "None – raw values", "Min-Max  →  [0, 1]",
+                "Z-Score  →  (x − μ) / σ", "Decimal Scaling  →  ÷ 10ᵏ",
+                "Log Transform  →  ln(x + 1)" });
             cmbN.SelectedIndex = 0; y += 34;
 
             var chkE = new CheckBox { Text = "Set Encoding (categorical):", Location = new Point(14, y), AutoSize = true };
             var cmbE = new ComboBox { Location = new Point(240, y - 2), Width = 200, DropDownStyle = ComboBoxStyle.DropDownList };
-            cmbE.Items.AddRange(new object[]{"One-Hot Encoding  (binary dummy columns)",
-                "Label Encoding  (integer index)","None – keep as text"});
+            cmbE.Items.AddRange(new object[] {
+                "One-Hot Encoding  (binary dummy columns)",
+                "Label Encoding  (integer index)", "None – keep as text" });
             cmbE.SelectedIndex = 0; y += 44;
 
             var ok = new Button
@@ -1010,7 +993,8 @@ namespace Image_Checker.Forms
                 FlatStyle = FlatStyle.Flat
             };
 
-            ok.Click += (_, _) => {
+            ok.Click += (_, _) =>
+            {
                 SetNorm = chkN.Checked; Norm = cmbN.SelectedItem?.ToString() ?? "";
                 SetEnc = chkE.Checked; Enc = cmbE.SelectedItem?.ToString() ?? "";
             };

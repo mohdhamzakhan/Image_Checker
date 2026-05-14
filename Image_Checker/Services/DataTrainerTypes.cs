@@ -1,20 +1,21 @@
 ﻿// ══════════════════════════════════════════════════════════════════════════════
 //  DataTrainerTypes.cs
-//  All shared configuration and result types used by DataModelTrainer,
-//  ModelBuilderForm, and PredictionReportExporter.
 //
-//  After adding this file, remove these classes from DataModelTrainer.cs:
-//    - AlgorithmOptions
-//    - DataTrainerConfig
-//    - TimeSeriesOptions
-//    - ModelResult
+//  All configuration POCOs and shared enums for DataModelTrainer.
+//  Version 3.0 — adds working-day calendar to DataTrainerConfig so that
+//  weekend rows and Indian national holidays are stripped BEFORE the
+//  time-series aggregation step.  This prevents the "sawtooth" zero-demand
+//  artefact that wrecked SSA accuracy in earlier builds.
 // ══════════════════════════════════════════════════════════════════════════════
 
-using Microsoft.ML;
+using System;
 using System.Collections.Generic;
 
 namespace Image_Checker.Services
 {
+    // ════════════════════════════════════════════════════════════════════════
+    //  TASK TYPE
+    // ════════════════════════════════════════════════════════════════════════
 
     public enum TaskType
     {
@@ -22,230 +23,185 @@ namespace Image_Checker.Services
         BinaryClassification,
         MulticlassClassification,
         Regression,
-        TimeSeries           // SSA-based forecasting
+        TimeSeries
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  AlgorithmOptions
-    // ══════════════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════════════
+    //  ALGORITHM OPTIONS
+    //  Controls which trainers are evaluated in the tabular pipeline.
+    // ════════════════════════════════════════════════════════════════════════
 
-    /// <summary>
-    /// Toggles which baseline / tunable algorithms are included in the
-    /// comparison sweep. Separate flags exist for classification vs regression
-    /// because the underlying ML.NET trainers are different types.
-    /// </summary>
     public class AlgorithmOptions
     {
-        // ── Classification ────────────────────────────────────────────────────
-        /// <summary>SDCA Maximum Entropy (fast linear, good baseline).</summary>
+        // Binary / multi-class
         public bool UseSDCA { get; set; } = true;
-
-        /// <summary>LBFGS Maximum Entropy (more accurate linear, slower).</summary>
         public bool UseLBFGS { get; set; } = true;
-
-        /// <summary>FastTree gradient-boosted decision trees.</summary>
+        public bool UseAveragedPerceptron { get; set; } = false;
         public bool UseFastTree { get; set; } = true;
-
-        /// <summary>FastForest random forest.</summary>
         public bool UseFastForest { get; set; } = true;
-
-        /// <summary>LightGBM gradient boosting (fast, high accuracy).</summary>
         public bool UseLightGBM { get; set; } = true;
 
-        /// <summary>Averaged Perceptron – binary classification only.</summary>
-        public bool UseAveragedPerceptron { get; set; } = false;
-
-        // ── Regression ────────────────────────────────────────────────────────
-        /// <summary>SDCA regression.</summary>
+        // Regression
         public bool UseSdcaRegression { get; set; } = true;
-
-        /// <summary>FastTree regression.</summary>
-        public bool UseFastTreeRegression { get; set; } = true;
-
-        /// <summary>LightGBM regression.</summary>
-        public bool UseLightGbmRegression { get; set; } = true;
-
-        /// <summary>FastForest regression.</summary>
-        public bool UseFastForestRegression { get; set; } = true;
-
-        /// <summary>
-        /// Linear SGD regression (OnlineGradientDescent) – fast interpretable baseline.
-        /// Swap for Ols() if Microsoft.ML.Mkl.Components NuGet is installed.
-        /// </summary>
         public bool UseOlsRegression { get; set; } = true;
-
-        // ── Hyperparameter tuning ─────────────────────────────────────────────
-        /// <summary>Number of random hyperparameter trials per tunable trainer.</summary>
-        public int TuningTrials { get; set; } = 5;
-
-        /// <summary>Number of cross-validation folds used during tuning.</summary>
-        public int CvFolds { get; set; } = 3;
+        public bool UseFastTreeRegression { get; set; } = true;
+        public bool UseFastForestRegression { get; set; } = true;
+        public bool UseLightGbmRegression { get; set; } = true;
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  TimeSeriesOptions
-    // ══════════════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════════════
+    //  TIME-SERIES OPTIONS
+    // ════════════════════════════════════════════════════════════════════════
 
-    /// <summary>
-    /// Configuration for SSA-based time-series forecasting.
-    /// Only used when <see cref="DataTrainerConfig.Task"/> ==
-    /// <see cref="TaskType.TimeSeries"/>.
-    /// </summary>
     public class TimeSeriesOptions
     {
-        public string? DateColumn { get; set; }
+        /// <summary>Column that holds transaction / order dates.</summary>
+        public string DateColumn { get; set; } = "TRX_DATE";
 
-        /// <summary>Number of future time steps to forecast. 0 = not a TS task.</summary>
-        public int HorizonSteps { get; set; } = 0;  // ← FIXED: was 12
+        /// <summary>Day | Week | Month | Year</summary>
+        public string Granularity { get; set; } = "Month";
 
-        /// <summary>
-        /// SSA sliding window size. Must be greater than HorizonSteps.
-        /// 0 = auto-calculated during training.
-        /// </summary>
-        public int WindowSize { get; set; } = 0;    // ← FIXED: was 24
+        /// <summary>How many future periods to forecast.</summary>
+        public int HorizonSteps { get; set; } = 12;
 
-        /// <summary>
-        /// Number of historical observations fed into SSA decomposition.
-        /// 0 = use all training rows automatically.
-        /// </summary>
-        public int SeriesLength { get; set; } = 0;  // ← FIXED: was 100
+        /// <summary>SSA window size (0 = auto-derive).</summary>
+        public int WindowSize { get; set; } = 0;
 
-        /// <summary>0 = derived automatically from TestFraction.</summary>
+        /// <summary>SSA series length (0 = auto-derive).</summary>
+        public int SeriesLength { get; set; } = 0;
+
+        /// <summary>Training rows (0 = use all).</summary>
         public int TrainSize { get; set; } = 0;
 
+        /// <summary>Confidence-interval level (default 95 %).</summary>
         public float ConfidenceLevel { get; set; } = 0.95f;
-        public string Granularity { get; set; } = "Month";
+
+        /// <summary>
+        /// Items with no demand for this many months are classified DORMANT
+        /// and receive a zero forecast instead of SSA extrapolation.
+        /// </summary>
+        public int DormantMonths { get; set; } = 12;
+
+        /// <summary>
+        /// Minimum number of aggregated periods required before SSA is used.
+        /// Items with fewer periods receive a Weighted Moving Average forecast.
+        /// </summary>
+        public int MinActivePeriodsForSSA { get; set; } = 6;
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  DataTrainerConfig
-    // ══════════════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════════════
+    //  MAIN TRAINER CONFIG
+    // ════════════════════════════════════════════════════════════════════════
 
-    /// <summary>
-    /// Complete configuration object passed to <see cref="DataModelTrainer"/>.
-    /// Covers data source, column selection, task type, train/test split,
-    /// algorithm selection and output directory.
-    /// </summary>
     public class DataTrainerConfig
     {
-        // ── Data source ───────────────────────────────────────────────────────
-
-        /// <summary>Full path to the CSV or TSV data file.</summary>
-        public string DataFilePath { get; set; } = string.Empty;
-
-        /// <summary>Column separator character. Default: ','.</summary>
+        // ── Data source ──────────────────────────────────────────────────────
+        public string DataFilePath { get; set; } = "";
         public char Separator { get; set; } = ',';
-
-        /// <summary>Whether the file contains a header row. Default: true.</summary>
         public bool HasHeader { get; set; } = true;
 
-        // ── Column selection ──────────────────────────────────────────────────
+        // ── Column mapping ───────────────────────────────────────────────────
+        public string LabelColumnName { get; set; } = "QUANTITY_INVOICED";
 
-        /// <summary>
-        /// Name of the column the model should predict (the label / target).
-        /// For TimeSeries this is the numeric value column to forecast.
-        /// </summary>
-        public string LabelColumnName { get; set; } = "Label";
-
-        /// <summary>
-        /// Columns to include as features.
-        /// Leave empty to use ALL columns except the label automatically.
-        /// </summary>
+        /// <summary>Columns to use as features (empty = all non-label cols).</summary>
         public List<string> FeatureColumns { get; set; } = new();
 
-        /// <summary>
-        /// Columns to explicitly ignore (e.g. ID columns, free-text notes).
-        /// Applied after <see cref="FeatureColumns"/> selection.
-        /// </summary>
-        public List<string> IgnoreColumns { get; set; } = new();
-
-        /// <summary>
-        /// Columns that hold categorical / enum text values requiring encoding.
-        /// If left empty the trainer auto-detects non-numeric columns.
-        /// </summary>
+        /// <summary>Columns to treat as categorical text (empty = auto-detect).</summary>
         public List<string> CategoricalColumns { get; set; } = new();
 
-        // ── Task ──────────────────────────────────────────────────────────────
+        /// <summary>Columns to ignore completely.</summary>
+        public List<string> IgnoreColumns { get; set; } = new();
 
-        /// <summary>
-        /// ML task to perform. Use <see cref="TaskType.Auto"/> to let the
-        /// trainer detect it from the label column's values.
-        /// </summary>
+        // ── Training control ─────────────────────────────────────────────────
         public TaskType Task { get; set; } = TaskType.Auto;
-
-        // ── Train / Test split ────────────────────────────────────────────────
-
-        /// <summary>
-        /// Fraction of data reserved for testing. Must be between 0 and 1.
-        /// Default: 0.20 (20% test, 80% train).
-        /// </summary>
-        public double TestFraction { get; set; } = 0.20;
-
-        /// <summary>Random seed for reproducible train/test splits.</summary>
+        public double TestFraction { get; set; } = 0.2;
         public int Seed { get; set; } = 42;
 
-        // ── Time-series options ───────────────────────────────────────────────
-
-        /// <summary>
-        /// SSA forecasting options. Only used when
-        /// <see cref="Task"/> == <see cref="TaskType.TimeSeries"/>.
-        /// </summary>
+        // ── Time-series ──────────────────────────────────────────────────────
         public TimeSeriesOptions TimeSeries { get; set; } = new();
 
-        // ── Algorithm selection ───────────────────────────────────────────────
+        // ── Output ───────────────────────────────────────────────────────────
+        public string? OutputDirectory { get; set; }
+
+        // ── ✅ NEW: Working-day calendar ────────────────────────────────────
+        //
+        //  Rows whose date falls on a NonWorkingDay or in the Holidays set are
+        //  excluded BEFORE the time-series aggregation step.
+        //
+        //  Why this matters: if a customer never places orders on Sundays,
+        //  including Sunday rows (qty = 0) in the series creates artificial
+        //  demand troughs.  SSA interprets these as structural seasonality and
+        //  extrapolates a sawtooth pattern into the future forecast.
+        //
+        //  For monthly aggregation the effect is diluted but not zero — a
+        //  transaction incorrectly dated on a Sunday (data-entry error) would
+        //  still skew the period total if not caught here.
+
+        /// <summary>Days of week with no customer supply / no valid orders.</summary>
+        public DayOfWeek[] NonWorkingDays { get; set; } =
+        {
+            DayOfWeek.Saturday,
+            DayOfWeek.Sunday
+        };
 
         /// <summary>
-        /// Toggles for individual algorithms. Algorithms not applicable to
-        /// the resolved task type are silently skipped.
+        /// Fixed holiday dates to exclude from training data.
+        /// Defaults to Indian national holidays for a ±10-year window.
+        /// Add company-specific closures here; remove any that do not apply.
         /// </summary>
+        public HashSet<DateTime> Holidays { get; set; } = BuildDefaultIndianHolidays();
+
+        // ── ✅ NEW: Algorithms toggle ────────────────────────────────────────
         public AlgorithmOptions Algorithms { get; set; } = new();
 
-        // ── Output ────────────────────────────────────────────────────────────
+        // ────────────────────────────────────────────────────────────────────
+        private static HashSet<DateTime> BuildDefaultIndianHolidays()
+        {
+            var h = new HashSet<DateTime>();
+            int from = DateTime.Today.Year - 10;
+            int to = DateTime.Today.Year + 5;
 
-        /// <summary>
-        /// Directory where the best model .zip and its companion .json
-        /// config file are saved.
-        /// Defaults to the same directory as <see cref="DataFilePath"/>.
-        /// </summary>
-        public string OutputDirectory { get; set; } = string.Empty;
+            for (int yr = from; yr <= to; yr++)
+            {
+                // ── National / gazetted holidays ─────────────────────────────
+                h.Add(new DateTime(yr, 1, 1));   // New Year's Day
+                h.Add(new DateTime(yr, 1, 26));   // Republic Day
+                h.Add(new DateTime(yr, 8, 15));   // Independence Day
+                h.Add(new DateTime(yr, 10, 2));   // Gandhi Jayanti
+                h.Add(new DateTime(yr, 11, 14));   // Children's Day
+
+                // ── Common festival approximations (fixed-date proxies) ──────
+                // Replace with exact dates from a calendar API if precision matters.
+                h.Add(new DateTime(yr, 3, 1));   // Holi (approx)
+                h.Add(new DateTime(yr, 8, 1));   // Raksha Bandhan (approx)
+                h.Add(new DateTime(yr, 8, 8));   // Janmashtami (approx)
+                h.Add(new DateTime(yr, 10, 24));   // Dussehra (approx)
+                h.Add(new DateTime(yr, 11, 1));   // Diwali day 1 (approx)
+                h.Add(new DateTime(yr, 11, 2));   // Diwali day 2 (approx)
+                h.Add(new DateTime(yr, 12, 25));   // Christmas
+            }
+            return h;
+        }
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  ModelResult
-    // ══════════════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════════════
+    //  MODEL RESULT  (carries the trained model + its metrics)
+    // ════════════════════════════════════════════════════════════════════════
 
-    /// <summary>
-    /// Holds the evaluation metrics and trained model for a single algorithm
-    /// after the comparison sweep. The meaning of each metric depends on the
-    /// task type:
-    /// <list type="bullet">
-    ///   <item>Binary        → PrimaryMetric = Accuracy,      Secondary = AUC-ROC, Tertiary = F1</item>
-    ///   <item>Multiclass    → PrimaryMetric = MacroAccuracy,  Secondary = MicroAccuracy, Tertiary = LogLoss</item>
-    ///   <item>Regression    → PrimaryMetric = R²,             Secondary = MAE,     Tertiary = RMSE</item>
-    ///   <item>TimeSeries    → PrimaryMetric = −MAE (negated so higher = better), Secondary = RMSE</item>
-    /// </list>
-    /// </summary>
     public class ModelResult
     {
-        /// <summary>Human-readable algorithm name, e.g. "LightGBM_Multi".</summary>
-        public string Name { get; set; } = string.Empty;
+        public string Name { get; set; } = "";
+        public TaskType Task { get; set; }
+        public Microsoft.ML.ITransformer? Model { get; set; }
 
-        /// <summary>
-        /// Primary ranking metric (higher is always better).
-        /// Accuracy / MacroAccuracy / R² / −MAE depending on task.
-        /// </summary>
+        // Primary metric (higher = better for all tasks):
+        //   Binary classification  → Accuracy
+        //   Multi-class            → MacroAccuracy
+        //   Regression             → R²
         public double PrimaryMetric { get; set; }
 
-        /// <summary>Secondary metric (AUC-ROC / MicroAccuracy / MAE / RMSE).</summary>
+        // Secondary / tertiary for display only
         public double SecondaryMetric { get; set; }
-
-        /// <summary>Tertiary metric (F1 / LogLoss / RMSE / 0 for TS).</summary>
         public double TertiaryMetric { get; set; }
-
-        /// <summary>The fitted ITransformer. Null if training failed.</summary>
-        public ITransformer? Model { get; set; }
-
-        /// <summary>The task type this result was evaluated under.</summary>
-        public TaskType Task { get; set; }
     }
 }

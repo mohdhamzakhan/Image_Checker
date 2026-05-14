@@ -260,11 +260,15 @@ namespace Image_Checker.Services
                     inputColumnName: "InputImage",
                     resizing: Microsoft.ML.Transforms.Image.ImageResizingEstimator.ResizingKind.IsoCrop))
                 .Append(_mlContext.Transforms.ExtractPixels(
-                    outputColumnName: "Features",
+                    outputColumnName: "RawFeatures",       // ← renamed from "Features"
                     inputColumnName: "ResizedImage",
                     interleavePixelColors: !isGray,  // ← Use detected format
                     offsetImage: isGray ? 0f : 128f,
                     scaleImage: isGray ? 1f / 255f : 1f / 128f))
+                .Append(_mlContext.Transforms.ProjectToPrincipalComponents(
+                    outputColumnName: "Features",          // ← tree models + linear models read this
+                    inputColumnName: "RawFeatures",
+                    rank: 100))
                 .Append(_mlContext.Transforms.Conversion.MapValueToKey("Label", nameof(ImageData.Label)));
 
             Console.WriteLine("   • Image loading");
@@ -550,7 +554,9 @@ namespace Image_Checker.Services
                 RoiX = _roiRect.X,
                 RoiY = _roiRect.Y,
                 RoiW = _roiRect.Width,
-                RoiH = _roiRect.Height
+                RoiH = _roiRect.Height,
+                ImageWidth = imageWidth,   // already a parameter
+                ImageHeight = imageHeight  // already a parameter
             };
 
             var json = System.Text.Json.JsonSerializer.Serialize(
@@ -560,6 +566,137 @@ namespace Image_Checker.Services
             var cfgPath = Path.ChangeExtension(modelPath, ".json");
             File.WriteAllText(cfgPath, json);
             Console.WriteLine($"   ROI config saved: {Path.GetFileName(cfgPath)}");
+        }
+
+
+        // Add this new class to ModelTrainer.cs
+        public class HogFeatureExtractor
+        {
+            private readonly int _cellSize;
+            private readonly int _numBins;
+
+            public HogFeatureExtractor(int cellSize = 8, int numBins = 9)
+            {
+                _cellSize = cellSize;
+                _numBins = numBins;
+            }
+
+            public float[] Extract(Bitmap bmp)
+            {
+                // Convert to grayscale if needed
+                var gray = ToGrayscale(bmp);
+                int width = gray.GetLength(0);
+                int height = gray.GetLength(1);
+
+                // Compute gradients
+                var magX = new float[width, height];
+                var magY = new float[width, height];
+
+                for (int x = 1; x < width - 1; x++)
+                {
+                    for (int y = 1; y < height - 1; y++)
+                    {
+                        magX[x, y] = gray[x + 1, y] - gray[x - 1, y];
+                        magY[x, y] = gray[x, y + 1] - gray[x, y - 1];
+                    }
+                }
+
+                // Build HOG histogram per cell
+                int cellsX = width / _cellSize;
+                int cellsY = height / _cellSize;
+                var features = new List<float>();
+
+                for (int cx = 0; cx < cellsX; cx++)
+                {
+                    for (int cy = 0; cy < cellsY; cy++)
+                    {
+                        var hist = new float[_numBins];
+
+                        for (int px = 0; px < _cellSize; px++)
+                        {
+                            for (int py = 0; py < _cellSize; py++)
+                            {
+                                int x = cx * _cellSize + px;
+                                int y = cy * _cellSize + py;
+
+                                float gx = magX[x, y];
+                                float gy = magY[x, y];
+                                float magnitude = (float)Math.Sqrt(gx * gx + gy * gy);
+                                float angle = (float)(Math.Atan2(Math.Abs(gy), Math.Abs(gx)) * 180.0 / Math.PI);
+
+                                int bin = (int)(angle / (180.0f / _numBins)) % _numBins;
+                                hist[bin] += magnitude;
+                            }
+                        }
+
+                        // Normalize cell histogram
+                        float norm = (float)Math.Sqrt(hist.Sum(v => v * v) + 1e-6f);
+                        features.AddRange(hist.Select(v => v / norm));
+                    }
+                }
+
+                return features.ToArray();
+            }
+
+            private float[,] ToGrayscale(Bitmap bmp)
+            {
+                var result = new float[bmp.Width, bmp.Height];
+                for (int x = 0; x < bmp.Width; x++)
+                    for (int y = 0; y < bmp.Height; y++)
+                    {
+                        var p = bmp.GetPixel(x, y);
+                        result[x, y] = (0.299f * p.R + 0.587f * p.G + 0.114f * p.B) / 255f;
+                    }
+                return result;
+            }
+        }
+        private string BuildHogCsv(string originalCsvPath, int imageWidth, int imageHeight, CancellationToken ct)
+        {
+            Console.WriteLine("\n🔧 Extracting HOG features from images...");
+            var hogCsvPath = Path.Combine(_basePath, "images_hog.csv");
+            var hog = new HogFeatureExtractor(cellSize: 8, numBins: 9);
+            var lines = File.ReadAllLines(originalCsvPath);
+            int total = lines.Length;
+            int done = 0;
+
+            using var sw = new StreamWriter(hogCsvPath);
+
+            foreach (var line in lines)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var parts = line.Split(',');
+                if (parts.Length < 2) continue;
+
+                var imgPath = parts[0].Trim().Trim('"');
+                var label = parts[1].Trim().Trim('"');
+
+                if (!File.Exists(imgPath)) continue;
+
+                try
+                {
+                    using var bmp = new Bitmap(imgPath);
+
+                    // Resize to training size first
+                    using var resized = new Bitmap(bmp, new Size(imageWidth, imageHeight));
+                    var features = hog.Extract(resized);
+
+                    // Write: label,f1,f2,f3,...
+                    sw.WriteLine($"{label},{string.Join(",", features.Select(f => f.ToString("F6")))}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"   ⚠️ Skipped {Path.GetFileName(imgPath)}: {ex.Message}");
+                }
+
+                done++;
+                if (done % 20 == 0)
+                    Console.WriteLine($"   HOG: {done}/{total} images processed...");
+            }
+
+            Console.WriteLine($"✅ HOG CSV created: {Path.GetFileName(hogCsvPath)}");
+            Console.WriteLine($"   Features per image: {(imageWidth / 8) * (imageHeight / 8) * 9}");
+            return hogCsvPath;
         }
     }
 }
