@@ -1,23 +1,74 @@
-# Project Context
+# \# Machine Learning Image Inspection Project Context
 
-## Description
-This is a software application designed to handle business logic and UI workflows.
+# 
 
-## Features
-- Data processing
-- UI interaction
-- API integration (if applicable)
+# This project focuses on industrial image inspection using Machine Learning and Computer Vision.
 
-## Architecture
-- Presentation Layer: UI (WinForms / Web)
-- Business Logic Layer
-- Data Access Layer
+# 
 
-## Important Areas
-- UI layout and responsiveness
-- Data validation
-- Error handling
+# Primary objectives:
 
-## Constraints
-- Maintain backward compatibility
-- Do not remove existing working features
+# 
+
+# \* Detect defects in manufactured products.
+
+# \* Classify images as OK or NG.
+
+# \* Minimize false negatives.
+
+# \* Support real-time inference.
+
+# \* Maintain scalable and maintainable architecture.
+
+# 
+
+# Technology Stack:
+
+# 
+
+# \* ML.NET
+
+# \* ONNX
+
+# \* C#
+
+# \* .NET
+
+# 
+
+# Architecture:
+
+# 
+
+# \* Dataset Layer
+
+# \* Training Layer
+
+# \* Inference Layer
+
+# \* API Layer
+
+# \* UI Layer
+
+# 
+
+# Quality Requirements:
+
+# 
+
+# \* High accuracy
+
+# \* Fast inference
+
+# \* Robust error handling
+
+# \* Scalable deployment
+
+# \* Maintainable codebase
+
+# 
+
+# Always preserve existing functionality unless explicitly requested.
+
+# 
+

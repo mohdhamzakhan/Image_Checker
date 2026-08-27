@@ -1,8 +1,24 @@
-Optimize the given code.
+Optimize the provided code.
+
+
 
 Focus on:
-- Performance
-- Readability
-- Maintainability
 
-Explain trade-offs.
+
+
+\* Performance
+
+\* Readability
+
+\* Maintainability
+
+\* Memory usage
+
+\* Scalability
+
+
+
+Explain all trade-offs.
+
+
+

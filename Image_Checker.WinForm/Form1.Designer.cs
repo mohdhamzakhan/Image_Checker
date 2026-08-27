@@ -150,7 +150,7 @@
             // 
             btnSelectFolder.BackColor = Color.FromArgb(0, 120, 215);
             btnSelectFolder.FlatStyle = FlatStyle.Flat;
-            btnSelectFolder.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            btnSelectFolder.Font = new Font("Microsoft Sans Serif", 10F, FontStyle.Bold);
             btnSelectFolder.ForeColor = Color.White;
             btnSelectFolder.Location = new Point(29, 58);
             btnSelectFolder.Margin = new Padding(4, 5, 4, 5);
@@ -166,7 +166,7 @@
             // 
             btnSelectSingleImage.BackColor = Color.FromArgb(46, 125, 50);
             btnSelectSingleImage.FlatStyle = FlatStyle.Flat;
-            btnSelectSingleImage.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            btnSelectSingleImage.Font = new Font("Microsoft Sans Serif", 10F, FontStyle.Bold);
             btnSelectSingleImage.ForeColor = Color.White;
             btnSelectSingleImage.Location = new Point(1223, 58);
             btnSelectSingleImage.Margin = new Padding(4, 5, 4, 5);
@@ -181,57 +181,57 @@
             // lblFolderFilter
             // 
             lblFolderFilter.AutoSize = true;
-            lblFolderFilter.Font = new Font("Segoe UI", 9F);
+            lblFolderFilter.Font = new Font("Microsoft Sans Serif", 9F);
             lblFolderFilter.Location = new Point(286, 47);
             lblFolderFilter.Margin = new Padding(4, 0, 4, 0);
             lblFolderFilter.Name = "lblFolderFilter";
-            lblFolderFilter.Size = new Size(134, 25);
+            lblFolderFilter.Size = new Size(135, 22);
             lblFolderFilter.TabIndex = 1;
             lblFolderFilter.Text = "Filter by Folder:";
             // 
             // cbFolderFilter
             // 
             cbFolderFilter.DropDownStyle = ComboBoxStyle.DropDownList;
-            cbFolderFilter.Font = new Font("Segoe UI", 10F);
+            cbFolderFilter.Font = new Font("Microsoft Sans Serif", 10F);
             cbFolderFilter.FormattingEnabled = true;
             cbFolderFilter.Location = new Point(286, 81);
             cbFolderFilter.Margin = new Padding(4, 5, 4, 5);
             cbFolderFilter.Name = "cbFolderFilter";
-            cbFolderFilter.Size = new Size(284, 36);
+            cbFolderFilter.Size = new Size(284, 33);
             cbFolderFilter.TabIndex = 2;
             cbFolderFilter.SelectedIndexChanged += ApplyFilters;
             // 
             // lblPredFilter
             // 
             lblPredFilter.AutoSize = true;
-            lblPredFilter.Font = new Font("Segoe UI", 9F);
+            lblPredFilter.Font = new Font("Microsoft Sans Serif", 9F);
             lblPredFilter.Location = new Point(600, 47);
             lblPredFilter.Margin = new Padding(4, 0, 4, 0);
             lblPredFilter.Name = "lblPredFilter";
-            lblPredFilter.Size = new Size(163, 25);
+            lblPredFilter.Size = new Size(164, 22);
             lblPredFilter.TabIndex = 3;
             lblPredFilter.Text = "Filter by Prediction:";
             // 
             // cbPredFilter
             // 
             cbPredFilter.DropDownStyle = ComboBoxStyle.DropDownList;
-            cbPredFilter.Font = new Font("Segoe UI", 10F);
+            cbPredFilter.Font = new Font("Microsoft Sans Serif", 10F);
             cbPredFilter.FormattingEnabled = true;
             cbPredFilter.Location = new Point(600, 81);
             cbPredFilter.Margin = new Padding(4, 5, 4, 5);
             cbPredFilter.Name = "cbPredFilter";
-            cbPredFilter.Size = new Size(284, 36);
+            cbPredFilter.Size = new Size(284, 33);
             cbPredFilter.TabIndex = 4;
             cbPredFilter.SelectedIndexChanged += ApplyFilters;
             // 
             // lblModelInfo
             // 
             lblModelInfo.AutoSize = true;
-            lblModelInfo.Font = new Font("Segoe UI", 9F, FontStyle.Italic);
+            lblModelInfo.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Italic);
             lblModelInfo.ForeColor = Color.FromArgb(0, 120, 215);
             lblModelInfo.Location = new Point(908, 92);
             lblModelInfo.Name = "lblModelInfo";
-            lblModelInfo.Size = new Size(149, 25);
+            lblModelInfo.Size = new Size(145, 22);
             lblModelInfo.TabIndex = 17;
             lblModelInfo.Text = "No model loaded";
             // 
@@ -245,7 +245,7 @@
             grid.BorderStyle = BorderStyle.Fixed3D;
             dataGridViewCellStyle1.Alignment = DataGridViewContentAlignment.MiddleLeft;
             dataGridViewCellStyle1.BackColor = SystemColors.Control;
-            dataGridViewCellStyle1.Font = new Font("Segoe UI", 9F);
+            dataGridViewCellStyle1.Font = new Font("Microsoft Sans Serif", 9F);
             dataGridViewCellStyle1.ForeColor = SystemColors.WindowText;
             dataGridViewCellStyle1.SelectionBackColor = SystemColors.Highlight;
             dataGridViewCellStyle1.SelectionForeColor = SystemColors.HighlightText;
@@ -254,7 +254,7 @@
             grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
             dataGridViewCellStyle2.Alignment = DataGridViewContentAlignment.MiddleLeft;
             dataGridViewCellStyle2.BackColor = SystemColors.Window;
-            dataGridViewCellStyle2.Font = new Font("Segoe UI", 9F);
+            dataGridViewCellStyle2.Font = new Font("Microsoft Sans Serif", 9F);
             dataGridViewCellStyle2.ForeColor = SystemColors.ControlText;
             dataGridViewCellStyle2.SelectionBackColor = SystemColors.Highlight;
             dataGridViewCellStyle2.SelectionForeColor = SystemColors.HighlightText;
@@ -289,7 +289,7 @@
             lblInfo.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             lblInfo.BackColor = Color.FromArgb(240, 240, 240);
             lblInfo.BorderStyle = BorderStyle.FixedSingle;
-            lblInfo.Font = new Font("Segoe UI", 9F);
+            lblInfo.Font = new Font("Microsoft Sans Serif", 9F);
             lblInfo.Location = new Point(1214, 919);
             lblInfo.Margin = new Padding(4, 0, 4, 0);
             lblInfo.Name = "lblInfo";
@@ -302,11 +302,11 @@
             // 
             lblSelectLabel.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             lblSelectLabel.AutoSize = true;
-            lblSelectLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            lblSelectLabel.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
             lblSelectLabel.Location = new Point(1214, 968);
             lblSelectLabel.Margin = new Padding(4, 0, 4, 0);
             lblSelectLabel.Name = "lblSelectLabel";
-            lblSelectLabel.Size = new Size(196, 25);
+            lblSelectLabel.Size = new Size(208, 22);
             lblSelectLabel.TabIndex = 8;
             lblSelectLabel.Text = "Correct Classification:";
             // 
@@ -314,12 +314,12 @@
             // 
             cbCorrection.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             cbCorrection.DropDownStyle = ComboBoxStyle.DropDownList;
-            cbCorrection.Font = new Font("Segoe UI", 10F);
+            cbCorrection.Font = new Font("Microsoft Sans Serif", 10F);
             cbCorrection.FormattingEnabled = true;
             cbCorrection.Location = new Point(1214, 1012);
             cbCorrection.Margin = new Padding(4, 5, 4, 5);
             cbCorrection.Name = "cbCorrection";
-            cbCorrection.Size = new Size(180, 36);
+            cbCorrection.Size = new Size(180, 33);
             cbCorrection.TabIndex = 9;
             // 
             // btnCorrect
@@ -327,7 +327,7 @@
             btnCorrect.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             btnCorrect.BackColor = Color.FromArgb(255, 140, 0);
             btnCorrect.FlatStyle = FlatStyle.Flat;
-            btnCorrect.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            btnCorrect.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
             btnCorrect.ForeColor = Color.White;
             btnCorrect.Location = new Point(1410, 998);
             btnCorrect.Margin = new Padding(4, 5, 4, 5);
@@ -343,7 +343,7 @@
             btnQuickUpdate.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             btnQuickUpdate.BackColor = Color.FromArgb(76, 175, 80);
             btnQuickUpdate.FlatStyle = FlatStyle.Flat;
-            btnQuickUpdate.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            btnQuickUpdate.Font = new Font("Microsoft Sans Serif", 10F, FontStyle.Bold);
             btnQuickUpdate.ForeColor = Color.White;
             btnQuickUpdate.Location = new Point(1214, 1058);
             btnQuickUpdate.Margin = new Padding(4, 5, 4, 5);
@@ -360,7 +360,7 @@
             btnRetrain.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             btnRetrain.BackColor = Color.FromArgb(156, 39, 176);
             btnRetrain.FlatStyle = FlatStyle.Flat;
-            btnRetrain.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            btnRetrain.Font = new Font("Microsoft Sans Serif", 10F, FontStyle.Bold);
             btnRetrain.ForeColor = Color.White;
             btnRetrain.Location = new Point(1557, 1058);
             btnRetrain.Margin = new Padding(4, 5, 4, 5);
@@ -377,7 +377,7 @@
             lblCorrectionCount.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             lblCorrectionCount.BackColor = Color.FromArgb(255, 248, 220);
             lblCorrectionCount.BorderStyle = BorderStyle.FixedSingle;
-            lblCorrectionCount.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            lblCorrectionCount.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
             lblCorrectionCount.Location = new Point(1214, 1130);
             lblCorrectionCount.Margin = new Padding(4, 0, 4, 0);
             lblCorrectionCount.Name = "lblCorrectionCount";
@@ -402,7 +402,7 @@
             lblStatus.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             lblStatus.BackColor = Color.FromArgb(245, 245, 245);
             lblStatus.BorderStyle = BorderStyle.FixedSingle;
-            lblStatus.Font = new Font("Segoe UI", 9F, FontStyle.Italic);
+            lblStatus.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Italic);
             lblStatus.ForeColor = Color.FromArgb(64, 64, 64);
             lblStatus.Location = new Point(1214, 1222);
             lblStatus.Margin = new Padding(4, 0, 4, 0);
@@ -417,7 +417,7 @@
             lblSingleImageResult.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             lblSingleImageResult.BackColor = Color.FromArgb(232, 245, 233);
             lblSingleImageResult.BorderStyle = BorderStyle.FixedSingle;
-            lblSingleImageResult.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
+            lblSingleImageResult.Font = new Font("Microsoft Sans Serif", 11F, FontStyle.Bold);
             lblSingleImageResult.ForeColor = Color.FromArgb(46, 125, 50);
             lblSingleImageResult.Location = new Point(1214, 135);
             lblSingleImageResult.Margin = new Padding(4, 0, 4, 0);
@@ -432,7 +432,7 @@
             // 
             btnMonitorFolder.BackColor = Color.FromArgb(156, 39, 176);
             btnMonitorFolder.FlatStyle = FlatStyle.Flat;
-            btnMonitorFolder.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            btnMonitorFolder.Font = new Font("Microsoft Sans Serif", 10F, FontStyle.Bold);
             btnMonitorFolder.ForeColor = Color.White;
             btnMonitorFolder.Location = new Point(1530, 58);
             btnMonitorFolder.Name = "btnMonitorFolder";
@@ -446,11 +446,11 @@
             // lblUsbLightStatus
             // 
             lblUsbLightStatus.AutoSize = true;
-            lblUsbLightStatus.Font = new Font("Segoe UI", 9F, FontStyle.Italic);
+            lblUsbLightStatus.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Italic);
             lblUsbLightStatus.ForeColor = Color.Sienna;
             lblUsbLightStatus.Location = new Point(908, 47);
             lblUsbLightStatus.Name = "lblUsbLightStatus";
-            lblUsbLightStatus.Size = new Size(104, 25);
+            lblUsbLightStatus.Size = new Size(105, 22);
             lblUsbLightStatus.TabIndex = 21;
             lblUsbLightStatus.Text = "Light Status";
             // 
@@ -546,7 +546,7 @@
             // 
             // Form1
             // 
-            AutoScaleDimensions = new SizeF(10F, 25F);
+            AutoScaleDimensions = new SizeF(10F, 22F);
             AutoScaleMode = AutoScaleMode.Font;
             BackColor = Color.White;
             ClientSize = new Size(1900, 1333);
@@ -573,13 +573,13 @@
             Controls.Add(menuStrip);
             Controls.Add(groupBoxUsbPortControl);
             Controls.Add(btnMonitorFolder);
-            Font = new Font("Segoe UI", 9F);
+            Font = new Font("Microsoft Sans Serif", 9F);
             MainMenuStrip = menuStrip;
             Margin = new Padding(4, 5, 4, 5);
             MinimumSize = new Size(1918, 1080);
             Name = "Form1";
             StartPosition = FormStartPosition.CenterScreen;
-            Text = "MEAI Image Checking System - Suggested By Hirai San";
+            Text = "MEAI Image Checking System";
             menuStrip.ResumeLayout(false);
             menuStrip.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)grid).EndInit();

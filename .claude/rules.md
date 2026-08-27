@@ -1,24 +1,78 @@
-# Coding Rules
+# \# Coding Rules
 
-## General Rules
-- Always validate inputs
-- Never hardcode sensitive values
-- Avoid duplicate code
+# 
 
-## UI Rules
-- No overlapping controls
-- Maintain proper spacing
-- Ensure responsiveness
+# \## General
 
-## Backend Rules
-- Use proper exception handling
-- Log errors where necessary
-- Optimize queries
+# 
 
-## Performance
-- Avoid unnecessary loops
-- Use efficient data structures
+# \* Validate all inputs.
 
-## Security
-- Sanitize inputs
-- Protect APIs
+# \* Do not hardcode secrets.
+
+# \* Avoid duplicate code.
+
+# \* Follow SOLID principles.
+
+# \* Use dependency injection where appropriate.
+
+# 
+
+# \## Machine Learning
+
+# 
+
+# \* Check dataset balance before training.
+
+# \* Report class distributions.
+
+# \* Use train, validation, and test splits.
+
+# \* Track metrics during training.
+
+# \* Save model checkpoints.
+
+# 
+
+# \## Performance
+
+# 
+
+# \* Avoid unnecessary loops.
+
+# \* Optimize image loading.
+
+# \* Use batch processing.
+
+# \* Minimize memory usage.
+
+# 
+
+# \## Error Handling
+
+# 
+
+# \* Handle dataset loading failures.
+
+# \* Handle model loading failures.
+
+# \* Log all exceptions.
+
+# \* Return meaningful error messages.
+
+# 
+
+# \## Security
+
+# 
+
+# \* Validate uploaded images.
+
+# \* Sanitize API inputs.
+
+# \* Protect model endpoints.
+
+# \* Avoid exposing internal paths.
+
+# 
+

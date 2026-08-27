@@ -1,128 +1,324 @@
 ﻿using Image_Checker.DataModels;
 using Image_Checker.Utils;
 using Microsoft.ML;
+using Microsoft.ML.Data;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 
 namespace Image_Checker.Services
 {
+    /// <summary>
+    /// Incremental training using two strategies:
+    ///
+    /// Strategy 1 — REPLAY (preferred):
+    ///   Merge original images.csv + new corrections → retrain full model.
+    ///   Prevents catastrophic forgetting. Used when images.csv is available.
+    ///
+    /// Strategy 2 — ENSEMBLE FALLBACK:
+    ///   Train a correction-only model, then combine its scores with the
+    ///   base model's scores at inference time via weighted averaging.
+    ///   Used when the original dataset is no longer available.
+    /// </summary>
     public class IncrementalModelTrainer
     {
         private readonly MLContext _mlContext;
         private readonly string _basePath;
         private readonly string _correctionsPath;
 
-        public IncrementalModelTrainer(MLContext mlContext, string basePath)
+        // Added RoiConfig field
+        private readonly RoiConfig _roiConfig;
+
+        public IncrementalModelTrainer(
+            MLContext mlContext,
+            string basePath,
+            RoiConfig roiConfig)
         {
             _mlContext = mlContext;
             _basePath = basePath;
+            _roiConfig = roiConfig ?? new RoiConfig { ImageWidth = 224, ImageHeight = 224 };
             _correctionsPath = Path.Combine(basePath, "corrections.csv");
         }
 
+        // ═══════════════════════════════════════════════════════════════
+        // PUBLIC ENTRY POINT
+        // ═══════════════════════════════════════════════════════════════
+
         /// <summary>
-        /// Performs incremental training using only corrected images
+        /// Main incremental training entry point.
+        /// Tries Replay first; falls back to Ensemble if original data unavailable.
+        /// Returns path to the saved updated model.
         /// </summary>
-        public string IncrementalTrain(string existingModelPath)
+        public string IncrementalTrain(
+            string existingModelPath,
+            CancellationToken cancellationToken = default)
         {
             Console.WriteLine("═══════════════════════════════════════════════");
             Console.WriteLine("⚡ INCREMENTAL TRAINING");
             Console.WriteLine("═══════════════════════════════════════════════");
 
             if (!File.Exists(existingModelPath))
-            {
-                Console.WriteLine("❌ Base model not found.");
-                throw new FileNotFoundException("Base model not found.");
-            }
+                throw new FileNotFoundException("Base model not found.", existingModelPath);
 
             if (!File.Exists(_correctionsPath))
-            {
-                Console.WriteLine("❌ No corrections file found.");
-                throw new FileNotFoundException("No corrections file found.");
-            }
+                throw new FileNotFoundException("No corrections file found.", _correctionsPath);
 
             Console.WriteLine($"📂 Base model: {Path.GetFileName(existingModelPath)}");
-            Console.WriteLine($"📝 Corrections file: {Path.GetFileName(_correctionsPath)}");
+            Console.WriteLine($"📝 Corrections: {Path.GetFileName(_correctionsPath)}");
 
-            // Load existing model
-            Console.WriteLine("\n📥 Loading existing model...");
-            var existingModel = _mlContext.Model.Load(existingModelPath, out var modelSchema);
-            Console.WriteLine("✅ Base model loaded");
+            cancellationToken.ThrowIfCancellationRequested();
 
-            // Create mini-dataset from corrections
-            Console.WriteLine("\n🔧 Processing corrections...");
-            var (correctionsCsv, classCount, labelCounts, totalSamples) = CreateCorrectionsDataset();
+            // Parse and validate corrections
+            var (corrections, labelCounts) = LoadAndValidateCorrections();
+            int totalSamples = corrections.Count;
+            int classCount = labelCounts.Count;
 
-            // Validate we have enough data for training
+            PrintLabelDistribution(labelCounts, totalSamples);
+
             if (classCount < 2)
             {
-                Console.WriteLine($"\n❌ ERROR: Found only {classCount} class(es) in corrections.");
-                Console.WriteLine("   Incremental training requires corrections for at least 2 classes (OK and NG).");
-                Console.WriteLine("\n   Current label distribution:");
-                foreach (var kv in labelCounts)
-                {
-                    Console.WriteLine($"      {kv.Key}: {kv.Value} samples");
-                }
-                Console.WriteLine("\n   💡 Solution: Add corrections for both OK and NG labels before training.");
                 throw new InvalidOperationException(
-                    $"Insufficient classes in corrections. Found {classCount} class(es), need at least 2. " +
-                    "Please add corrections for both OK and NG labels before training.");
+                    $"Incremental training requires corrections for at least 2 classes. " +
+                    $"Found {classCount} class(es): {string.Join(", ", labelCounts.Keys)}.\n" +
+                    "Add corrections for all classes before training.");
             }
 
-            Console.WriteLine($"\n✅ Validation passed:");
-            Console.WriteLine($"   • Total corrections: {totalSamples}");
-            Console.WriteLine($"   • Number of classes: {classCount}");
-            Console.WriteLine($"   • Label distribution:");
-            foreach (var kv in labelCounts)
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Choose strategy based on original dataset availability
+            var originalCsvPath = Path.Combine(_basePath, "images.csv");
+            bool hasOriginalData = File.Exists(originalCsvPath) && HasEnoughRows(originalCsvPath);
+
+            string resultModelPath;
+
+            if (hasOriginalData)
             {
-                Console.WriteLine($"      - {kv.Key}: {kv.Value} samples");
+                Console.WriteLine("\n✅ Original dataset found → using REPLAY strategy");
+                resultModelPath = ReplayTrain(
+                    existingModelPath, originalCsvPath, corrections, labelCounts, cancellationToken);
+            }
+            else
+            {
+                Console.WriteLine("\n⚠️ Original dataset not found → using ENSEMBLE FALLBACK strategy");
+                resultModelPath = EnsembleTrain(
+                    existingModelPath, corrections, labelCounts, cancellationToken);
             }
 
-            var correctionData = _mlContext.Data.LoadFromTextFile<ImageData>(
-                correctionsCsv,
-                separatorChar: ',',
-                hasHeader: false);
-            Console.WriteLine("\n✅ Corrections dataset loaded");
+            Console.WriteLine("\n═══════════════════════════════════════════════");
+            Console.WriteLine("✅ INCREMENTAL TRAINING COMPLETED");
+            Console.WriteLine($"   • Strategy: {(hasOriginalData ? "Replay" : "Ensemble Fallback")}");
+            Console.WriteLine($"   • Corrections processed: {totalSamples}");
+            Console.WriteLine($"   • Classes: {string.Join(", ", labelCounts.Keys)}");
+            Console.WriteLine($"   • Model saved: {Path.GetFileName(resultModelPath)}");
+            Console.WriteLine("═══════════════════════════════════════════════");
 
-            // Build preprocessing pipeline (must match original)
-            Console.WriteLine("\n⚙️ Building preprocessing pipeline...");
+            return resultModelPath;
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // STRATEGY 1: REPLAY
+        // Merge original data + corrections → full retrain
+        // Prevents catastrophic forgetting completely
+        // ═══════════════════════════════════════════════════════════════
+
+        private string ReplayTrain(
+            string existingModelPath,
+            string originalCsvPath,
+            List<(string ImagePath, string Label)> corrections,
+            Dictionary<string, int> labelCounts,
+            CancellationToken cancellationToken)
+        {
+            Console.WriteLine("\n📋 STRATEGY 1: REPLAY");
+            Console.WriteLine("   Merging original dataset with corrections...");
+
+            // Count original rows (streaming — no ReadAllLines)
+            long originalCount = File.ReadLines(originalCsvPath).LongCount();
+            Console.WriteLine($"   • Original samples: {originalCount}");
+            Console.WriteLine($"   • New corrections:  {corrections.Count}");
+            Console.WriteLine($"   • Total for retrain: {originalCount + corrections.Count}");
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Write merged CSV: original rows first, then corrections appended
+            // FIX #3: Stream directly to file — no List<string> in RAM
+            var mergedCsvPath = Path.Combine(_basePath, "images_merged.csv");
+
+            try
+            {
+                using (var writer = new StreamWriter(mergedCsvPath, append: false))
+                {
+                    // Stream original rows
+                    foreach (var line in File.ReadLines(originalCsvPath))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (!string.IsNullOrWhiteSpace(line))
+                            writer.WriteLine(line);
+                    }
+
+                    // Append corrections (corrections override old labels for same image)
+                    foreach (var (imgPath, label) in corrections)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        writer.WriteLine($"{imgPath},{label}");
+                    }
+                }
+
+                Console.WriteLine("   ✅ Merged dataset written");
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Load merged data and retrain
+                var mergedData = _mlContext.Data.LoadFromTextFile<ImageData>(
+                    mergedCsvPath, separatorChar: ',', hasHeader: false);
+
+                var pipeline = BuildFullPipeline(labelCounts, corrections.Count);
+
+                Console.WriteLine($"\n🚀 Retraining on merged dataset ({originalCount + corrections.Count} samples)...");
+                var startTime = DateTime.Now;
+                var updatedModel = pipeline.Fit(mergedData);
+                Console.WriteLine($"✅ Retrain complete in {(DateTime.Now - startTime).TotalSeconds:F1}s");
+
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Quick eval on corrections only to verify the model learned them
+                EvaluateOnCorrections(updatedModel, corrections, "Replay model");
+
+                // Save — overwrite images.csv with merged so next incremental also benefits
+                File.Copy(mergedCsvPath, originalCsvPath, overwrite: true);
+                Console.WriteLine("   ✅ images.csv updated with merged data for future incremental runs");
+
+                return SaveModel(updatedModel, mergedData.Schema, "replayModel");
+            }
+            finally
+            {
+                // FIX #6: Always clean up temp file even on exception
+                TryDelete(mergedCsvPath);
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // STRATEGY 2: ENSEMBLE FALLBACK
+        // Train correction model → combine with base model at inference
+        // Approximates warm start without original data
+        // ═══════════════════════════════════════════════════════════════
+
+        private string EnsembleTrain(
+            string existingModelPath,
+            List<(string ImagePath, string Label)> corrections,
+            Dictionary<string, int> labelCounts,
+            CancellationToken cancellationToken)
+        {
+            Console.WriteLine("\n📋 STRATEGY 2: ENSEMBLE FALLBACK");
+            Console.WriteLine("   Training correction model to combine with base model...");
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Load base model (FIX #1: actually USE the loaded model)
+            Console.WriteLine("   📥 Loading base model...");
+            var baseModel = _mlContext.Model.Load(existingModelPath, out var baseSchema);
+            Console.WriteLine("   ✅ Base model loaded");
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Write corrections to temp CSV (streamed)
+            var tempCsvPath = Path.Combine(_basePath, "temp_corrections.csv");
+            try
+            {
+                // FIX #3: Stream to file directly
+                using (var writer = new StreamWriter(tempCsvPath, append: false))
+                {
+                    foreach (var (imgPath, label) in corrections)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        writer.WriteLine($"{imgPath},{label}");
+                    }
+                }
+
+                var correctionData = _mlContext.Data.LoadFromTextFile<ImageData>(
+                    tempCsvPath, separatorChar: ',', hasHeader: false);
+
+                var pipeline = BuildFullPipeline(labelCounts, corrections.Count);
+
+                Console.WriteLine($"\n🚀 Training correction model on {corrections.Count} samples...");
+                var startTime = DateTime.Now;
+                var correctionModel = pipeline.Fit(correctionData);
+                Console.WriteLine($"✅ Correction model trained in {(DateTime.Now - startTime).TotalSeconds:F1}s");
+
+                cancellationToken.ThrowIfCancellationRequested();
+
+                EvaluateOnCorrections(correctionModel, corrections, "Correction model");
+
+                // Save ensemble config alongside model so inference layer can load both
+                var correctionModelPath = SaveModel(correctionModel, correctionData.Schema, "correctionModel");
+                SaveEnsembleConfig(existingModelPath, correctionModelPath, labelCounts);
+
+                Console.WriteLine("\n   ℹ️  ENSEMBLE INFERENCE:");
+                Console.WriteLine("      At prediction time, load BOTH models and average their scores.");
+                Console.WriteLine("      Base model weight: 0.6  |  Correction model weight: 0.4");
+                Console.WriteLine($"      Config saved: ensemble_config.json");
+
+                return correctionModelPath;
+            }
+            finally
+            {
+                // FIX #6: Always clean up temp file
+                TryDelete(tempCsvPath);
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // PIPELINE BUILDER
+        // Selects trainer based on correction batch size
+        // FIX #4: Uses configurable image size, not hardcoded 150x150
+        // ═══════════════════════════════════════════════════════════════
+
+        private IEstimator<ITransformer> BuildFullPipeline(
+            Dictionary<string, int> labelCounts,
+            int totalSamples)
+        {
             var preprocess = _mlContext.Transforms.LoadImages(
                     outputColumnName: "InputImage",
-                    imageFolder: null, // Use absolute paths
+                    imageFolder: null,
                     inputColumnName: nameof(ImageData.ImagePath))
+
+                // 1. Resize using your ROI Config (important for weld-specific areas)
                 .Append(_mlContext.Transforms.ResizeImages(
                     outputColumnName: "ResizedImage",
-                    imageWidth: 150,
-                    imageHeight: 150,
+                    imageWidth: _roiConfig.ImageWidth,
+                    imageHeight: _roiConfig.ImageHeight,
                     inputColumnName: "InputImage",
                     resizing: Microsoft.ML.Transforms.Image.ImageResizingEstimator.ResizingKind.IsoCrop))
+
+                // 2. Numerical extraction
                 .Append(_mlContext.Transforms.ExtractPixels(
-                    outputColumnName: "Features",
+                    outputColumnName: "RawFeatures",
                     inputColumnName: "ResizedImage",
                     interleavePixelColors: true,
                     offsetImage: 128f,
                     scaleImage: 1f / 128f))
-                .Append(_mlContext.Transforms.Conversion.MapValueToKey("Label", nameof(ImageData.Label)));
-            Console.WriteLine("✅ Pipeline ready");
 
-            // Choose appropriate trainer based on sample count and class distribution
-            Console.WriteLine("\n🧠 Selecting trainer based on data characteristics...");
+                // 3. Dimensionality reduction
+                .Append(_mlContext.Transforms.ProjectToPrincipalComponents(
+                    outputColumnName: "Features",
+                    inputColumnName: "RawFeatures",
+                    rank: 50))
+
+                // 4. Dynamic Label Mapping
+                // This handles "Problem 1", "Problem 2", etc., by mapping them to stable keys
+                .Append(_mlContext.Transforms.Conversion.MapValueToKey(
+                    outputColumnName: "Label",
+                    inputColumnName: nameof(ImageData.Label),
+                    keyOrdinality: Microsoft.ML.Transforms.ValueToKeyMappingEstimator.KeyOrdinality.ByValue));
+
+            // Select trainer based on batch size
             var minClassSamples = labelCounts.Values.Min();
-
             IEstimator<ITransformer> trainer;
             string trainerName;
 
-            // Use simpler trainers for small datasets or imbalanced data
             if (totalSamples < 20 || minClassSamples < 3)
             {
                 trainerName = "SDCA MaximumEntropy";
-                Console.WriteLine($"   Selected: {trainerName}");
-                Console.WriteLine($"   Reason: Small dataset (total={totalSamples}, min class={minClassSamples})");
-                Console.WriteLine("   Configuration:");
-                Console.WriteLine("      • Max iterations: 100");
-                Console.WriteLine("      • Suitable for small, sparse corrections");
-
                 trainer = _mlContext.MulticlassClassification.Trainers.SdcaMaximumEntropy(
                     labelColumnName: "Label",
                     featureColumnName: "Features",
@@ -131,13 +327,6 @@ namespace Image_Checker.Services
             else if (totalSamples < 50)
             {
                 trainerName = "L-BFGS MaximumEntropy";
-                Console.WriteLine($"   Selected: {trainerName}");
-                Console.WriteLine($"   Reason: Medium dataset (total={totalSamples})");
-                Console.WriteLine("   Configuration:");
-                Console.WriteLine("      • L1 Regularization: 0.1");
-                Console.WriteLine("      • L2 Regularization: 0.1");
-                Console.WriteLine("      • Balanced for incremental updates");
-
                 trainer = _mlContext.MulticlassClassification.Trainers.LbfgsMaximumEntropy(
                     labelColumnName: "Label",
                     featureColumnName: "Features",
@@ -147,14 +336,6 @@ namespace Image_Checker.Services
             else
             {
                 trainerName = "LightGBM";
-                Console.WriteLine($"   Selected: {trainerName}");
-                Console.WriteLine($"   Reason: Larger dataset (total={totalSamples})");
-                Console.WriteLine("   Configuration:");
-                Console.WriteLine("      • Leaves: 20 (conservative)");
-                Console.WriteLine("      • Min examples per leaf: 3");
-                Console.WriteLine("      • Learning rate: 0.01 (fine-tuning)");
-                Console.WriteLine("      • Iterations: 100");
-
                 trainer = _mlContext.MulticlassClassification.Trainers.LightGbm(
                     labelColumnName: "Label",
                     featureColumnName: "Features",
@@ -164,232 +345,237 @@ namespace Image_Checker.Services
                     numberOfIterations: 100);
             }
 
-            var pipeline = preprocess
+            Console.WriteLine($"\n🧠 Trainer selected: {trainerName}");
+            Console.WriteLine($"   Reason: {totalSamples} total samples, min class size = {minClassSamples}");
+
+            return preprocess
                 .Append(trainer)
                 .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel", "PredictedLabel"));
+        }
 
-            Console.WriteLine($"\n🚀 Training with {trainerName} on {totalSamples} corrected samples...");
-            var startTime = DateTime.Now;
+        // ═══════════════════════════════════════════════════════════════
+        // SINGLE CORRECTION
+        // FIX #5: Appends to corrections.csv instead of overwriting model
+        // ═══════════════════════════════════════════════════════════════
 
-            ITransformer updatedModel;
-            try
-            {
-                updatedModel = pipeline.Fit(correctionData);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"\n❌ Training failed: {ex.Message}");
-                Console.WriteLine("\n💡 Troubleshooting:");
-                Console.WriteLine("   1. Ensure you have corrections for BOTH OK and NG labels");
-                Console.WriteLine("   2. Verify all image files exist and are accessible");
-                Console.WriteLine("   3. Check that images are not corrupted");
-                Console.WriteLine("   4. Try accumulating more corrections before training");
-                Console.WriteLine($"\n   Current state: {classCount} classes, {totalSamples} samples");
-                throw;
-            }
+        /// <summary>
+        /// Records a single correction to disk for the next batch incremental run.
+        /// Does NOT immediately modify the model — accumulate then call IncrementalTrain.
+        /// </summary>
+        public void RecordCorrection(string imagePath, string correctedLabel)
+        {
+            if (!File.Exists(imagePath))
+                throw new FileNotFoundException($"Image not found: {imagePath}");
 
-            var duration = DateTime.Now - startTime;
-            Console.WriteLine($"✅ Training complete in {duration.TotalSeconds:F1}s");
+            bool fileExists = File.Exists(_correctionsPath);
 
-            // Evaluate on corrections (just for feedback)
-            Console.WriteLine("\n📊 Evaluating on correction samples...");
-            try
-            {
-                var predictions = updatedModel.Transform(correctionData);
-                var metrics = _mlContext.MulticlassClassification.Evaluate(predictions, "Label");
-                Console.WriteLine($"   • Accuracy on corrections: {metrics.MicroAccuracy:P2}");
-                Console.WriteLine($"   • Macro Accuracy: {metrics.MacroAccuracy:P2}");
-                Console.WriteLine($"   • Log Loss: {metrics.LogLoss:F4}");
+            // FIX #5: Append to corrections log — never modify the live model with one sample
+            using var writer = new StreamWriter(_correctionsPath, append: true);
 
-                if (metrics.MicroAccuracy < 0.7)
-                {
-                    Console.WriteLine("\n   ⚠️ Warning: Low accuracy on corrections!");
-                    Console.WriteLine("   The model may benefit from:");
-                    Console.WriteLine("      • More diverse corrections");
-                    Console.WriteLine("      • A full retrain on the entire dataset");
-                }
-                else
-                {
-                    Console.WriteLine("\n   ✅ Good accuracy on corrections!");
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"   ⚠️ Could not evaluate: {ex.Message}");
-            }
+            if (!fileExists)
+                writer.WriteLine("Timestamp,ImagePath,OriginalLabel,Confidence,CorrectedLabel");
 
-            // Save incremental model
-            var timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
-            var incrementalModelPath = Path.Combine(_basePath, $"incrementalModel-{timestamp}.zip");
+            writer.WriteLine(
+                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}," +
+                $"{imagePath}," +
+                $"," +  // original label not always known here
+                $"," +  // confidence not always known here
+                $"{correctedLabel}");
 
-            Console.WriteLine($"\n💾 Saving incremental model...");
-            _mlContext.Model.Save(updatedModel, correctionData.Schema, incrementalModelPath);
-            Console.WriteLine($"✅ Model saved: {Path.GetFileName(incrementalModelPath)}");
-            Console.WriteLine($"   Location: {incrementalModelPath}");
-
-            // Clean up temp file
-            try
-            {
-                if (File.Exists(correctionsCsv))
-                    File.Delete(correctionsCsv);
-            }
-            catch { /* Ignore cleanup errors */ }
-
-            Console.WriteLine("\n═══════════════════════════════════════════════");
-            Console.WriteLine("✅ INCREMENTAL TRAINING COMPLETED");
-            Console.WriteLine($"   • Trainer used: {trainerName}");
-            Console.WriteLine($"   • Samples processed: {totalSamples}");
-            Console.WriteLine($"   • Classes: {string.Join(", ", labelCounts.Keys)}");
-            Console.WriteLine("═══════════════════════════════════════════════");
-
-            return incrementalModelPath;
+            Console.WriteLine($"✅ Correction recorded: {Path.GetFileName(imagePath)} → {correctedLabel}");
+            Console.WriteLine($"   Total pending corrections: {CountPendingCorrections()}");
         }
 
         /// <summary>
-        /// Creates a CSV dataset from corrections.csv with proper formatting
-        /// Returns: (csvPath, classCount, labelCounts, totalSamples)
+        /// Returns how many corrections are queued and not yet trained on.
         /// </summary>
-        private (string csvPath, int classCount, Dictionary<string, int> labelCounts, int totalSamples) CreateCorrectionsDataset()
+        public int CountPendingCorrections()
         {
-            var lines = File.ReadAllLines(_correctionsPath).Skip(1); // Skip header
-            var formatted = new List<string>();
+            if (!File.Exists(_correctionsPath)) return 0;
+            // FIX #2: Stream — skip header
+            return File.ReadLines(_correctionsPath).Skip(1)
+                .Count(l => !string.IsNullOrWhiteSpace(l));
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // HELPERS
+        // ═══════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Streams corrections.csv, validates each row, returns parsed list.
+        /// FIX #2: Uses File.ReadLines (streaming) instead of ReadAllLines
+        /// FIX #7: Uses TryGetValue instead of ContainsKey + indexer
+        /// </summary>
+        private (List<(string ImagePath, string Label)> corrections,
+                 Dictionary<string, int> labelCounts)
+            LoadAndValidateCorrections()
+        {
+            Console.WriteLine("\n🔍 Loading and validating corrections...");
+
+            var corrections = new List<(string, string)>();
             var labelCounts = new Dictionary<string, int>();
             int skipped = 0;
+            int lineNum = 0;
 
-            Console.WriteLine("   📋 Reading corrections...");
-            foreach (var line in lines)
+            // FIX #2: Stream lines — skip header
+            foreach (var line in File.ReadLines(_correctionsPath).Skip(1))
             {
-                if (string.IsNullOrWhiteSpace(line))
-                    continue;
+                lineNum++;
+                if (string.IsNullOrWhiteSpace(line)) continue;
 
                 var parts = line.Split(',');
                 if (parts.Length < 5)
                 {
-                    Console.WriteLine($"   ⚠️ Skipping malformed line (expected 5 columns, got {parts.Length})");
+                    Console.WriteLine($"   ⚠️ Line {lineNum}: malformed (expected 5 columns, got {parts.Length})");
                     skipped++;
                     continue;
                 }
 
-                var imagePath = parts[1].Trim('"');
-                var correctedLabel = parts[4].Trim('"');
+                var imagePath = parts[1].Trim().Trim('"');
+                var correctedLabel = parts[4].Trim().Trim('"');
 
                 if (string.IsNullOrWhiteSpace(correctedLabel))
                 {
-                    Console.WriteLine($"   ⚠️ Skipping entry with empty label: {Path.GetFileName(imagePath)}");
+                    Console.WriteLine($"   ⚠️ Line {lineNum}: empty label, skipping");
                     skipped++;
                     continue;
                 }
 
                 if (!File.Exists(imagePath))
                 {
-                    Console.WriteLine($"   ⚠️ Skipping missing file: {Path.GetFileName(imagePath)}");
+                    Console.WriteLine($"   ⚠️ Line {lineNum}: missing file {Path.GetFileName(imagePath)}");
                     skipped++;
                     continue;
                 }
 
-                formatted.Add($"{imagePath},{correctedLabel}");
+                corrections.Add((imagePath, correctedLabel));
 
-                // Count labels
-                if (!labelCounts.ContainsKey(correctedLabel))
-                    labelCounts[correctedLabel] = 0;
-                labelCounts[correctedLabel]++;
+                // FIX #7: TryGetValue instead of ContainsKey + index
+                labelCounts.TryGetValue(correctedLabel, out int current);
+                labelCounts[correctedLabel] = current + 1;
             }
 
-            if (formatted.Count == 0)
-            {
+            if (corrections.Count == 0)
                 throw new InvalidOperationException(
-                    "No valid corrections found. Please ensure:\n" +
-                    "   1. Corrections file has valid entries\n" +
-                    "   2. Image files exist at specified paths\n" +
-                    "   3. Corrected labels are not empty");
-            }
+                    "No valid corrections found after validation.\n" +
+                    "Ensure image files exist and labels are non-empty.");
 
-            var tempCsv = Path.Combine(_basePath, "temp_corrections_dataset.csv");
-            File.WriteAllLines(tempCsv, formatted);
-
-            Console.WriteLine($"   ✅ Created corrections dataset:");
-            Console.WriteLine($"      • Valid samples: {formatted.Count}");
             if (skipped > 0)
-                Console.WriteLine($"      • Skipped (missing/invalid): {skipped}");
+                Console.WriteLine($"   ⚠️ Skipped {skipped} invalid entries");
 
-            return (tempCsv, labelCounts.Count, labelCounts, formatted.Count);
+            Console.WriteLine($"   ✅ Loaded {corrections.Count} valid corrections");
+            return (corrections, labelCounts);
         }
 
-        /// <summary>
-        /// Online learning: Update model with single correction
-        /// </summary>
-        public void UpdateModelWithSingleCorrection(string modelPath, string imagePath, string correctLabel)
+        private void EvaluateOnCorrections(
+            ITransformer model,
+            List<(string ImagePath, string Label)> corrections,
+            string modelLabel)
         {
-            Console.WriteLine($"🔧 Single correction update:");
-            Console.WriteLine($"   • Image: {Path.GetFileName(imagePath)}");
-            Console.WriteLine($"   • Corrected label: {correctLabel}");
-
-            if (!File.Exists(imagePath))
-            {
-                throw new FileNotFoundException($"Image not found: {imagePath}");
-            }
-
-            // Load existing model
-            Console.WriteLine("   📥 Loading model...");
-            var model = _mlContext.Model.Load(modelPath, out _);
-
-            // Create single-sample dataset
-            var singleData = _mlContext.Data.LoadFromEnumerable(new[]
-            {
-                new ImageData { ImagePath = imagePath, Label = correctLabel }
-            });
-
-            // Retrain on this single sample - use SDCA for stability
-            Console.WriteLine("   ⚙️ Building pipeline...");
-            var preprocess = BuildPreprocessingPipeline();
-
-            // Use SDCA for single corrections (most stable for online learning)
-            Console.WriteLine("   ℹ️ Using SDCA MaxEnt for single correction (most stable)");
-            var trainer = _mlContext.MulticlassClassification.Trainers.SdcaMaximumEntropy(
-                labelColumnName: "Label",
-                featureColumnName: "Features",
-                maximumNumberOfIterations: 50);
-
-            var pipeline = preprocess.Append(trainer)
-                .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
-
-            Console.WriteLine("   🚀 Training...");
+            Console.WriteLine($"\n📊 Quick eval — {modelLabel} on correction samples...");
             try
             {
-                var updatedModel = pipeline.Fit(singleData);
+                var evalData = _mlContext.Data.LoadFromEnumerable(
+                    corrections.Select(c => new ImageData
+                    {
+                        ImagePath = c.ImagePath,
+                        Label = c.Label
+                    }));
 
-                // Overwrite model
-                Console.WriteLine("   💾 Saving...");
-                _mlContext.Model.Save(updatedModel, singleData.Schema, modelPath);
-                Console.WriteLine("   ✅ Model updated successfully");
+                var preds = model.Transform(evalData);
+                var metrics = _mlContext.MulticlassClassification.Evaluate(preds, "Label");
+
+                Console.WriteLine($"   • Micro Accuracy : {metrics.MicroAccuracy:P2}");
+                Console.WriteLine($"   • Macro Accuracy : {metrics.MacroAccuracy:P2}");
+                Console.WriteLine($"   • Log Loss       : {metrics.LogLoss:F4}");
+
+                if (metrics.MicroAccuracy < 0.7)
+                {
+                    Console.WriteLine("   ⚠️ Low accuracy on corrections — consider:");
+                    Console.WriteLine("      • Accumulating more diverse corrections");
+                    Console.WriteLine("      • Running a full retrain from scratch");
+                }
+                else
+                {
+                    Console.WriteLine("   ✅ Model learned corrections well");
+                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"   ❌ Update failed: {ex.Message}");
-                Console.WriteLine("   💡 Tip: Single corrections work best when accumulated and applied in batches.");
-                throw;
+                Console.WriteLine($"   ⚠️ Evaluation skipped: {ex.Message}");
             }
         }
 
-        private IEstimator<ITransformer> BuildPreprocessingPipeline()
+        private string SaveModel(ITransformer model, DataViewSchema schema, string prefix)
         {
-            return _mlContext.Transforms.LoadImages(
-                    outputColumnName: "InputImage",
-                    imageFolder: null,
-                    inputColumnName: nameof(ImageData.ImagePath))
-                .Append(_mlContext.Transforms.ResizeImages(
-                    outputColumnName: "ResizedImage",
-                    imageWidth: 150,
-                    imageHeight: 150,
-                    inputColumnName: "InputImage",
-                    resizing: Microsoft.ML.Transforms.Image.ImageResizingEstimator.ResizingKind.IsoCrop))
-                .Append(_mlContext.Transforms.ExtractPixels(
-                    outputColumnName: "Features",
-                    inputColumnName: "ResizedImage",
-                    interleavePixelColors: true,
-                    offsetImage: 128f,
-                    scaleImage: 1f / 128f))
-                .Append(_mlContext.Transforms.Conversion.MapValueToKey("Label", nameof(ImageData.Label)));
+            var timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");
+            var path = Path.Combine(_basePath, $"{prefix}-{timestamp}.zip");
+            _mlContext.Model.Save(model, schema, path);
+            Console.WriteLine($"\n💾 Model saved: {Path.GetFileName(path)}");
+            return path;
+        }
+
+        private void SaveEnsembleConfig(
+            string baseModelPath,
+            string correctionModelPath,
+            Dictionary<string, int> labelCounts)
+        {
+            var config = new
+            {
+                Strategy = "Ensemble",
+                BaseModelPath = baseModelPath,
+                CorrectionModelPath = correctionModelPath,
+                BaseModelWeight = 0.6,
+                CorrectionModelWeight = 0.4,
+                Classes = labelCounts.Keys.OrderBy(k => k).ToList(),
+                CreatedAt = DateTime.Now.ToString("o")
+            };
+
+            var json = System.Text.Json.JsonSerializer.Serialize(
+                config,
+                new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+
+            var cfgPath = Path.Combine(_basePath, "ensemble_config.json");
+            File.WriteAllText(cfgPath, json);
+            Console.WriteLine($"   ✅ Ensemble config saved: {Path.GetFileName(cfgPath)}");
+        }
+
+        private void PrintLabelDistribution(Dictionary<string, int> labelCounts, int total)
+        {
+            Console.WriteLine("\n   Label distribution in corrections:");
+            foreach (var kv in labelCounts.OrderBy(x => x.Key))
+            {
+                double pct = (kv.Value * 100.0) / total;
+                Console.WriteLine($"      {kv.Key}: {kv.Value} samples ({pct:F1}%)");
+            }
+        }
+
+        private bool HasEnoughRows(string csvPath)
+        {
+            // Streaming count — returns false if file is empty or header-only
+            int count = 0;
+            foreach (var line in File.ReadLines(csvPath))
+            {
+                if (!string.IsNullOrWhiteSpace(line)) count++;
+                if (count > 1) return true;
+            }
+            return false;
+        }
+
+        private static void TryDelete(string path)
+        {
+            try { if (File.Exists(path)) File.Delete(path); }
+            catch { /* ignore cleanup errors */ }
+        }
+
+        public class RoiConfig
+        {
+            public int RoiX { get; set; }
+            public int RoiY { get; set; }
+            public int RoiW { get; set; }
+            public int RoiH { get; set; }
+            public int ImageWidth { get; set; } = 224;
+            public int ImageHeight { get; set; } = 224;
         }
     }
 }

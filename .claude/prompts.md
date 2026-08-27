@@ -1,16 +1,100 @@
-# Reusable Prompts
+# \# Reusable Prompts
 
-## Create Feature
-Create a complete feature with UI, logic, and validation.
+# 
 
-## Fix Bug
-Analyze the issue, identify root cause, and provide a clean fix.
+# \## Create Model
 
-## Improve UI
-Redesign UI using modern layout and proper spacing.
+# 
 
-## Optimize Code
-Refactor code for better performance and readability.
+# Create a production-ready machine learning model for image inspection.
 
-## Add Validation
-Add proper validation and error handling.
+# 
+
+# Requirements:
+
+# 
+
+# \* Clean architecture
+
+# \* Dataset validation
+
+# \* Training pipeline
+
+# \* Evaluation metrics
+
+# \* Error handling
+
+# \* Logging
+
+# 
+
+# \## Analyze Dataset
+
+# 
+
+# Analyze dataset quality.
+
+# 
+
+# Provide:
+
+# 
+
+# \* Class distribution
+
+# \* Data imbalance issues
+
+# \* Missing labels
+
+# \* Augmentation recommendations
+
+# \* Training readiness assessment
+
+# 
+
+# \## Improve Accuracy
+
+# 
+
+# Analyze current model performance.
+
+# 
+
+# Provide:
+
+# 
+
+# \* Root causes
+
+# \* Improvement opportunities
+
+# \* Hyperparameter recommendations
+
+# \* Architecture recommendations
+
+# 
+
+# \## Deploy API
+
+# 
+
+# Create a scalable inference API.
+
+# 
+
+# Requirements:
+
+# 
+
+# \* Input validation
+
+# \* Error handling
+
+# \* Structured responses
+
+# \* Logging
+
+# \* Security controls
+
+# 
+

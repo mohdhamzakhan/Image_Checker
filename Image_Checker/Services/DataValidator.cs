@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 
 namespace Image_Checker.Services
 {
@@ -10,10 +11,8 @@ namespace Image_Checker.Services
         /// <summary>
         /// Creates a CSV file from a dataset with any number of class folders
         /// </summary>
-        /// <param name="basePath">Root directory containing class subfolders</param>
         public static void CreateCsv(string basePath)
         {
-            // Get all subdirectories as class labels
             var classDirectories = Directory.GetDirectories(basePath)
                 .Select(d => new DirectoryInfo(d))
                 .ToList();
@@ -28,14 +27,17 @@ namespace Image_Checker.Services
 
             Console.WriteLine($"📁 Scanning {classDirectories.Count} class folders...");
 
-            var allImagePaths = new List<string>();
+            var csvPath = Path.Combine(basePath, "images.csv");
             var imageExtensions = new[] { ".jpg", ".jpeg", ".png", ".bmp", ".gif" };
+            int totalImages = 0;
+
+            // FIX #3: Stream directly to file instead of building a List<string> in RAM
+            using var writer = new StreamWriter(csvPath, append: false);
 
             foreach (var classDir in classDirectories)
             {
                 var className = classDir.Name;
 
-                // Get all image files in this class directory
                 var imageFiles = Directory.GetFiles(classDir.FullName, "*.*", SearchOption.TopDirectoryOnly)
                     .Where(f => imageExtensions.Contains(Path.GetExtension(f).ToLower()))
                     .ToList();
@@ -48,36 +50,27 @@ namespace Image_Checker.Services
 
                 Console.WriteLine($"   ✓ {className}: {imageFiles.Count} images");
 
-                // Add each image with its label to the list
-                // Format: "ImagePath","Label"
                 foreach (var imagePath in imageFiles)
                 {
-                    // Escape the path and label properly for CSV
-                    var escapedPath = EscapeCsvValue(imagePath);
-                    var escapedLabel = EscapeCsvValue(className);
-                    allImagePaths.Add($"{escapedPath},{escapedLabel}");
+                    writer.WriteLine($"{EscapeCsvValue(imagePath)},{EscapeCsvValue(className)}");
+                    totalImages++;
                 }
             }
 
-            if (allImagePaths.Count == 0)
+            if (totalImages == 0)
             {
                 throw new InvalidOperationException(
                     "No images found in any class folders.\n" +
                     "Supported formats: .jpg, .jpeg, .png, .bmp, .gif");
             }
 
-            // Write CSV file
-            var csvPath = Path.Combine(basePath, "images.csv");
-            File.WriteAllLines(csvPath, allImagePaths);
-
             Console.WriteLine($"✅ CSV created at {csvPath}");
-            Console.WriteLine($"   Total images: {allImagePaths.Count}");
+            Console.WriteLine($"   Total images: {totalImages}");
         }
 
         /// <summary>
         /// Prints the distribution of labels in the dataset
         /// </summary>
-        /// <param name="csvPath">Path to the CSV file</param>
         public static void PrintLabelDistribution(string csvPath)
         {
             if (!File.Exists(csvPath))
@@ -86,16 +79,8 @@ namespace Image_Checker.Services
                 return;
             }
 
-            var lines = File.ReadAllLines(csvPath);
-
-            if (lines.Length == 0)
-            {
-                Console.WriteLine("❌ CSV file is empty");
-                return;
-            }
-
-            // Parse labels from CSV (format: "path","label")
-            var labelCounts = lines
+            // FIX #3: Stream lines instead of ReadAllLines
+            var labelCounts = File.ReadLines(csvPath)
                 .Select(line => ParseCsvLine(line))
                 .Where(parts => parts.Length >= 2)
                 .Select(parts => parts[1].Trim('"').Trim())
@@ -121,9 +106,8 @@ namespace Image_Checker.Services
             foreach (var labelInfo in labelCounts)
             {
                 var percentage = (labelInfo.Count * 100.0) / totalImages;
-                var barLength = (int)(percentage / 2); // Scale to max 50 chars
+                var barLength = (int)(percentage / 2);
                 var bar = new string('█', Math.Max(1, barLength));
-
                 Console.WriteLine($"  {labelInfo.Label.PadRight(maxLabelLength)}: {labelInfo.Count,5} images ({percentage,5:F1}%) {bar}");
             }
 
@@ -131,7 +115,6 @@ namespace Image_Checker.Services
             Console.WriteLine($"  {"TOTAL".PadRight(maxLabelLength)}: {totalImages,5} images");
             Console.WriteLine();
 
-            // Show balance warning if needed
             if (labelCounts.Count >= 2)
             {
                 var maxCount = labelCounts.Max(l => l.Count);
@@ -151,16 +134,13 @@ namespace Image_Checker.Services
         /// <summary>
         /// Gets the list of unique class labels from a CSV file
         /// </summary>
-        /// <param name="csvPath">Path to the CSV file</param>
-        /// <returns>List of unique class labels</returns>
         public static List<string> GetClassLabels(string csvPath)
         {
             if (!File.Exists(csvPath))
                 return new List<string>();
 
-            var lines = File.ReadAllLines(csvPath);
-
-            return lines
+            // FIX #3: Stream lines instead of ReadAllLines
+            return File.ReadLines(csvPath)
                 .Select(line => ParseCsvLine(line))
                 .Where(parts => parts.Length >= 2)
                 .Select(parts => parts[1].Trim('"').Trim())
@@ -173,8 +153,6 @@ namespace Image_Checker.Services
         /// <summary>
         /// Validates that a dataset directory has the correct structure
         /// </summary>
-        /// <param name="basePath">Root directory to validate</param>
-        /// <returns>Validation result with details</returns>
         public static DatasetValidationResult ValidateDataset(string basePath)
         {
             var result = new DatasetValidationResult { IsValid = true };
@@ -206,16 +184,10 @@ namespace Image_Checker.Services
                 result.ClassCounts[className] = imageCount;
 
                 if (imageCount == 0)
-                {
                     result.Warnings.Add($"Class '{className}' has no images");
-                }
                 else if (imageCount < 10)
-                {
                     result.Warnings.Add($"Class '{className}' has only {imageCount} images (recommend at least 10)");
-                }
             }
-
-            //result.TotalImages = result.ClassCounts.Values.Sum();
 
             if (result.TotalImages == 0)
             {
@@ -226,36 +198,32 @@ namespace Image_Checker.Services
             return result;
         }
 
-        /// <summary>
-        /// Escapes a value for safe CSV storage
-        /// </summary>
         private static string EscapeCsvValue(string value)
         {
             if (string.IsNullOrEmpty(value))
                 return "\"\"";
 
-            // If value contains comma, quote, or newline, wrap in quotes and escape internal quotes
             if (value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
             {
                 value = value.Replace("\"", "\"\"");
                 return $"\"{value}\"";
             }
 
-            // Otherwise, just wrap in quotes for consistency
             return $"\"{value}\"";
         }
 
         /// <summary>
-        /// Parses a CSV line into its component parts
+        /// Parses a CSV line into its component parts.
+        /// FIX #6: Uses StringBuilder instead of string += to avoid O(n²) allocations in long paths.
         /// </summary>
         private static string[] ParseCsvLine(string line)
         {
             if (string.IsNullOrWhiteSpace(line))
                 return Array.Empty<string>();
 
-            // Simple CSV parser - handles quoted values
             var parts = new List<string>();
-            var currentPart = "";
+            // FIX #6: StringBuilder replaces currentPart += c
+            var currentPart = new StringBuilder();
             var inQuotes = false;
 
             for (int i = 0; i < line.Length; i++)
@@ -266,8 +234,7 @@ namespace Image_Checker.Services
                 {
                     if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
                     {
-                        // Escaped quote
-                        currentPart += '"';
+                        currentPart.Append('"');
                         i++;
                     }
                     else
@@ -277,23 +244,20 @@ namespace Image_Checker.Services
                 }
                 else if (c == ',' && !inQuotes)
                 {
-                    parts.Add(currentPart);
-                    currentPart = "";
+                    parts.Add(currentPart.ToString());
+                    currentPart.Clear();
                 }
                 else
                 {
-                    currentPart += c;
+                    currentPart.Append(c);
                 }
             }
 
-            parts.Add(currentPart);
+            parts.Add(currentPart.ToString());
             return parts.ToArray();
         }
     }
 
-    /// <summary>
-    /// Result of dataset validation
-    /// </summary>
     public class DatasetValidationResult
     {
         public bool IsValid { get; set; }

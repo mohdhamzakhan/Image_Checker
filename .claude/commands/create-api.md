@@ -1,9 +1,26 @@
-Create a clean API endpoint.
+Create a production-ready inference API.
+
+
 
 Requirements:
-- Input validation
-- Error handling
-- Proper response format
-- Scalable structure
+
+
+
+\* Input validation
+
+\* Error handling
+
+\* Logging
+
+\* Health check endpoint
+
+\* Structured responses
+
+\* Scalable architecture
+
+
 
 Use best practices.
+
+
+

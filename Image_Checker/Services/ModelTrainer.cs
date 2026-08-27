@@ -2,7 +2,9 @@
 using Image_Checker.Utils;
 using Microsoft.ML;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using static SkiaSharp.SKImageFilter;
 
@@ -28,7 +30,7 @@ namespace Image_Checker.Services
         {
             return Directory.GetDirectories(_basePath)
                 .Select(d => new DirectoryInfo(d).Name)
-                .Where(name => !name.StartsWith(".")) // Ignore hidden folders
+                .Where(name => !name.StartsWith("."))
                 .OrderBy(name => name)
                 .ToList();
         }
@@ -48,7 +50,6 @@ namespace Image_Checker.Services
                 return true;
             }
 
-            // Sample images from all class folders
             var sampleImages = classFolders
                 .SelectMany(folder =>
                 {
@@ -58,7 +59,7 @@ namespace Image_Checker.Services
                                    f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
                                    f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase));
                 })
-                .Take(5) // Sample first 5 images
+                .Take(5)
                 .ToList();
 
             if (!sampleImages.Any())
@@ -93,35 +94,38 @@ namespace Image_Checker.Services
         private void FixDoubleDrivePaths(string csvPath)
         {
             Console.WriteLine("🔧 Checking for path issues...");
-            var lines = File.ReadAllLines(csvPath);
-            var fixedLines = new List<string>();
+
+            var tempPath = csvPath + ".tmp";
             int fixedCount = 0;
 
-            foreach (var line in lines)
+            using (var reader = new StreamReader(csvPath))
+            using (var writer = new StreamWriter(tempPath))
             {
-                if (string.IsNullOrWhiteSpace(line)) continue;
-
-                // CHANGE: Split by comma and handle quotes properly
-                var parts = line.Split(',', 2);
-                if (parts.Length < 2) continue;
-
-                // CHANGE: Remove ALL quotes from path and label
-                var path = parts[0].Trim().Trim('"').Trim();
-                var label = parts[1].Trim().Trim('"').Trim();
-
-                // Fix double drive paths (e.g., D:\D:\folder)
-                var idx = path.IndexOf(@":\", 3, StringComparison.OrdinalIgnoreCase);
-                if (idx > 2)
+                string line;
+                while ((line = reader.ReadLine()) != null)
                 {
-                    path = path.Substring(idx - 1);
-                    fixedCount++;
-                }
+                    if (string.IsNullOrWhiteSpace(line)) continue;
 
-                // CHANGE: Write WITHOUT quotes
-                fixedLines.Add($"{path},{label}");
+                    var parts = line.Split(',', 2);
+                    if (parts.Length < 2) continue;
+
+                    var path = parts[0].Trim().Trim('"').Trim();
+                    var label = parts[1].Trim().Trim('"').Trim();
+
+                    var idx = path.IndexOf(@":\", 3, StringComparison.OrdinalIgnoreCase);
+                    if (idx > 2)
+                    {
+                        path = path.Substring(idx - 1);
+                        fixedCount++;
+                    }
+
+                    writer.WriteLine($"{path},{label}");
+                }
             }
 
-            File.WriteAllLines(csvPath, fixedLines);
+            File.Delete(csvPath);
+            File.Move(tempPath, csvPath);
+
             if (fixedCount > 0)
                 Console.WriteLine($"   ✅ Fixed {fixedCount} double-drive paths");
             else
@@ -132,7 +136,6 @@ namespace Image_Checker.Services
         {
             Console.WriteLine("\n🔍 Validating image files...");
             int missing = 0, unreadable = 0, total = 0;
-            var missingFiles = new List<string>();
 
             foreach (var line in File.ReadLines(csvPath))
             {
@@ -146,8 +149,7 @@ namespace Image_Checker.Services
                 if (!File.Exists(img))
                 {
                     missing++;
-                    missingFiles.Add(Path.GetFileName(img));
-                    if (missing <= 5) // Only show first 5 missing files
+                    if (missing <= 5)
                         Console.WriteLine($"   ❌ Missing: {Path.GetFileName(img)}");
                     continue;
                 }
@@ -176,16 +178,73 @@ namespace Image_Checker.Services
             if (missing > 0)
             {
                 Console.WriteLine($"   • Missing: {missing} files");
-                if (missing > 5)
-                    Console.WriteLine($"     (and {missing - 5} more...)");
+                if (missing > 5) Console.WriteLine($"     (and {missing - 5} more...)");
             }
             if (unreadable > 0)
             {
                 Console.WriteLine($"   • Unreadable: {unreadable} files");
-                if (unreadable > 5)
-                    Console.WriteLine($"     (and {unreadable - 5} more...)");
+                if (unreadable > 5) Console.WriteLine($"     (and {unreadable - 5} more...)");
             }
             Console.WriteLine();
+        }
+
+        /// <summary>
+        /// Reads a tuner CSV log and returns a list of TrialRecords for the report.
+        /// </summary>
+        private static List<TrialRecord> ReadTrialsFromCsv(string csvPath, string tunerType)
+        {
+            var list = new List<TrialRecord>();
+            if (!File.Exists(csvPath)) return list;
+
+            bool first = true;
+            foreach (var line in File.ReadLines(csvPath))
+            {
+                if (first) { first = false; continue; } // skip header
+                if (string.IsNullOrWhiteSpace(line)) continue;
+
+                // Strip any trailing comment (e.g. "# error message")
+                var cleanLine = line.Contains('#') ? line[..line.IndexOf('#')].TrimEnd() : line;
+                var parts = cleanLine.Split(',');
+                if (parts.Length < 6) continue;
+
+                int trialNum = int.TryParse(parts[0], out var t) ? t : 0;
+                string scoreRaw = parts[^2].Trim(); // second-to-last column = Score
+                bool failed = scoreRaw.StartsWith("NaN", StringComparison.OrdinalIgnoreCase)
+                              || scoreRaw.StartsWith("ALL_", StringComparison.OrdinalIgnoreCase);
+                bool cancelled = scoreRaw.StartsWith("CANCEL", StringComparison.OrdinalIgnoreCase);
+                double score = (failed || cancelled)
+                    ? double.NaN
+                    : double.TryParse(scoreRaw,
+                          System.Globalization.NumberStyles.Any,
+                          System.Globalization.CultureInfo.InvariantCulture, out var s) ? s : double.NaN;
+
+                var paramDict = new Dictionary<string, object>();
+                if (tunerType == "fasttree" && parts.Length >= 5)
+                {
+                    paramDict["Trees"] = parts[1].Trim();
+                    paramDict["Leaves"] = parts[2].Trim();
+                    paramDict["LR"] = parts[3].Trim();
+                    paramDict["MinDocs"] = parts[4].Trim();
+                }
+                else if (tunerType == "lightgbm" && parts.Length >= 5)
+                {
+                    paramDict["Leaves"] = parts[1].Trim();
+                    paramDict["MinData"] = parts[2].Trim();
+                    paramDict["LR"] = parts[3].Trim();
+                    paramDict["Iter"] = parts[4].Trim();
+                }
+
+                list.Add(new TrialRecord
+                {
+                    TrialNumber = trialNum,
+                    Params = paramDict,
+                    Score = score,
+                    Failed = failed,
+                    Cancelled = cancelled,
+                });
+            }
+
+            return list;
         }
 
         public void TrainAndEvaluate(
@@ -196,12 +255,15 @@ namespace Image_Checker.Services
             bool useFastTree = true,
             bool useLightGBM = true,
             bool useTransferLearning = false,
-            int imageWidth = 224, 
+            int imageWidth = 224,
             int imageHeight = 224,
             CancellationToken cancellationToken = default)
         {
+            var sessionStart = DateTime.Now;
+
             cancellationToken.ThrowIfCancellationRequested();
 
+            // ── Locate CSV ────────────────────────────────────────────────────
             var csvPath = Path.Combine(_basePath, "images.csv");
             if (!File.Exists(csvPath))
             {
@@ -209,7 +271,6 @@ namespace Image_Checker.Services
                 return;
             }
 
-            // Get class labels from CSV
             var classLabels = DataValidator.GetClassLabels(csvPath);
             Console.WriteLine($"\n🏷️ Detected {classLabels.Count} classes: {string.Join(", ", classLabels)}");
 
@@ -235,6 +296,7 @@ namespace Image_Checker.Services
 
             cancellationToken.ThrowIfCancellationRequested();
 
+            // ── Load & split data ─────────────────────────────────────────────
             Console.WriteLine("\n📊 Loading dataset...");
             var data = _mlContext.Data.LoadFromTextFile<ImageData>(csvPath, separatorChar: ',', hasHeader: false);
             Console.WriteLine("✅ Dataset loaded");
@@ -247,7 +309,7 @@ namespace Image_Checker.Services
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            // === Preprocessing ===
+            // ── Build preprocessing pipeline ──────────────────────────────────
             Console.WriteLine("\n🔧 Building preprocessing pipeline...");
             var preprocess = _mlContext.Transforms.LoadImages(
                     outputColumnName: "InputImage",
@@ -260,20 +322,21 @@ namespace Image_Checker.Services
                     inputColumnName: "InputImage",
                     resizing: Microsoft.ML.Transforms.Image.ImageResizingEstimator.ResizingKind.IsoCrop))
                 .Append(_mlContext.Transforms.ExtractPixels(
-                    outputColumnName: "RawFeatures",       // ← renamed from "Features"
+                    outputColumnName: "RawFeatures",
                     inputColumnName: "ResizedImage",
-                    interleavePixelColors: !isGray,  // ← Use detected format
+                    interleavePixelColors: !isGray,
                     offsetImage: isGray ? 0f : 128f,
                     scaleImage: isGray ? 1f / 255f : 1f / 128f))
                 .Append(_mlContext.Transforms.ProjectToPrincipalComponents(
-                    outputColumnName: "Features",          // ← tree models + linear models read this
+                    outputColumnName: "Features",
                     inputColumnName: "RawFeatures",
                     rank: 100))
                 .Append(_mlContext.Transforms.Conversion.MapValueToKey("Label", nameof(ImageData.Label)));
 
             Console.WriteLine("   • Image loading");
             Console.WriteLine($"   • Resize to {imageWidth}x{imageHeight}");
-            Console.WriteLine("   • Feature extraction (RGB, normalized)");
+            Console.WriteLine("   • Feature extraction");
+            Console.WriteLine($"   • PCA rank 100");
             Console.WriteLine($"   • Label encoding ({classLabels.Count} classes)");
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -284,18 +347,16 @@ namespace Image_Checker.Services
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            // Prepare cached training data for tuning
-            Console.WriteLine("\n💾 Preparing data for hyperparameter tuning...");
+            Console.WriteLine("\n💾 Caching training data...");
             var preprocessedTrain = preprocessModel.Transform(split.TrainSet);
             var cachedTrain = _mlContext.Data.Cache(preprocessedTrain);
             Console.WriteLine("✅ Training data cached in memory");
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            // === Model Training ===
+            // ── Register trainers ─────────────────────────────────────────────
             var trainers = new List<(string Name, IEstimator<ITransformer> Est, bool Full)>();
 
-            // Add selected baseline models
             if (useSDCA)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -312,23 +373,34 @@ namespace Image_Checker.Services
 
             Console.WriteLine($"\n🎯 Registered {trainers.Count} baseline model(s)");
 
-            // === FastTree Tuning ===
+            // ── FastTree tuning ───────────────────────────────────────────────
+            TunerRunResult ftRun = null;
+
             if (useFastTree)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 Console.WriteLine("\n🌳 Starting FastTree hyperparameter tuning...");
+
+                var ftLogPath = Path.Combine(_basePath, "fasttree_tuning_log.csv");
+
                 try
                 {
                     var ftResult = FastTreeTuner.Tune(
-                        _mlContext,
-                        cachedTrain,
-                        "Label",
-                        nTrials: trials,
-                        cvFolds: cvFolds,
-                        seed: 42,
-                        logPath: Path.Combine(_basePath, "fasttree_tuning_log.csv"),
-                        sampleFraction: 0.5,
+                        _mlContext, cachedTrain, "Label",
+                        nTrials: trials, cvFolds: cvFolds, seed: 42,
+                        logPath: ftLogPath, sampleFraction: 0.5,
                         cancellationToken: cancellationToken);
+
+                    var ftTrials = ReadTrialsFromCsv(ftLogPath, "fasttree");
+                    ftRun = new TunerRunResult
+                    {
+                        TunerName = "FastTree",
+                        Trials = ftTrials,
+                        BestParams = ftResult.Params,
+                        BestScore = ftResult.Score,
+                        CVFolds = cvFolds,
+                        SampleFraction = 0.5,
+                    };
 
                     if (ftResult.BestEstimator != null && !double.IsNegativeInfinity(ftResult.Score))
                     {
@@ -337,10 +409,13 @@ namespace Image_Checker.Services
                     }
                     else
                     {
-                        Console.WriteLine("⚠️ FastTree tuning returned invalid score");
-                        trainers.Add(("FastTree_Default", _mlContext.MulticlassClassification.Trainers.OneVersusAll(
-                            _mlContext.BinaryClassification.Trainers.FastTree("Label", "Features",
-                                numberOfLeaves: 50, numberOfTrees: 100, learningRate: 0.1)), false));
+                        Console.WriteLine("⚠️ FastTree tuning returned invalid score — using defaults");
+                        trainers.Add(("FastTree_Default",
+                            _mlContext.MulticlassClassification.Trainers.OneVersusAll(
+                                _mlContext.BinaryClassification.Trainers.FastTree(
+                                    "Label", "Features",
+                                    numberOfLeaves: 50, numberOfTrees: 100, learningRate: 0.1)),
+                            false));
                     }
                 }
                 catch (OperationCanceledException)
@@ -351,29 +426,54 @@ namespace Image_Checker.Services
                 catch (Exception ex)
                 {
                     Console.WriteLine($"⚠️ FastTree tuning failed: {ex.GetBaseException().Message}");
-                    trainers.Add(("FastTree_Default", _mlContext.MulticlassClassification.Trainers.OneVersusAll(
-                        _mlContext.BinaryClassification.Trainers.FastTree("Label", "Features",
-                            numberOfLeaves: 50, numberOfTrees: 100, learningRate: 0.1)), false));
+                    trainers.Add(("FastTree_Default",
+                        _mlContext.MulticlassClassification.Trainers.OneVersusAll(
+                            _mlContext.BinaryClassification.Trainers.FastTree(
+                                "Label", "Features",
+                                numberOfLeaves: 50, numberOfTrees: 100, learningRate: 0.1)),
+                        false));
+
+                    // Still attempt to build a run record from whatever was logged
+                    ftRun = new TunerRunResult
+                    {
+                        TunerName = "FastTree",
+                        Trials = ReadTrialsFromCsv(ftLogPath, "fasttree"),
+                        BestParams = new Dictionary<string, object>(),
+                        BestScore = double.NegativeInfinity,
+                        CVFolds = cvFolds,
+                        SampleFraction = 0.5,
+                    };
                 }
             }
 
-            // === LightGBM Tuning ===
+            // ── LightGBM tuning ───────────────────────────────────────────────
+            TunerRunResult lgbRun = null;
+
             if (useLightGBM)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 Console.WriteLine("\n🔬 Starting LightGBM hyperparameter tuning...");
+
+                var lgbLogPath = Path.Combine(_basePath, "lgb_tuning_log.csv");
+
                 try
                 {
                     var lgbResult = LightGbmTuner.Tune(
-                        _mlContext,
-                        cachedTrain,
-                        "Label",
-                        nTrials: trials,
-                        cvFolds: cvFolds,
-                        seed: 42,
-                        logPath: Path.Combine(_basePath, "lgb_tuning_log.csv"),
-                        sampleFraction: 0.5,
+                        _mlContext, cachedTrain, "Label",
+                        nTrials: trials, cvFolds: cvFolds, seed: 42,
+                        logPath: lgbLogPath, sampleFraction: 0.5,
                         cancellationToken: cancellationToken);
+
+                    var lgbTrials = ReadTrialsFromCsv(lgbLogPath, "lightgbm");
+                    lgbRun = new TunerRunResult
+                    {
+                        TunerName = "LightGBM",
+                        Trials = lgbTrials,
+                        BestParams = lgbResult.Params,
+                        BestScore = lgbResult.Score,
+                        CVFolds = cvFolds,
+                        SampleFraction = 0.5,
+                    };
 
                     if (lgbResult.BestEstimator != null && !double.IsNegativeInfinity(lgbResult.Score))
                     {
@@ -382,10 +482,12 @@ namespace Image_Checker.Services
                     }
                     else
                     {
-                        Console.WriteLine("⚠️ LightGBM tuning returned invalid score");
-                        trainers.Add(("LightGBM_Default", _mlContext.MulticlassClassification.Trainers.LightGbm(
-                            labelColumnName: "Label", featureColumnName: "Features",
-                            numberOfLeaves: 31, learningRate: 0.02f, numberOfIterations: 300), false));
+                        Console.WriteLine("⚠️ LightGBM tuning returned invalid score — using defaults");
+                        trainers.Add(("LightGBM_Default",
+                            _mlContext.MulticlassClassification.Trainers.LightGbm(
+                                labelColumnName: "Label", featureColumnName: "Features",
+                                numberOfLeaves: 31, learningRate: 0.02f, numberOfIterations: 300),
+                            false));
                     }
                 }
                 catch (OperationCanceledException)
@@ -396,13 +498,25 @@ namespace Image_Checker.Services
                 catch (Exception ex)
                 {
                     Console.WriteLine($"⚠️ LightGBM tuning failed: {ex.GetBaseException().Message}");
-                    trainers.Add(("LightGBM_Default", _mlContext.MulticlassClassification.Trainers.LightGbm(
-                        labelColumnName: "Label", featureColumnName: "Features",
-                        numberOfLeaves: 31, learningRate: 0.02f, numberOfIterations: 300), false));
+                    trainers.Add(("LightGBM_Default",
+                        _mlContext.MulticlassClassification.Trainers.LightGbm(
+                            labelColumnName: "Label", featureColumnName: "Features",
+                            numberOfLeaves: 31, learningRate: 0.02f, numberOfIterations: 300),
+                        false));
+
+                    lgbRun = new TunerRunResult
+                    {
+                        TunerName = "LightGBM",
+                        Trials = ReadTrialsFromCsv(lgbLogPath, "lightgbm"),
+                        BestParams = new Dictionary<string, object>(),
+                        BestScore = double.NegativeInfinity,
+                        CVFolds = cvFolds,
+                        SampleFraction = 0.5,
+                    };
                 }
             }
 
-            // === Transfer Learning (RGB only - NO TUNING) ===
+            // ── Transfer learning ─────────────────────────────────────────────
             if (useTransferLearning && !isGray)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -420,11 +534,10 @@ namespace Image_Checker.Services
                     };
 
                     var transferPipeline = _mlContext.Transforms.LoadImages("InputImage", _basePath, nameof(ImageData.ImagePath))
-     .Append(_mlContext.Transforms.ResizeImages("InputImage", imageWidth, imageHeight))
-     .Append(_mlContext.Transforms.Conversion.MapValueToKey("Label"))
-     .Append(_mlContext.MulticlassClassification.Trainers.ImageClassification(options))
-     .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
-
+                        .Append(_mlContext.Transforms.ResizeImages("InputImage", imageWidth, imageHeight))
+                        .Append(_mlContext.Transforms.Conversion.MapValueToKey("Label"))
+                        .Append(_mlContext.MulticlassClassification.Trainers.ImageClassification(options))
+                        .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel"));
 
                     trainers.Add(("ImageClassification_Transfer", transferPipeline, true));
                     Console.WriteLine("✅ Transfer learning model added");
@@ -441,11 +554,13 @@ namespace Image_Checker.Services
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            // === Train & Evaluate All Models ===
+            // ── Train & evaluate each model ───────────────────────────────────
             Console.WriteLine($"\n🚀 Evaluating {trainers.Count} models on test set...");
             Console.WriteLine("═══════════════════════════════════════════════");
 
-            var results = new List<(string Name, double Macro, double Micro, double LogLoss, ITransformer Model, bool Full)>();
+            // Tuple now includes TrainTimeSec for the report
+            var results = new List<(string Name, double Macro, double Micro, double LogLoss,
+                                    ITransformer Model, bool Full, double TrainSec)>();
             int modelNum = 1;
 
             foreach (var (name, est, full) in trainers)
@@ -458,28 +573,27 @@ namespace Image_Checker.Services
                 try
                 {
                     ITransformer model;
+                    double trainSec;
 
                     if (full)
                     {
-                        // Full pipeline (already includes preprocessing)
                         Console.WriteLine("   ⏳ Training full pipeline...");
-                        var startTime = DateTime.Now;
+                        var t0 = DateTime.Now;
                         model = est.Fit(split.TrainSet);
-                        var duration = DateTime.Now - startTime;
-                        Console.WriteLine($"   ✅ Training complete in {duration.TotalSeconds:F1}s");
+                        trainSec = (DateTime.Now - t0).TotalSeconds;
+                        Console.WriteLine($"   ✅ Training complete in {trainSec:F1}s");
                     }
                     else
                     {
-                        // Need to add preprocessing
                         var pipeline = preprocess
                             .Append(est)
                             .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel", "PredictedLabel"));
 
                         Console.WriteLine("   ⏳ Training model...");
-                        var startTime = DateTime.Now;
+                        var t0 = DateTime.Now;
                         model = pipeline.Fit(split.TrainSet);
-                        var duration = DateTime.Now - startTime;
-                        Console.WriteLine($"   ✅ Training complete in {duration.TotalSeconds:F1}s");
+                        trainSec = (DateTime.Now - t0).TotalSeconds;
+                        Console.WriteLine($"   ✅ Training complete in {trainSec:F1}s");
                     }
 
                     cancellationToken.ThrowIfCancellationRequested();
@@ -491,9 +605,9 @@ namespace Image_Checker.Services
                     Console.WriteLine($"   Results:");
                     Console.WriteLine($"   • Macro Accuracy: {m.MacroAccuracy:P2}");
                     Console.WriteLine($"   • Micro Accuracy: {m.MicroAccuracy:P2}");
-                    Console.WriteLine($"   • Log Loss: {m.LogLoss:F4}");
+                    Console.WriteLine($"   • Log Loss:       {m.LogLoss:F4}");
 
-                    results.Add((name, m.MacroAccuracy, m.MicroAccuracy, m.LogLoss, model, full));
+                    results.Add((name, m.MacroAccuracy, m.MicroAccuracy, m.LogLoss, model, full, trainSec));
                     Console.WriteLine($"   ✅ {name} completed successfully");
                 }
                 catch (OperationCanceledException)
@@ -517,7 +631,7 @@ namespace Image_Checker.Services
                 return;
             }
 
-            // === Final Results ===
+            // ── Print comparison table ────────────────────────────────────────
             Console.WriteLine("\n\n");
             Console.WriteLine("═══════════════════════════════════════════════");
             Console.WriteLine("📊 FINAL MODEL COMPARISON");
@@ -527,9 +641,7 @@ namespace Image_Checker.Services
             Console.WriteLine("───────────────────────────────────────────────────────────────────");
 
             foreach (var r in results.OrderByDescending(r => r.Macro))
-            {
                 Console.WriteLine($"{r.Name,-35} {r.Macro,12:P2} {r.Micro,12:P2} {r.LogLoss,10:F4}");
-            }
 
             var best = results.OrderByDescending(r => r.Macro).First();
             Console.WriteLine("\n🏆 BEST MODEL: " + best.Name);
@@ -540,6 +652,7 @@ namespace Image_Checker.Services
 
             cancellationToken.ThrowIfCancellationRequested();
 
+            // ── Save best model ───────────────────────────────────────────────
             var modelName = PathUtils.SanitizeFileName(best.Name);
             var modelPath = Path.Combine(_basePath, $"bestModel-{modelName}-{DateTime.Now:yyyyMMddHHmmss}.zip");
 
@@ -549,27 +662,132 @@ namespace Image_Checker.Services
             Console.WriteLine($"   Location: {modelPath}");
             Console.WriteLine($"   Classes: {string.Join(", ", classLabels)}");
 
+            // ── ROI config JSON ───────────────────────────────────────────────
             var roiConfig = new
             {
                 RoiX = _roiRect.X,
                 RoiY = _roiRect.Y,
                 RoiW = _roiRect.Width,
                 RoiH = _roiRect.Height,
-                ImageWidth = imageWidth,   // already a parameter
-                ImageHeight = imageHeight  // already a parameter
+                ImageWidth = imageWidth,
+                ImageHeight = imageHeight
             };
 
             var json = System.Text.Json.JsonSerializer.Serialize(
                 roiConfig,
                 new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-
             var cfgPath = Path.ChangeExtension(modelPath, ".json");
             File.WriteAllText(cfgPath, json);
             Console.WriteLine($"   ROI config saved: {Path.GetFileName(cfgPath)}");
+
+            // ── Confusion matrix ──────────────────────────────────────────────
+            Console.WriteLine("\n\n");
+            Console.WriteLine("═══════════════════════════════════════════════");
+            Console.WriteLine("🔬 CONFUSION MATRIX — BEST MODEL: " + best.Name);
+            Console.WriteLine("═══════════════════════════════════════════════");
+
+            // Pass null here — the HTML report below replaces the standalone CM file
+            var cmResult = ConfusionMatrixReporter.Evaluate(
+                mlContext: _mlContext,
+                model: best.Model,
+                testSet: split.TestSet,
+                classLabels: classLabels,
+                reportPath: null);
+
+            Console.WriteLine($"\n✅ Matrix complete — {cmResult.TotalSamples} test samples evaluated");
+            Console.WriteLine($"   Classes : {string.Join(", ", cmResult.Labels)}");
+
+            foreach (var m in cmResult.PerClass)
+                Console.WriteLine($"   {m.Label,-20} F1={m.F1:P1}  Prec={m.Precision:P1}  Rec={m.Recall:P1}");
+
+            // ── Build per-class image counts ──────────────────────────────────
+            var classCounts = new Dictionary<string, int>();
+            foreach (var lbl in classLabels)
+            {
+                int cnt = File.ReadLines(csvPath)
+                    .Count(line => line.EndsWith($",{lbl}")
+                               || line.Contains($",{lbl},"));
+                classCounts[lbl] = cnt;
+            }
+
+            var sessionEnd = DateTime.Now;
+
+            // ── Collect artifact paths ────────────────────────────────────────
+            var ftLogPath2 = Path.Combine(_basePath, "fasttree_tuning_log.csv");
+            var lgbLogPath2 = Path.Combine(_basePath, "lgb_tuning_log.csv");
+            var reportHtmlPath = Path.ChangeExtension(modelPath, ".report.html");
+
+            var artifactPaths = new List<string> { modelPath, cfgPath, reportHtmlPath };
+            if (useFastTree && File.Exists(ftLogPath2)) artifactPaths.Add(ftLogPath2);
+            if (useLightGBM && File.Exists(lgbLogPath2)) artifactPaths.Add(lgbLogPath2);
+
+            // ── Build tuner run list (only include tuners that actually ran) ───
+            var tunerRuns = new List<TunerRunResult>();
+            if (ftRun != null) tunerRuns.Add(ftRun);
+            if (lgbRun != null) tunerRuns.Add(lgbRun);
+
+            // ── Generate HTML training report ─────────────────────────────────
+            Console.WriteLine("\n📄 Generating training report...");
+
+            var reportInput = new ReportInput
+            {
+                SessionStart = sessionStart,
+                SessionEnd = sessionEnd,
+                SourcePath = _basePath,
+                OutputPath = _basePath,
+                CVFolds = cvFolds,
+                TuningTrials = trials,
+
+                Dataset = new DatasetStats
+                {
+                    TotalImages = (int)(data.GetRowCount() ?? 0),
+                    ClassCounts = classCounts,
+                    ImageFormat = isGray ? "Grayscale 8bpp" : "RGB 24bpp",
+                    ImageWidth = imageWidth,
+                    ImageHeight = imageHeight,
+                    TrainCount = (int)(split.TrainSet.GetRowCount() ?? 0),
+                    TestCount = (int)(split.TestSet.GetRowCount() ?? 0),
+                },
+
+                Pipeline = new PipelineConfig
+                {
+                    ImageWidth = imageWidth,
+                    ImageHeight = imageHeight,
+                    IsGrayscale = isGray,
+                    PcaRank = 100,
+                    AbsolutePaths = absolutePaths,
+                    ClassCount = classLabels.Count,
+                },
+
+                TunerResults = tunerRuns,
+
+                ModelResults = results
+                    .OrderByDescending(r => r.Macro)
+                    .Select(r => new ReportModelResult
+                    {
+                        Name = r.Name,
+                        MacroAccuracy = r.Macro,
+                        MicroAccuracy = r.Micro,
+                        LogLoss = r.LogLoss,
+                        TrainTimeSeconds = r.TrainSec,
+                    }).ToList(),
+
+                BestModelName = best.Name,
+                ModelZipPath = modelPath,
+                ConfusionMatrix = cmResult,
+                ArtifactPaths = artifactPaths,
+            };
+
+            // Override the report path so it sits next to the .zip
+            var writtenReport = ReportGenerator.Write(reportInput);
+            Console.WriteLine($"✅ Report saved: {Path.GetFileName(writtenReport)}");
+            Console.WriteLine($"   Location: {writtenReport}");
         }
 
+        // ─────────────────────────────────────────────────────────────────────
+        //  HOG feature extractor (unchanged)
+        // ─────────────────────────────────────────────────────────────────────
 
-        // Add this new class to ModelTrainer.cs
         public class HogFeatureExtractor
         {
             private readonly int _cellSize;
@@ -583,28 +801,57 @@ namespace Image_Checker.Services
 
             public float[] Extract(Bitmap bmp)
             {
-                // Convert to grayscale if needed
-                var gray = ToGrayscale(bmp);
-                int width = gray.GetLength(0);
-                int height = gray.GetLength(1);
+                int width = bmp.Width;
+                int height = bmp.Height;
+                var gray = new float[width * height];
 
-                // Compute gradients
-                var magX = new float[width, height];
-                var magY = new float[width, height];
+                var bmpData = bmp.LockBits(
+                    new Rectangle(0, 0, width, height),
+                    ImageLockMode.ReadOnly,
+                    PixelFormat.Format24bppRgb);
 
-                for (int x = 1; x < width - 1; x++)
+                try
                 {
-                    for (int y = 1; y < height - 1; y++)
+                    int stride = bmpData.Stride;
+                    int byteCount = Math.Abs(stride) * height;
+                    var pixels = new byte[byteCount];
+                    Marshal.Copy(bmpData.Scan0, pixels, 0, byteCount);
+
+                    for (int y = 0; y < height; y++)
                     {
-                        magX[x, y] = gray[x + 1, y] - gray[x - 1, y];
-                        magY[x, y] = gray[x, y + 1] - gray[x, y - 1];
+                        int rowOffset = y * stride;
+                        for (int x = 0; x < width; x++)
+                        {
+                            int offset = rowOffset + x * 3;
+                            byte b = pixels[offset];
+                            byte g = pixels[offset + 1];
+                            byte r = pixels[offset + 2];
+                            gray[y * width + x] = (0.299f * r + 0.587f * g + 0.114f * b) / 255f;
+                        }
+                    }
+                }
+                finally
+                {
+                    bmp.UnlockBits(bmpData);
+                }
+
+                var magX = new float[width * height];
+                var magY = new float[width * height];
+
+                for (int y = 1; y < height - 1; y++)
+                {
+                    for (int x = 1; x < width - 1; x++)
+                    {
+                        int idx = y * width + x;
+                        magX[idx] = gray[idx + 1] - gray[idx - 1];
+                        magY[idx] = gray[idx + width] - gray[idx - width];
                     }
                 }
 
-                // Build HOG histogram per cell
                 int cellsX = width / _cellSize;
                 int cellsY = height / _cellSize;
-                var features = new List<float>();
+                var features = new float[cellsX * cellsY * _numBins];
+                int featureIdx = 0;
 
                 for (int cx = 0; cx < cellsX; cx++)
                 {
@@ -618,9 +865,10 @@ namespace Image_Checker.Services
                             {
                                 int x = cx * _cellSize + px;
                                 int y = cy * _cellSize + py;
+                                int idx = y * width + x;
 
-                                float gx = magX[x, y];
-                                float gy = magY[x, y];
+                                float gx = magX[idx];
+                                float gy = magY[idx];
                                 float magnitude = (float)Math.Sqrt(gx * gx + gy * gy);
                                 float angle = (float)(Math.Atan2(Math.Abs(gy), Math.Abs(gx)) * 180.0 / Math.PI);
 
@@ -629,39 +877,32 @@ namespace Image_Checker.Services
                             }
                         }
 
-                        // Normalize cell histogram
-                        float norm = (float)Math.Sqrt(hist.Sum(v => v * v) + 1e-6f);
-                        features.AddRange(hist.Select(v => v / norm));
+                        float normSq = 1e-6f;
+                        for (int i = 0; i < _numBins; i++)
+                            normSq += hist[i] * hist[i];
+                        float norm = (float)Math.Sqrt(normSq);
+
+                        for (int i = 0; i < _numBins; i++)
+                            features[featureIdx++] = hist[i] / norm;
                     }
                 }
 
-                return features.ToArray();
-            }
-
-            private float[,] ToGrayscale(Bitmap bmp)
-            {
-                var result = new float[bmp.Width, bmp.Height];
-                for (int x = 0; x < bmp.Width; x++)
-                    for (int y = 0; y < bmp.Height; y++)
-                    {
-                        var p = bmp.GetPixel(x, y);
-                        result[x, y] = (0.299f * p.R + 0.587f * p.G + 0.114f * p.B) / 255f;
-                    }
-                return result;
+                return features;
             }
         }
+
         private string BuildHogCsv(string originalCsvPath, int imageWidth, int imageHeight, CancellationToken ct)
         {
             Console.WriteLine("\n🔧 Extracting HOG features from images...");
             var hogCsvPath = Path.Combine(_basePath, "images_hog.csv");
             var hog = new HogFeatureExtractor(cellSize: 8, numBins: 9);
-            var lines = File.ReadAllLines(originalCsvPath);
-            int total = lines.Length;
+
+            int total = File.ReadLines(originalCsvPath).Count();
             int done = 0;
 
             using var sw = new StreamWriter(hogCsvPath);
 
-            foreach (var line in lines)
+            foreach (var line in File.ReadLines(originalCsvPath))
             {
                 ct.ThrowIfCancellationRequested();
 
@@ -676,12 +917,9 @@ namespace Image_Checker.Services
                 try
                 {
                     using var bmp = new Bitmap(imgPath);
-
-                    // Resize to training size first
                     using var resized = new Bitmap(bmp, new Size(imageWidth, imageHeight));
                     var features = hog.Extract(resized);
 
-                    // Write: label,f1,f2,f3,...
                     sw.WriteLine($"{label},{string.Join(",", features.Select(f => f.ToString("F6")))}");
                 }
                 catch (Exception ex)

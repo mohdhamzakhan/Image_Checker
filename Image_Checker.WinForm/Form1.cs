@@ -1,6 +1,8 @@
 ﻿using Image_Checker.Services;
 using System.IO;
 using System.Text;
+using System.Threading;
+using static Image_Checker.Services.IncrementalModelTrainer;
 
 namespace Image_Checker.WinForm
 {
@@ -29,6 +31,14 @@ namespace Image_Checker.WinForm
         private int _criticalMissCount = 0;
         private int _falseAlarmCount = 0;
         private Size _trainingImageSize = new Size(224, 224); // default fallback
+
+        private TorchImageChecker? _torchChecker;
+        private OnnxImageChecker? _onnxChecker;
+
+        private enum ModelType { MlNet, TorchSharp, Onnx, OneClass }
+        private ModelType _activeModelType = ModelType.MlNet;
+        private CnnIncrementalTrainer? _cnnIncrementalTrainer;
+        private OneClassChecker? _oneClassChecker;
         public Form1()
         {
             InitializeComponent();
@@ -557,17 +567,211 @@ namespace Image_Checker.WinForm
         {
             using var dialog = new OpenFileDialog
             {
-                Filter = "ML.NET Model (*.zip)|*.zip",
+                Filter = "All Supported Models (*.zip;*.bin;*.onnx)|*.zip;*.bin;*.onnx" +
+                         "|ML.NET Model (*.zip)|*.zip" +
+                         "|TorchSharp Model (*.bin)|*.bin" +
+                         "|ONNX Model (*.onnx)|*.onnx",
                 Title = "Select Trained Model"
             };
 
-            if (dialog.ShowDialog() == DialogResult.OK)
+            if (dialog.ShowDialog() != DialogResult.OK) return;
+
+            var ext = Path.GetExtension(dialog.FileName).ToLowerInvariant();
+
+            // Dispose previous checkers
+            _torchChecker?.Dispose(); _torchChecker = null;
+            _onnxChecker?.Dispose(); _onnxChecker = null;
+
+            try
             {
-                _modelPath = dialog.FileName;
-                _basePath = Path.GetDirectoryName(_modelPath);
-                SaveConfiguration();
+                switch (ext)
+                {
+                    case ".zip":
+                        _modelPath = dialog.FileName;
+                        _basePath = Path.GetDirectoryName(_modelPath)!;
+                        _activeModelType = ModelType.MlNet;
+                        SaveConfiguration();
+                        InitializeTrainer();
+                        LoadModel();               // existing method, untouched
+                        break;
+
+                    // In SelectExistingModel, inside the ".bin" case,
+                    // read the sidecar to decide which checker to use:
+                    case ".bin":
+                        {
+                            var jsonPath = Path.ChangeExtension(dialog.FileName, ".json");
+                            bool isOneClass = false;
+                            if (File.Exists(jsonPath))
+                            {
+                                var doc = System.Text.Json.JsonDocument.Parse(
+                                    File.ReadAllText(jsonPath));
+                                if (doc.RootElement.TryGetProperty(
+                                        "ModelType", out var mt) &&
+                                    mt.GetString() == "OneClassAutoencoder")
+                                    isOneClass = true;
+                            }
+
+                            if (isOneClass)
+                            {
+                                _oneClassChecker?.Dispose();
+                                _oneClassChecker = new OneClassChecker(dialog.FileName);
+                                _activeModelType = ModelType.OneClass;
+                                lblStatus.Text =
+                                    $"✅ One-Class model loaded: " +
+                                    $"{Path.GetFileName(dialog.FileName)}";
+                            }
+                            else
+                            {
+                                _torchChecker?.Dispose();
+                                _torchChecker = new TorchImageChecker(dialog.FileName);
+                                _activeModelType = ModelType.TorchSharp;
+                                lblStatus.Text =
+                                    $"✅ TorchSharp model loaded: " +
+                                    $"{Path.GetFileName(dialog.FileName)}";
+                            }
+
+                            _modelPath = dialog.FileName;
+                            _basePath = Path.GetDirectoryName(_modelPath)!;
+                            LoadSidecarConfig(dialog.FileName);
+                            SaveConfiguration();
+                            break;
+                        }
+
+                    case ".onnx":
+                        _onnxChecker = new OnnxImageChecker(dialog.FileName);
+                        _modelPath = dialog.FileName;
+                        _basePath = Path.GetDirectoryName(_modelPath)!;
+                        _activeModelType = ModelType.Onnx;
+                        LoadSidecarConfig(dialog.FileName);
+                        // Inside the ".bin" and ".onnx" cases, after LoadSidecarConfig():
+                        RebuildCnnIncrementalTrainer();
+                        SaveConfiguration();
+                        lblStatus.Text = $"✅ ONNX model loaded: {Path.GetFileName(_modelPath)}";
+                        break;
+
+                    default:
+                        MessageBox.Show("Unsupported model format.", "Error",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                }
+
                 InitializeTrainer();
-                LoadModel();
+            }
+            catch (Exception ex)
+            {
+                lblStatus.Text = $"❌ Model load failed: {ex.Message}";
+                MessageBox.Show($"Failed to load model:\n\n{ex.Message}",
+                    "Load Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+        private void RebuildCnnIncrementalTrainer()
+        {
+            string arch = "MiniCNN";
+            var jsonPath = Path.ChangeExtension(_modelPath, ".json");
+            if (File.Exists(jsonPath))
+            {
+                try
+                {
+                    var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(jsonPath));
+                    if (doc.RootElement.TryGetProperty("Architecture", out var a))
+                        arch = a.GetString() ?? "MiniCNN";
+                }
+                catch { }
+            }
+
+            var config = new CnnTrainer.CnnConfig
+            {
+                Architecture = arch,
+                ImageWidth = _trainingImageSize.Width,
+                ImageHeight = _trainingImageSize.Height,
+                Epochs = 20,
+                BatchSize = 16,
+                LearningRate = 0.001f,
+                Augment = true,
+                EarlyStopPatience = 5
+            };
+
+            _cnnIncrementalTrainer = new CnnIncrementalTrainer(
+                _basePath,
+                config,
+                _roiRect,
+                msg => AppendLog(msg));   // ← use AppendLog instead of LogMessage
+        }
+
+        /// <summary>
+        /// Thread-safe log writer for Form1.
+        /// Writes to Console (captured by TextBoxWriter) and updates lblStatus.
+        /// </summary>
+        private void AppendLog(string msg)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(new Action(() => AppendLog(msg)));
+                return;
+            }
+
+            // Console output is already redirected to your RichTextBox via TextBoxWriter
+            Console.WriteLine(msg);
+
+            // Also push the last line to lblStatus so the user sees live progress
+            if (!string.IsNullOrWhiteSpace(msg))
+                lblStatus.Text = msg.Length > 120 ? msg[..120] + "…" : msg;
+        }
+        private void LoadSidecarConfig(string modelPath)
+        {
+            var jsonPath = Path.ChangeExtension(modelPath, ".json");
+            if (!File.Exists(jsonPath)) return;
+
+            try
+            {
+                var cfg = System.Text.Json.JsonSerializer.Deserialize<RoiConfig>(
+                    File.ReadAllText(jsonPath),
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (cfg == null) return;
+
+                _roiRect = new Rectangle(cfg.RoiX, cfg.RoiY, cfg.RoiW, cfg.RoiH);
+                _trainingImageSize = new Size(
+                    cfg.ImageWidth > 0 ? cfg.ImageWidth : 224,
+                    cfg.ImageHeight > 0 ? cfg.ImageHeight : 224);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️ Could not read sidecar config: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Routes inference to whichever engine owns the active model.
+        /// Returns (label, confidence) exactly like PredictWithConfidence.
+        /// </summary>
+        private (string Label, float Confidence) PredictAny(string imagePath)
+        {
+            switch (_activeModelType)
+            {
+                case ModelType.TorchSharp:
+                    if (_torchChecker == null)
+                        throw new InvalidOperationException("TorchSharp model not loaded.");
+                    var tp = _torchChecker.Predict(imagePath);
+                    return (tp.Label, tp.Confidence);
+
+                case ModelType.Onnx:
+                    if (_onnxChecker == null)
+                        throw new InvalidOperationException("ONNX model not loaded.");
+                    var op = _onnxChecker.Predict(imagePath);
+                    return (op.Label, op.Confidence);
+
+                case ModelType.OneClass:
+                    if (_oneClassChecker == null)
+                        throw new InvalidOperationException(
+                            "One-class model not loaded.");
+                    var ocp = _oneClassChecker.Predict(imagePath);
+                    return (ocp.Label, ocp.Confidence);
+
+                default: // MlNet
+                    if (_predictor == null)
+                        throw new InvalidOperationException("ML.NET model not loaded.");
+                    return _predictor.PredictWithConfidence(imagePath);
             }
         }
 
@@ -584,7 +788,18 @@ namespace Image_Checker.WinForm
         {
             if (!string.IsNullOrEmpty(_basePath))
             {
-                _incrementalTrainer = new IncrementalModelTrainer(new Microsoft.ML.MLContext(), _basePath);
+
+                var config = new RoiConfig
+                {
+                    RoiX = _roiRect.X,
+                    RoiY = _roiRect.Y,
+                    RoiW = _roiRect.Width,
+                    RoiH = _roiRect.Height,
+                    ImageWidth = _trainingImageSize.Width,
+                    ImageHeight = _trainingImageSize.Height
+                };
+
+                _incrementalTrainer = new IncrementalModelTrainer(new Microsoft.ML.MLContext(), _basePath, config);
                 _correctionManager = new CorrectionManager(_basePath);
             }
         }
@@ -706,25 +921,33 @@ namespace Image_Checker.WinForm
         }
         private void ProcessImages(string rootFolder)
         {
-            if (_predictor == null)
+            bool hasModel = _activeModelType == ModelType.MlNet ? _predictor != null
+                          : _activeModelType == ModelType.TorchSharp ? _torchChecker != null
+                          : _activeModelType == ModelType.OneClass ? _oneClassChecker != null
+                          : _onnxChecker != null;
+
+            if (!hasModel)
             {
-                MessageBox.Show("Model not loaded. Please configure a model first.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Model not loaded. Please configure a model first.",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
             lblStatus.Text = "🔍 Scanning folders...";
             Application.DoEvents();
 
-            var imageFiles = Directory.GetDirectories(rootFolder)
-                .SelectMany(sub => Directory.GetFiles(sub, "*.*", SearchOption.TopDirectoryOnly))
+            // Use SearchOption.AllDirectories to catch images in the root folder AND subfolders
+            var imageFiles = Directory.GetFiles(rootFolder, "*.*", SearchOption.AllDirectories)
                 .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)
                          || f.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
-                         || f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase))
+                         || f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)
+                         || f.EndsWith(".bmp", StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             if (!imageFiles.Any())
             {
-                MessageBox.Show("No images found in subfolders.", "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                MessageBox.Show("No images found in the selected folder or its subfolders.",
+                    "Warning", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 lblStatus.Text = "❌ No images found";
                 return;
             }
@@ -747,7 +970,7 @@ namespace Image_Checker.WinForm
                 {
 
                     // Use PredictWithConfidence to get both label and confidence
-                    var (pred, confidence) = _predictor.PredictWithConfidence(processedPath);
+                    var (pred, confidence) = PredictAny(processedPath);
 
                     // Clean the prediction label - remove any quotes
                     string cleanPred = pred?.Trim().Trim('"') ?? "Unknown";
@@ -1427,7 +1650,7 @@ namespace Image_Checker.WinForm
 
         // === UPDATED Quick Update Handler with Image Moving ===
 
-        private void BtnQuickUpdate_Click(object sender, EventArgs e)
+        private async void BtnQuickUpdate_Click(object sender, EventArgs e)
         {
             // Validation
             if (_predictor == null || string.IsNullOrEmpty(_basePath))
@@ -1573,22 +1796,51 @@ namespace Image_Checker.WinForm
                 System.Threading.Thread.Sleep(1000); // Brief pause to show status
 
                 // STEP 2: Train model
-                lblStatus.Text = $"🔄 Step 2/3: Training model ({strategy})...\n" +
-                                $"   ⏳ This will take {EstimateTime(originalCount)}\n" +
-                                $"   Please wait, do not close the application.";
+                // STEP 2: Train model — route to correct engine
+                lblStatus.Text = $"🔄 Step 2/3: Training model ({strategy})...";
                 Application.DoEvents();
 
-                // Synchronous training
-                var trueTrainer = new TrueIncrementalTrainer(new Microsoft.ML.MLContext(), _basePath);
-                trueTrainer.IncrementalUpdateInPlace(_predictor.ModelPath);
+                if (_activeModelType == ModelType.MlNet)
+                {
+                    // Existing ML.NET path — untouched
+                    var trueTrainer = new TrueIncrementalTrainer(
+                        new Microsoft.ML.MLContext(), _basePath);
+                    trueTrainer.IncrementalUpdateInPlace(_predictor.ModelPath);
+                }
+                else
+                {
+                    // CNN path (.bin or .onnx)
+                    if (_cnnIncrementalTrainer == null)
+                        throw new InvalidOperationException(
+                            "CNN trainer not initialized. Reload the model.");
+                    CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+                    var correctionPath1 = Path.Combine(_basePath, "corrections.csv");
+                    var cnnResult = await Task.Run(() =>
+                        _cnnIncrementalTrainer.IncrementalUpdate(
+                            correctionPath1,
+                            cancellationTokenSource!.Token),
+                        cancellationTokenSource!.Token);
+
+                    // Reload the new model
+                    _torchChecker?.Dispose();
+                    _torchChecker = new TorchImageChecker(cnnResult.ModelPath);
+                    _modelPath = cnnResult.ModelPath;
+
+                    // Rebuild trainer pointing at the new model
+                    RebuildCnnIncrementalTrainer();
+
+                    SaveConfiguration();
+                }
 
                 // STEP 3: Reload model and cleanup
                 lblStatus.Text = $"📥 Step 3/3: Reloading updated model...";
                 Application.DoEvents();
 
-                // Reload the updated model (same path)
-                _predictor.Dispose(); // Release the old model
-                _predictor = new Predictor(_modelPath);
+                if (_activeModelType == ModelType.MlNet)
+                {
+                    _predictor.Dispose();
+                    _predictor = new Predictor(_modelPath);
+                }
 
                 // Archive corrections
                 var correctionPath = Path.Combine(_basePath, "corrections.csv");
@@ -1894,7 +2146,16 @@ namespace Image_Checker.WinForm
                 // ── END DEBUG ─────────────────────────────────────────────────────
 
                 // THIS IS THE KEY LINE — uses _predictor (with OOD), NOT _singlePredictor
-                var (label, confidence) = _predictor.PredictWithConfidenceAndOodCheck(preprocessedPath);
+                string label; 
+                float confidence;
+                if (_activeModelType == ModelType.MlNet && _predictor != null)
+                {
+                    (label, confidence) = _predictor.PredictWithConfidenceAndOodCheck(preprocessedPath);
+                }
+                else
+                {
+                    (label, confidence) = PredictAny(preprocessedPath);
+                }
 
                 // Display the original image
                 pictureBox.Image?.Dispose();
@@ -2125,6 +2386,9 @@ namespace Image_Checker.WinForm
             StopFolderMonitoring();
             _usbPortController?.Dispose();
             _usbLight?.Dispose();
+            _torchChecker?.Dispose();
+            _oneClassChecker?.Dispose();
+            _onnxChecker?.Dispose();
             base.OnFormClosing(e);
         }
 
@@ -2369,7 +2633,7 @@ namespace Image_Checker.WinForm
                 string groundTruth = new DirectoryInfo(Path.GetDirectoryName(imagePath)).Name;
 
                 // Run prediction
-                var (label, confidence) = _predictor.PredictWithConfidence(imagePath);
+                var (label, confidence) = PredictAny(imagePath);
                 string cleanLabel = label?.Trim().Trim('"') ?? "Unknown";
 
                 // ── Classify the result ───────────────────────────────────────
@@ -2538,15 +2802,15 @@ namespace Image_Checker.WinForm
 
         private Rectangle _roiRect = Rectangle.Empty;
 
-        private class RoiConfig
-        {
-            public int RoiX { get; set; }
-            public int RoiY { get; set; }
-            public int RoiW { get; set; }
-            public int RoiH { get; set; }
-            public int ImageWidth { get; set; } = 224;   // add these
-            public int ImageHeight { get; set; } = 224;  // add these
-        }
+        //private class RoiConfig
+        //{
+        //    public int RoiX { get; set; }
+        //    public int RoiY { get; set; }
+        //    public int RoiW { get; set; }
+        //    public int RoiH { get; set; }
+        //    public int ImageWidth { get; set; } = 224;   // add these
+        //    public int ImageHeight { get; set; } = 224;  // add these
+        //}
         public class ImageResult
         {
             public string? FileName { get; set; }
