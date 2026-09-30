@@ -24,6 +24,11 @@ namespace Image_Checker.Services
             public float Confidence { get; init; }
             public float[] AllScores { get; init; } = Array.Empty<float>();
             public Dictionary<string, float> ScoreMap { get; init; } = new();
+            /// <summary>Gap between the top-1 and top-2 class scores.</summary>
+            public float Margin { get; init; }
+            /// <summary>True when Margin is below MarginThreshold — a borderline call that should
+            /// arguably be routed to manual review rather than trusted outright.</summary>
+            public bool IsUncertain { get; init; }
         }
 
         // ══════════════════════════════════════════════════════════════════════
@@ -50,6 +55,10 @@ namespace Image_Checker.Services
         private readonly Device _device;
         private readonly int _imgH, _imgW;
         private bool _disposed;
+
+        /// <summary>Minimum top1-top2 score gap to consider a prediction confident.
+        /// Predictions below this are flagged IsUncertain=true. Tune against real data via Evaluate().</summary>
+        public float MarginThreshold { get; set; } = 0.15f;
 
         // ══════════════════════════════════════════════════════════════════════
         //  CONSTRUCTION
@@ -161,16 +170,20 @@ namespace Image_Checker.Services
                 : Enumerable.Range(0, scores.Length)
                     .Select(i => $"Class_{i}").ToList();
 
-            int best = scores
+            var ranked = scores
                 .Select((s, i) => (s, i))
                 .OrderByDescending(x => x.s)
-                .First().i;
+                .ToList();
+            int best = ranked[0].i;
+            float margin = ranked.Count > 1 ? ranked[0].s - ranked[1].s : ranked[0].s;
 
             return new Prediction
             {
                 Label = classNames[best],
                 Confidence = scores[best],
                 AllScores = scores,
+                Margin = margin,
+                IsUncertain = margin < MarginThreshold,
                 ScoreMap = classNames
                     .Take(scores.Length)
                     .Zip(scores, (name, score) => (name, score))
@@ -193,6 +206,79 @@ namespace Image_Checker.Services
                 catch (Exception ex) { err = ex; }
                 yield return (path, pred, err);
             }
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
+        //  EVALUATION AGAINST REAL OK/NG DATA
+        // ══════════════════════════════════════════════════════════════════════
+
+        private static readonly string[] ImageExts = { ".jpg", ".jpeg", ".png", ".bmp" };
+
+        public class EvaluationResult
+        {
+            public int TotalOk { get; set; }
+            public int TotalNg { get; set; }
+            public int TruePositiveNg { get; set; }
+            public int FalseNegativeNg { get; set; }
+            public int TrueNegativeOk { get; set; }
+            public int FalsePositiveOk { get; set; }
+            public int UncertainCount { get; set; }
+
+            public float NgRecall => TotalNg == 0 ? 0f : (float)TruePositiveNg / TotalNg;
+            public float OkSpecificity => TotalOk == 0 ? 0f : (float)TrueNegativeOk / TotalOk;
+            public float Accuracy => (TotalOk + TotalNg) == 0 ? 0f
+                : (float)(TruePositiveNg + TrueNegativeOk) / (TotalOk + TotalNg);
+
+            public List<string> MissedNgFiles { get; } = new();
+            public List<string> FalseAlarmOkFiles { get; } = new();
+
+            public override string ToString() =>
+                $"Accuracy={Accuracy:P1}  NG-Recall={NgRecall:P1} ({TruePositiveNg}/{TotalNg} caught)  " +
+                $"OK-Specificity={OkSpecificity:P1} ({TrueNegativeOk}/{TotalOk} passed)  " +
+                $"Missed NG={FalseNegativeNg}  False alarms={FalsePositiveOk}  Uncertain={UncertainCount}";
+        }
+
+        /// <summary>
+        /// Runs the model against real labelled OK and NG folders and reports a confusion
+        /// matrix, with NG recall (defects actually caught) as the number that matters most
+        /// for QC. Labels are matched case-insensitively against "OK" / "NG"; if your class
+        /// names differ, remap them before calling this.
+        /// </summary>
+        public EvaluationResult Evaluate(string okFolder, string ngFolder)
+        {
+            var result = new EvaluationResult();
+
+            foreach (var file in EnumerateImages(okFolder))
+            {
+                result.TotalOk++;
+                var pred = Predict(file);
+                if (pred.IsUncertain) result.UncertainCount++;
+                bool predictedNg = pred.Label.Equals("NG", StringComparison.OrdinalIgnoreCase);
+                if (predictedNg) { result.FalsePositiveOk++; result.FalseAlarmOkFiles.Add(file); }
+                else result.TrueNegativeOk++;
+            }
+
+            foreach (var file in EnumerateImages(ngFolder))
+            {
+                result.TotalNg++;
+                var pred = Predict(file);
+                if (pred.IsUncertain) result.UncertainCount++;
+                bool predictedNg = pred.Label.Equals("NG", StringComparison.OrdinalIgnoreCase);
+                if (predictedNg) result.TruePositiveNg++;
+                else { result.FalseNegativeNg++; result.MissedNgFiles.Add(file); }
+            }
+
+            return result;
+        }
+
+        private static IEnumerable<string> EnumerateImages(string folder)
+        {
+            if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+                yield break;
+
+            foreach (var file in Directory.GetFiles(folder))
+                if (ImageExts.Contains(Path.GetExtension(file).ToLowerInvariant()))
+                    yield return file;
         }
 
         // ══════════════════════════════════════════════════════════════════════

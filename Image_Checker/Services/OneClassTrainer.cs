@@ -183,6 +183,107 @@ namespace Image_Checker.Services
         }
 
         // ══════════════════════════════════════════════════════════════
+        //  INCREMENTAL (WARM-START) TRAINING
+        //  Loads existing weights instead of random init, then fine-tunes
+        //  for a handful of epochs on the current OK folder (which should
+        //  already include any newly-corrected OK images). Much faster
+        //  than a full retrain and keeps what the model already learned.
+        // ══════════════════════════════════════════════════════════════
+
+        public TrainResult IncrementalTrain(
+            string existingModelPath,
+            int fineTuneEpochs = 5,
+            float learningRateMultiplier = 0.1f,
+            CancellationToken ct = default)
+        {
+            if (!File.Exists(existingModelPath))
+                throw new FileNotFoundException(
+                    "Existing model not found for warm start.", existingModelPath);
+
+            Log("═══════════════════════════════════════════════");
+            Log("🔵 ONE-CLASS INCREMENTAL (WARM-START) UPDATE");
+            Log($"   Base model : {Path.GetFileName(existingModelPath)}");
+            Log($"   Fine-tune epochs: {fineTuneEpochs}");
+            Log($"   Learning-rate multiplier: {learningRateMultiplier:F3} " +
+                $"(effective LR = {_cfg.LearningRate * learningRateMultiplier:F6})");
+            Log("═══════════════════════════════════════════════");
+
+            // 1. Load current OK images (includes any newly-corrected ones
+            //    already moved into _okFolderPath by the caller)
+            var allPaths = LoadOkImages();
+            Log($"✅ {allPaths.Count} OK images found");
+
+            if (allPaths.Count < 10)
+                throw new InvalidOperationException(
+                    "Need at least 10 OK images for one-class training.");
+
+            ct.ThrowIfCancellationRequested();
+
+            // 2. Split train / val
+            var rng = new Random(42);
+            var shuffled = allPaths.OrderBy(_ => rng.Next()).ToList();
+            int valCount = Math.Max(2, (int)(shuffled.Count * _cfg.ValidationSplit));
+            var valPaths = shuffled.Take(valCount).ToList();
+            var trainPaths = shuffled.Skip(valCount).ToList();
+            Log($"   Train={trainPaths.Count}  Val={valCount}");
+
+            ct.ThrowIfCancellationRequested();
+
+            // 3. Load EXISTING weights instead of random init — this is the
+            //    key difference from Train(): the model already knows what
+            //    "normal" looks like, we're just nudging it to also cover
+            //    the newly-corrected OK images.
+            using var model = new ConvAutoencoder(_cfg.LatentDim);
+            model.load(existingModelPath);
+            model.to(_device);
+            Log($"   Parameters: {model.parameters().Sum(p => p.numel()):N0} (warm-started)");
+
+            // 4. Optimizer — lower LR than a from-scratch run, since we're
+            //    fine-tuning rather than learning from nothing.
+            var optimizer = optim.Adam(model.parameters(), lr: _cfg.LearningRate * learningRateMultiplier);
+
+            // 5. Short training loop
+            RunTrainingLoop(model, optimizer, trainPaths, valPaths, ct, epochs: fineTuneEpochs);
+
+            ct.ThrowIfCancellationRequested();
+
+            // 6. Recalibrate threshold on the current validation split
+            var (meanErr, stdErr, threshold) = CalibrateThreshold(model, valPaths);
+            Log($"\n📏 Threshold recalibration:");
+            Log($"   Val mean error : {meanErr:F6}");
+            Log($"   Val std  error : {stdErr:F6}");
+            Log($"   Threshold      : {threshold:F6}  " +
+                $"(mean + {_cfg.Sensitivity}×std)");
+
+            ct.ThrowIfCancellationRequested();
+
+            // 7. Save as a new model file (never overwrite in place — if
+            //    something goes wrong downstream, the old model is untouched)
+            var stamp = DateTime.Now.ToString("yyyyMMddHHmmss");
+            var modelPath = Path.Combine(_outputPath,
+                $"oneclass_autoencoder_incr_{stamp}.bin");
+
+            model.eval();
+            model.save(modelPath);
+            SaveSidecar(modelPath, threshold, meanErr, stdErr);
+
+            Log($"\n💾 Updated model saved → {Path.GetFileName(modelPath)}");
+            Log("═══════════════════════════════════════════════");
+            Log("✅ ONE-CLASS INCREMENTAL UPDATE COMPLETE");
+            Log("═══════════════════════════════════════════════");
+
+            return new TrainResult
+            {
+                ModelPath = modelPath,
+                Threshold = threshold,
+                MeanValError = meanErr,
+                StdValError = stdErr,
+                TrainCount = trainPaths.Count,
+                ValCount = valCount
+            };
+        }
+
+        // ══════════════════════════════════════════════════════════════
         //  AUTOENCODER ARCHITECTURE
         //  Encoder: 3 → 32 → 64 → latent (FC)
         //  Decoder: latent → 64 → 32 → 3
@@ -279,13 +380,15 @@ namespace Image_Checker.Services
             optim.Optimizer optimizer,
             List<string> trainPaths,
             List<string> valPaths,
-            CancellationToken ct)
+            CancellationToken ct,
+            int? epochs = null)
         {
+            int totalEpochs = epochs ?? _cfg.Epochs;
             float bestValLoss = float.MaxValue;
             int patience = 0;
             var rng = new Random(42);
 
-            for (int epoch = 1; epoch <= _cfg.Epochs; epoch++)
+            for (int epoch = 1; epoch <= totalEpochs; epoch++)
             {
                 ct.ThrowIfCancellationRequested();
 
@@ -339,7 +442,7 @@ namespace Image_Checker.Services
                 float avgTrain = trainLoss / Math.Max(1, batches);
                 float avgVal = valLoss / Math.Max(1, vBatches);
 
-                Log($"   Epoch {epoch,3}/{_cfg.Epochs} — " +
+                Log($"   Epoch {epoch,3}/{totalEpochs} — " +
                     $"loss: {avgTrain:F6}  val_loss: {avgVal:F6}");
 
                 // ── Early stopping ─────────────────────────────────

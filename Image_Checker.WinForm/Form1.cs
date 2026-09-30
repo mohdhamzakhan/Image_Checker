@@ -63,6 +63,80 @@ namespace Image_Checker.WinForm
             OpenCorrectionsManager();
         }
 
+        // ══════════════════════════════════════════════════════════════
+        //  EVALUATE MODEL AGAINST REAL OK/NG DATA
+        // ══════════════════════════════════════════════════════════════
+
+        private string? PromptForFolder(string description)
+        {
+            using var dlg = new FolderBrowserDialog { Description = description };
+            return dlg.ShowDialog() == DialogResult.OK ? dlg.SelectedPath : null;
+        }
+
+        private void MenuEvaluateModel_Click(object sender, EventArgs e)
+        {
+            if (_activeModelType == ModelType.MlNet)
+            {
+                MessageBox.Show(
+                    "The Evaluate Model report currently covers the TorchSharp CNN, ONNX, " +
+                    "and One-Class checkers. For the classical ML.NET model, use the existing " +
+                    "Full Retrain / Quick Update reports, which already print accuracy metrics.",
+                    "Not Available for This Model Type",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            string? okFolder = PromptForFolder("Select the folder of known OK images to test against");
+            if (okFolder == null) return;
+
+            string? ngFolder = PromptForFolder("Select the folder of known NG images to test against");
+            if (ngFolder == null) return;
+
+            Cursor = Cursors.WaitCursor;
+            try
+            {
+                string report;
+                switch (_activeModelType)
+                {
+                    case ModelType.OneClass:
+                        if (_oneClassChecker == null)
+                            throw new InvalidOperationException("No one-class model loaded.");
+                        report = _oneClassChecker.Evaluate(okFolder, ngFolder).ToString();
+                        break;
+
+                    case ModelType.TorchSharp:
+                        if (_torchChecker == null)
+                            throw new InvalidOperationException("No TorchSharp model loaded.");
+                        report = _torchChecker.Evaluate(okFolder, ngFolder).ToString();
+                        break;
+
+                    case ModelType.Onnx:
+                        if (_onnxChecker == null)
+                            throw new InvalidOperationException("No ONNX model loaded.");
+                        report = _onnxChecker.Evaluate(okFolder, ngFolder).ToString();
+                        break;
+
+                    default:
+                        throw new InvalidOperationException("Unsupported model type.");
+                }
+
+                MessageBox.Show(
+                    $"Evaluation against real OK/NG images:\n\n{report}\n\n" +
+                    "NG-Recall is the number that matters most for QC — it's the % of real " +
+                    "defects the model actually catches.",
+                    "Model Evaluation", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Evaluation failed:\n\n{ex.Message}",
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+            }
+        }
+
         private void BtnManageCorrections_Click(object sender, EventArgs e)
         {
             OpenCorrectionsManager();
@@ -1807,9 +1881,81 @@ namespace Image_Checker.WinForm
                         new Microsoft.ML.MLContext(), _basePath);
                     trueTrainer.IncrementalUpdateInPlace(_predictor.ModelPath);
                 }
+                else if (_activeModelType == ModelType.OneClass)
+                {
+                    // One-class autoencoder — genuine warm-start fine-tune,
+                    // then validate the new threshold against real NG images
+                    // before accepting it (see OneClassIncrementalTrainer).
+                    if (_oneClassChecker == null)
+                        throw new InvalidOperationException(
+                            "One-class model not loaded. Reload the model.");
+
+                    string? okFolder = PromptForFolder(
+                        "Select the OK images folder (used for fine-tuning)");
+                    if (okFolder == null)
+                        throw new OperationCanceledException("OK folder selection cancelled.");
+
+                    string? ngFolder = PromptForFolder(
+                        "Select the NG images folder (used to validate the new threshold)");
+                    if (ngFolder == null)
+                        throw new OperationCanceledException("NG folder selection cancelled.");
+
+                    using var fineTuneSettings = new FineTuneSettingsForm(
+                        defaultEpochs: 5, defaultLrMultiplier: 0.1f);
+                    if (fineTuneSettings.ShowDialog(this) != DialogResult.OK)
+                        throw new OperationCanceledException("Fine-tune settings cancelled.");
+
+                    int fineTuneEpochs = fineTuneSettings.FineTuneEpochs;
+                    float lrMultiplier = fineTuneSettings.LearningRateMultiplier;
+
+                    var occConfig = new OneClassTrainer.Config();
+                    var occTrainer = new OneClassIncrementalTrainer(
+                        okFolder, ngFolder, okFolder, occConfig, _roiRect,
+                        msg => Console.WriteLine(msg));
+
+                    var correctionPath2 = Path.Combine(_basePath, "corrections.csv");
+                    var occCts = new CancellationTokenSource();
+                    var occResult = await Task.Run(() =>
+                        occTrainer.IncrementalUpdate(
+                            correctionPath2, _modelPath, fineTuneEpochs, lrMultiplier, occCts.Token),
+                        occCts.Token);
+
+                    _oneClassChecker?.Dispose();
+                    _oneClassChecker = new OneClassChecker(occResult.ModelPath);
+                    _modelPath = occResult.ModelPath;
+
+                    SaveConfiguration();
+
+                    MessageBox.Show(
+                        $"One-class model fine-tuned and validated.\n\n{occResult.Evaluation}" +
+                        (occResult.ThresholdAdjusted
+                            ? "\n\nThreshold was automatically adjusted to improve NG recall."
+                            : ""),
+                        "Incremental Update Complete",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else if (_activeModelType == ModelType.Onnx)
+                {
+                    // ONNX is inference-only in this build (ONNX export in
+                    // CnnTrainer is currently disabled), so there is no safe
+                    // way to refresh the active .onnx file automatically yet.
+                    // Retraining the underlying .bin here would silently
+                    // leave the active ONNX predictions stale, so we stop
+                    // and tell the user instead of pretending it worked.
+                    MessageBox.Show(
+                        "The active model is an ONNX file. Incremental updates in this build " +
+                        "retrain the underlying TorchSharp (.bin) model, but ONNX export is " +
+                        "currently disabled, so the loaded .onnx file can't be refreshed " +
+                        "automatically.\n\n" +
+                        "Switch to loading the corresponding .bin (TorchSharp) model to apply " +
+                        "this update, then re-export to ONNX separately.",
+                        "Not Supported for ONNX",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
                 else
                 {
-                    // CNN path (.bin or .onnx)
+                    // CNN path (.bin)
                     if (_cnnIncrementalTrainer == null)
                         throw new InvalidOperationException(
                             "CNN trainer not initialized. Reload the model.");
@@ -2146,7 +2292,7 @@ namespace Image_Checker.WinForm
                 // ── END DEBUG ─────────────────────────────────────────────────────
 
                 // THIS IS THE KEY LINE — uses _predictor (with OOD), NOT _singlePredictor
-                string label; 
+                string label;
                 float confidence;
                 if (_activeModelType == ModelType.MlNet && _predictor != null)
                 {

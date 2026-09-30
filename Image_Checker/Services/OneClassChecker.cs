@@ -116,46 +116,9 @@ namespace Image_Checker.Services
 
         public Prediction Predict(Bitmap srcBitmap)
         {
-            // 1. ROI + resize
-            Bitmap working;
-            var roi = new Rectangle(
-                _meta.RoiX, _meta.RoiY, _meta.RoiW, _meta.RoiH);
+            float reconError = ComputeReconError(srcBitmap);
 
-            if (roi.Width > 0 && roi.Height > 0)
-            {
-                int rx = Math.Max(0,
-                    Math.Min(roi.X, srcBitmap.Width - roi.Width));
-                int ry = Math.Max(0,
-                    Math.Min(roi.Y, srcBitmap.Height - roi.Height));
-                working = srcBitmap.Clone(
-                    new Rectangle(rx, ry,
-                        Math.Min(roi.Width, srcBitmap.Width),
-                        Math.Min(roi.Height, srcBitmap.Height)),
-                    srcBitmap.PixelFormat);
-            }
-            else { working = (Bitmap)srcBitmap.Clone(); }
-
-            using var resized = new Bitmap(working, new System.Drawing.Size(_imgW, _imgH));
-            working.Dispose();
-
-            // 2. To NCHW tensor
-            var xData = new float[3 * _imgH * _imgW];
-            BitmapToNchw(resized, xData);
-
-            using var X = tensor(xData,
-                new long[] { 1, 3, _imgH, _imgW }).to(_device);
-
-            // 3. Reconstruct and measure error
-            float reconError;
-            using (no_grad())
-            {
-                using var recon = _model.forward(X);
-                using var errTens = (recon - X).pow(2)
-                    .mean(new long[] { 1, 2, 3 });
-                reconError = errTens.cpu().item<float>();
-            }
-
-            // 4. Classify
+            // Classify
             bool isAnomaly = reconError > _meta.Threshold;
             string label = isAnomaly ? "NG" : "OK";
 
@@ -190,6 +153,170 @@ namespace Image_Checker.Services
                     ["NG"] = isAnomaly ? confidence : 1f - confidence
                 }
             };
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        //  RECONSTRUCTION ERROR  (shared by Predict + evaluation methods)
+        // ══════════════════════════════════════════════════════════════
+
+        private float ComputeReconError(Bitmap srcBitmap)
+        {
+            // 1. ROI + resize
+            Bitmap working;
+            var roi = new Rectangle(
+                _meta.RoiX, _meta.RoiY, _meta.RoiW, _meta.RoiH);
+
+            if (roi.Width > 0 && roi.Height > 0)
+            {
+                int rx = Math.Max(0,
+                    Math.Min(roi.X, srcBitmap.Width - roi.Width));
+                int ry = Math.Max(0,
+                    Math.Min(roi.Y, srcBitmap.Height - roi.Height));
+                working = srcBitmap.Clone(
+                    new Rectangle(rx, ry,
+                        Math.Min(roi.Width, srcBitmap.Width),
+                        Math.Min(roi.Height, srcBitmap.Height)),
+                    srcBitmap.PixelFormat);
+            }
+            else { working = (Bitmap)srcBitmap.Clone(); }
+
+            using var resized = new Bitmap(working, new System.Drawing.Size(_imgW, _imgH));
+            working.Dispose();
+
+            // 2. To NCHW tensor
+            var xData = new float[3 * _imgH * _imgW];
+            BitmapToNchw(resized, xData);
+
+            using var X = tensor(xData,
+                new long[] { 1, 3, _imgH, _imgW }).to(_device);
+
+            // 3. Reconstruct and measure error
+            using (no_grad())
+            {
+                using var recon = _model.forward(X);
+                using var errTens = (recon - X).pow(2)
+                    .mean(new long[] { 1, 2, 3 });
+                return errTens.cpu().item<float>();
+            }
+        }
+
+        private float ComputeReconErrorFromPath(string imagePath)
+        {
+            using var bmp = new Bitmap(imagePath);
+            return ComputeReconError(bmp);
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        //  EVALUATION AGAINST REAL OK/NG DATA
+        //  (the piece that was missing: verify the threshold actually
+        //   separates real defects, not just OK-only validation stats)
+        // ══════════════════════════════════════════════════════════════
+
+        private static readonly string[] ImageExts = { ".jpg", ".jpeg", ".png", ".bmp" };
+
+        public class EvaluationResult
+        {
+            public int TotalOk { get; set; }
+            public int TotalNg { get; set; }
+
+            /// <summary>NG images correctly flagged as NG (the model caught the defect).</summary>
+            public int TruePositiveNg { get; set; }
+            /// <summary>NG images that slipped through as OK — the costly QC error.</summary>
+            public int FalseNegativeNg { get; set; }
+            /// <summary>OK images correctly passed.</summary>
+            public int TrueNegativeOk { get; set; }
+            /// <summary>OK images wrongly flagged as NG (false alarm).</summary>
+            public int FalsePositiveOk { get; set; }
+
+            /// <summary>Fraction of real defects actually caught. This is the headline QC number.</summary>
+            public float NgRecall => TotalNg == 0 ? 0f : (float)TruePositiveNg / TotalNg;
+            /// <summary>Fraction of good parts correctly passed (1 - false alarm rate).</summary>
+            public float OkSpecificity => TotalOk == 0 ? 0f : (float)TrueNegativeOk / TotalOk;
+            public float Accuracy => (TotalOk + TotalNg) == 0 ? 0f
+                : (float)(TruePositiveNg + TrueNegativeOk) / (TotalOk + TotalNg);
+
+            public List<string> MissedNgFiles { get; } = new();
+            public List<string> FalseAlarmOkFiles { get; } = new();
+
+            public override string ToString() =>
+                $"Accuracy={Accuracy:P1}  NG-Recall={NgRecall:P1} ({TruePositiveNg}/{TotalNg} caught)  " +
+                $"OK-Specificity={OkSpecificity:P1} ({TrueNegativeOk}/{TotalOk} passed)  " +
+                $"Missed NG={FalseNegativeNg}  False alarms={FalsePositiveOk}";
+        }
+
+        /// <summary>
+        /// Runs the model, at its currently configured threshold, against real labelled
+        /// OK and NG folders. Use this before trusting a threshold that was only calibrated
+        /// against OK validation error — it tells you whether real defects are actually caught.
+        /// </summary>
+        public EvaluationResult Evaluate(string okFolder, string ngFolder)
+        {
+            var result = new EvaluationResult();
+
+            foreach (var file in EnumerateImages(okFolder))
+            {
+                result.TotalOk++;
+                var pred = Predict(file);
+                if (pred.IsAnomaly) { result.FalsePositiveOk++; result.FalseAlarmOkFiles.Add(file); }
+                else result.TrueNegativeOk++;
+            }
+
+            foreach (var file in EnumerateImages(ngFolder))
+            {
+                result.TotalNg++;
+                var pred = Predict(file);
+                if (pred.IsAnomaly) result.TruePositiveNg++;
+                else { result.FalseNegativeNg++; result.MissedNgFiles.Add(file); }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Tries several candidate thresholds against real OK/NG folders and returns the
+        /// resulting confusion matrix for each, so you can pick a threshold that actually
+        /// minimises missed defects instead of guessing from mean+sensitivity*std alone.
+        /// Reconstruction errors are computed once per image and reused across all thresholds.
+        /// </summary>
+        public List<(float Threshold, EvaluationResult Result)> SweepThreshold(
+            string okFolder, string ngFolder, IEnumerable<float> candidateThresholds)
+        {
+            var okErrors = EnumerateImages(okFolder)
+                .Select(f => (File: f, Error: ComputeReconErrorFromPath(f)))
+                .ToList();
+            var ngErrors = EnumerateImages(ngFolder)
+                .Select(f => (File: f, Error: ComputeReconErrorFromPath(f)))
+                .ToList();
+
+            var swept = new List<(float, EvaluationResult)>();
+            foreach (var t in candidateThresholds)
+            {
+                var r = new EvaluationResult { TotalOk = okErrors.Count, TotalNg = ngErrors.Count };
+
+                foreach (var (file, err) in okErrors)
+                {
+                    if (err > t) { r.FalsePositiveOk++; r.FalseAlarmOkFiles.Add(file); }
+                    else r.TrueNegativeOk++;
+                }
+                foreach (var (file, err) in ngErrors)
+                {
+                    if (err > t) r.TruePositiveNg++;
+                    else { r.FalseNegativeNg++; r.MissedNgFiles.Add(file); }
+                }
+
+                swept.Add((t, r));
+            }
+            return swept;
+        }
+
+        private static IEnumerable<string> EnumerateImages(string folder)
+        {
+            if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
+                yield break;
+
+            foreach (var file in Directory.GetFiles(folder))
+                if (ImageExts.Contains(Path.GetExtension(file).ToLowerInvariant()))
+                    yield return file;
         }
 
         // ══════════════════════════════════════════════════════════════

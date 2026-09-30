@@ -29,7 +29,7 @@
         /// 
         private void InitializeUsbPortControlButtons()
         {
-            
+
         }
         private void InitializeComponent()
         {
@@ -44,6 +44,7 @@
             menuChangeBasePath = new ToolStripMenuItem();
             verifyAllSettingToolStripMenuItem = new ToolStripMenuItem();
             manageCorrectionsToolStripMenuItem = new ToolStripMenuItem();
+            menuEvaluateModel = new ToolStripMenuItem();
             MenuConnectUsbLight = new ToolStripMenuItem();
             btnSelectFolder = new Button();
             btnSelectSingleImage = new Button();
@@ -94,7 +95,7 @@
             // 
             // menuFile
             // 
-            menuFile.DropDownItems.AddRange(new ToolStripItem[] { menuBuildModel, menuSelectModel, menuSeparator, menuChangeBasePath, verifyAllSettingToolStripMenuItem, manageCorrectionsToolStripMenuItem, MenuConnectUsbLight });
+            menuFile.DropDownItems.AddRange(new ToolStripItem[] { menuBuildModel, menuSelectModel, menuSeparator, menuChangeBasePath, verifyAllSettingToolStripMenuItem, manageCorrectionsToolStripMenuItem, menuEvaluateModel, MenuConnectUsbLight });
             menuFile.Name = "menuFile";
             menuFile.Size = new Size(92, 29);
             menuFile.Text = "Settings";
@@ -138,6 +139,13 @@
             manageCorrectionsToolStripMenuItem.Size = new Size(303, 34);
             manageCorrectionsToolStripMenuItem.Text = "📝 Manage Corrections";
             manageCorrectionsToolStripMenuItem.Click += MenuManageCorrections_Click;
+            // 
+            // menuEvaluateModel
+            // 
+            menuEvaluateModel.Name = "menuEvaluateModel";
+            menuEvaluateModel.Size = new Size(303, 34);
+            menuEvaluateModel.Text = "📊 Evaluate Model (OK/NG)...";
+            menuEvaluateModel.Click += MenuEvaluateModel_Click;
             // 
             // MenuConnectUsbLight
             // 
@@ -619,6 +627,7 @@
         private ToolStripMenuItem verifyAllSettingToolStripMenuItem;
         private ToolTip tooltip;
         private ToolStripMenuItem manageCorrectionsToolStripMenuItem;
+        private ToolStripMenuItem menuEvaluateModel;
         private System.Windows.Forms.Button btnMonitorFolder;
         private ToolStripMenuItem MenuConnectUsbLight;
         private Label lblUsbLightStatus;
