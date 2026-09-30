@@ -9,7 +9,7 @@ namespace Image_Checker.WinForm
     /// (warm-start) fine-tune before it runs. Built entirely in code
     /// rather than the designer so it doesn't touch Form1.Designer.cs.
     /// </summary>
-    public class FineTuneSettingsForm : Form
+    public partial class FineTuneSettingsForm : Form
     {
         public int FineTuneEpochs { get; private set; }
         public float LearningRateMultiplier { get; private set; }

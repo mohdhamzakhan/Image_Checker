@@ -882,7 +882,7 @@
             btnLoadOneClassPreview.Text = "Load Sample Image...";
             btnLoadOneClassPreview.UseVisualStyleBackColor = false;
             // Wire up event if not already done in the code-behind
-            btnLoadOneClassPreview.Click += BtnLoadPreview_Click; 
+            btnLoadOneClassPreview.Click += BtnLoadPreview_Click;
 
             picOneClassPreview = new PictureBox();
             ((System.ComponentModel.ISupportInitialize)(picOneClassPreview)).BeginInit();
@@ -901,11 +901,13 @@
             chkOneClassAugment.Checked = true;
             chkOneClassAugment.Font = new Font("Microsoft Sans Serif", 9F);
             chkOneClassAugment.Location = new Point(16, 260);
+            chkOneClassAugment.MinimumSize = new Size(320, 0);
             chkOneClassAugment.Text = "Data Augmentation (flip + brightness jitter)";
 
             chkOneClassGpu.AutoSize = true;
             chkOneClassGpu.Font = new Font("Microsoft Sans Serif", 9F);
             chkOneClassGpu.Location = new Point(16, 290);
+            chkOneClassGpu.MinimumSize = new Size(180, 0);
             chkOneClassGpu.Text = "Use GPU / CUDA";
 
             btnStartOneClass.BackColor = Color.FromArgb(0, 122, 204);
@@ -1059,8 +1061,8 @@
             // ══════════════════════════════════════════════════════════════════
             //  FORM
             // ══════════════════════════════════════════════════════════════════
-            AutoScaleDimensions = new SizeF(10F, 22F);
-            AutoScaleMode = AutoScaleMode.Font;
+            AutoScaleDimensions = new SizeF(96F, 96F);
+            AutoScaleMode = AutoScaleMode.Dpi;
             BackColor = Color.White;
             ClientSize = new Size(1280, 820);
             Controls.Add(mainTabControl);

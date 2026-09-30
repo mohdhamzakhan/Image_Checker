@@ -554,8 +554,8 @@
             // 
             // Form1
             // 
-            AutoScaleDimensions = new SizeF(10F, 22F);
-            AutoScaleMode = AutoScaleMode.Font;
+            AutoScaleDimensions = new SizeF(96F, 96F);
+            AutoScaleMode = AutoScaleMode.Dpi;
             BackColor = Color.White;
             ClientSize = new Size(1900, 1333);
             Controls.Add(lblUsbLightStatus);
