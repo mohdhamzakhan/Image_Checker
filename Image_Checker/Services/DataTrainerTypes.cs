@@ -117,6 +117,21 @@ namespace Image_Checker.Services
         public double TestFraction { get; set; } = 0.2;
         public int Seed { get; set; } = 42;
 
+        /// <summary>
+        /// When set, the tabular (Regression/Classification) pipeline splits
+        /// train/test BY THIS DATE COLUMN instead of randomly: the earliest
+        /// (1 - TestFraction) of rows by date become the training set, and
+        /// the most recent TestFraction become the test set. This is the
+        /// honest way to evaluate a forecasting model — it measures "can this
+        /// model predict a period it has never seen" instead of "can it
+        /// recall a row it memorized from a random shuffle".
+        /// Leave null/empty to keep the old random split.
+        /// </summary>
+        public string? SplitDateColumn { get; set; }
+
+        /// <summary>Must be true AND SplitDateColumn set for the time-based split to activate.</summary>
+        public bool UseTimeBasedSplit { get; set; } = false;
+
         // ── Time-series ──────────────────────────────────────────────────────
         public TimeSeriesOptions TimeSeries { get; set; } = new();
 

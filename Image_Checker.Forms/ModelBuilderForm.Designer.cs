@@ -30,6 +30,8 @@ namespace Image_Checker.Forms
 
         // columns tab
         private ComboBox cmbLabel, cmbTask;
+        private CheckBox chkTimeBasedSplit;
+        private ComboBox cmbSplitDateCol;
         private NumericUpDown nudTestPct, nudSeed;
         private Label lblTestPctSuffix;
         private CheckedListBox clbFeatures, clbIgnore;
@@ -270,6 +272,22 @@ namespace Image_Checker.Forms
             lContent.Controls.Add(FieldLabel("Random Seed", 18, y)); y += 22;
             nudSeed = new NumericUpDown { Location = new Point(18, y), Width = 110, Minimum = 0, Maximum = 99999, Value = 42 };
             lContent.Controls.Add(nudSeed); y += 40;
+
+            chkTimeBasedSplit = new CheckBox
+            {
+                Location = new Point(18, y),
+                AutoSize = true,
+                Text = "Split by date instead of randomly (recommended for sales data)"
+            };
+            tip.SetToolTip(chkTimeBasedSplit,
+                "Trains on the earliest rows and tests on the most recent rows, " +
+                "so accuracy reflects real forecasting ability instead of the model " +
+                "recalling IDs it saw during a random shuffle.");
+            lContent.Controls.Add(chkTimeBasedSplit); y += 26;
+
+            lContent.Controls.Add(FieldLabel("Split Date Column", 18, y)); y += 22;
+            cmbSplitDateCol = new ComboBox { Location = new Point(18, y), Width = 330, DropDownStyle = ComboBoxStyle.DropDownList };
+            lContent.Controls.Add(cmbSplitDateCol); y += 36;
 
             lContent.Controls.Add(Divider(18, y)); y += 14;
 

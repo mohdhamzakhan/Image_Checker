@@ -420,11 +420,220 @@ namespace Image_Checker.Services
         //  TABULAR PIPELINE  (unchanged from v2)
         // ════════════════════════════════════════════════════════════════════
 
+        // ════════════════════════════════════════════════════════════════════
+        //  TRAIN / TEST SPLIT
+        // ════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Splits by date when configured (earliest rows → train, most
+        /// recent rows → test), so evaluation actually measures "can this
+        /// model predict a period it hasn't seen" — the real forecasting
+        /// question — rather than a random shuffle where most IDs appear
+        /// in both sets and the model just recalls them. Falls back to the
+        /// original random split when no split date column is configured.
+        ///
+        /// Implemented at the file level (two temp CSVs) rather than by
+        /// juggling IDataView row order — far simpler to get right and easy
+        /// to verify by opening the temp files directly if something looks off.
+        /// </summary>
+        /// <summary>
+        /// Stand-in for Microsoft.ML's DataOperationsCatalog.TrainTestData —
+        /// that type's constructor is internal to the Microsoft.ML assembly,
+        /// so it can't be built directly here. Same shape, so every existing
+        /// .TrainSet / .TestSet call site works unchanged.
+        /// </summary>
+        private readonly struct SplitResult
+        {
+            public IDataView TrainSet { get; }
+            public IDataView TestSet { get; }
+            public SplitResult(IDataView trainSet, IDataView testSet)
+            {
+                TrainSet = trainSet;
+                TestSet = testSet;
+            }
+
+            public static implicit operator SplitResult(DataOperationsCatalog.TrainTestData d)
+                => new SplitResult(d.TrainSet, d.TestSet);
+        }
+
+        private SplitResult BuildSplit(IDataView rawData)
+        {
+            bool wantsTimeSplit = _cfg.UseTimeBasedSplit &&
+                                  !string.IsNullOrWhiteSpace(_cfg.SplitDateColumn);
+
+            if (!wantsTimeSplit)
+            {
+                Log($"\n✂️  Splitting (random): {(1 - _cfg.TestFraction):P0} train / " +
+                    $"{_cfg.TestFraction:P0} test...");
+                return _ml.Data.TrainTestSplit(rawData, _cfg.TestFraction, seed: _cfg.Seed);
+            }
+
+            string dateCol = _cfg.SplitDateColumn!;
+            if (!Array.Exists(_allColumns, c => c == dateCol))
+            {
+                Log($"\n⚠️ Split date column '{dateCol}' not found in the data — " +
+                    "falling back to random split.");
+                return _ml.Data.TrainTestSplit(rawData, _cfg.TestFraction, seed: _cfg.Seed);
+            }
+
+            Log($"\n✂️  Splitting by date on '{dateCol}' " +
+                $"(chronological — earliest rows train, most recent {_cfg.TestFraction:P0} test)...");
+
+            var lines = File.ReadAllLines(_cfg.DataFilePath);
+            if (lines.Length < 2)
+            {
+                Log("   ⚠️ Not enough rows to split by date — falling back to random split.");
+                return _ml.Data.TrainTestSplit(rawData, _cfg.TestFraction, seed: _cfg.Seed);
+            }
+
+            string header = lines[0];
+            var headerCols = header.Split(_cfg.Separator);
+            int dateColIdx = Array.IndexOf(headerCols, dateCol);
+            if (dateColIdx < 0)
+            {
+                Log($"   ⚠️ Could not locate '{dateCol}' in the file header — " +
+                    "falling back to random split.");
+                return _ml.Data.TrainTestSplit(rawData, _cfg.TestFraction, seed: _cfg.Seed);
+            }
+
+            var dataLines = lines.Skip(_cfg.HasHeader ? 1 : 0).ToArray();
+            var parsedRows = dataLines.Select(line =>
+            {
+                var fields = line.Split(_cfg.Separator);
+                DateTime? d = fields.Length > dateColIdx ? ParseDate(fields[dateColIdx]) : null;
+                return (Line: line, Date: d);
+            }).ToList();
+
+            int unparsed = parsedRows.Count(r => r.Date == null);
+            if (unparsed > 0)
+                Log($"   ⚠️ {unparsed:N0} row(s) had an unparseable date and will be " +
+                    "kept in the training set only.");
+
+            var validDates = parsedRows.Where(r => r.Date.HasValue)
+                                        .Select(r => r.Date!.Value)
+                                        .OrderBy(d => d).ToList();
+
+            if (validDates.Count < 10)
+            {
+                Log("   ⚠️ Too few parseable dates for a meaningful time split — " +
+                    "falling back to random split.");
+                return _ml.Data.TrainTestSplit(rawData, _cfg.TestFraction, seed: _cfg.Seed);
+            }
+
+            int cutoffIndex = (int)(validDates.Count * (1 - _cfg.TestFraction));
+            cutoffIndex = Math.Clamp(cutoffIndex, 1, validDates.Count - 1);
+            DateTime cutoffDate = validDates[cutoffIndex];
+
+            Log($"   • Cutoff date: {cutoffDate:yyyy-MM-dd} " +
+                $"({validDates.Count:N0} dated rows, {_cfg.TestFraction:P0} held out after this date)");
+
+            var trainLines = new List<string>();
+            var testLines = new List<string>();
+            foreach (var (line, date) in parsedRows)
+            {
+                if (date.HasValue && date.Value > cutoffDate) testLines.Add(line);
+                else trainLines.Add(line);
+            }
+
+            Log($"   • Train rows: {trainLines.Count:N0}   Test rows: {testLines.Count:N0}");
+
+            if (testLines.Count == 0 || trainLines.Count == 0)
+            {
+                Log("   ⚠️ Time-based split produced an empty train or test set — " +
+                    "falling back to random split.");
+                return _ml.Data.TrainTestSplit(rawData, _cfg.TestFraction, seed: _cfg.Seed);
+            }
+
+            string tempDir = Path.Combine(Path.GetTempPath(), "ImageChecker_TimeSplit_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            string trainPath = Path.Combine(tempDir, "train.csv");
+            string testPath = Path.Combine(tempDir, "test.csv");
+
+            var trainOut = _cfg.HasHeader ? trainLines.Prepend(header) : trainLines;
+            var testOut = _cfg.HasHeader ? testLines.Prepend(header) : testLines;
+            File.WriteAllLines(trainPath, trainOut);
+            File.WriteAllLines(testPath, testOut);
+
+            var cols = InferTextLoaderColumns();
+            var loader = _ml.Data.CreateTextLoader(new TextLoader.Options
+            {
+                Separators = new[] { _cfg.Separator },
+                HasHeader = _cfg.HasHeader,
+                AllowQuoting = true,
+                TrimWhitespace = true,
+                Columns = cols
+            });
+
+            var trainData = loader.Load(trainPath);
+            var testData = loader.Load(testPath);
+            return new SplitResult(trainData, testData);
+        }
+
+        /// <summary>
+        /// For every categorical feature column, measures what fraction of
+        /// the TEST set's values never appear in the TRAIN set at all.
+        /// A high rate on an ID-like column (e.g. part number) is exactly
+        /// the "new launch" problem: one-hot/label encoding turns every one
+        /// of those test rows into a blank/zero feature at inference time,
+        /// so the model has no real signal for them. This doesn't fix it —
+        /// it tells you which column is responsible so you can either drop
+        /// it from features or replace it with attribute-based columns
+        /// (category, model, platform, etc.) that DO generalize.
+        /// </summary>
+        private void WarnAboutUnseenCategories(SplitResult split)
+        {
+            if (_categoricalCols == null || _categoricalCols.Length == 0) return;
+
+            Log("\n🔍 Checking categorical columns for unseen-value risk...");
+            bool anyWarning = false;
+
+            foreach (var col in _categoricalCols)
+            {
+                HashSet<string> trainVocab;
+                List<string> testValues;
+                try
+                {
+                    trainVocab = split.TrainSet.GetColumn<string>(col)
+                        .Select(v => v ?? "").ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    testValues = split.TestSet.GetColumn<string>(col)
+                        .Select(v => v ?? "").ToList();
+                }
+                catch { continue; } // column isn't string-typed; skip
+
+                if (testValues.Count == 0) continue;
+
+                int unseen = testValues.Count(v => !trainVocab.Contains(v));
+                double unseenRate = (double)unseen / testValues.Count;
+                long trainRowCount = Math.Max(1L, split.TrainSet.GetRowCount() ?? testValues.Count);
+                double cardinalityRate = (double)trainVocab.Count / trainRowCount;
+
+                if (unseenRate > 0.05 || cardinalityRate > 0.5)
+                {
+                    anyWarning = true;
+                    Log($"   ⚠️ '{col}': {unseenRate:P0} of test-set values never appeared in " +
+                        $"training ({trainVocab.Count:N0} unique values seen). " +
+                        (cardinalityRate > 0.5
+                            ? "High cardinality suggests this is an ID-like column (e.g. part " +
+                              "number) rather than a true category — consider removing it from " +
+                              "features, or replacing it with stable attributes (category, model, " +
+                              "platform) that still mean something for values never seen before."
+                            : "The model has no learned signal for these unseen values and will " +
+                              "fall back to a default/zero feature for them."));
+                }
+                else
+                {
+                    Log($"   ✅ '{col}': {unseenRate:P0} unseen rate, {trainVocab.Count:N0} unique values — looks fine.");
+                }
+            }
+
+            if (!anyWarning)
+                Log("   No high-risk categorical columns detected.");
+        }
+
         private string? RunTabularPipeline(IDataView rawData, CancellationToken ct)
         {
-            Log($"\n✂️  Splitting: {(1 - _cfg.TestFraction):P0} train / " +
-                $"{_cfg.TestFraction:P0} test...");
-            var split = _ml.Data.TrainTestSplit(rawData, _cfg.TestFraction, seed: _cfg.Seed);
+            var split = BuildSplit(rawData);
+            WarnAboutUnseenCategories(split);
 
             Log("\n🔧 Building preprocessing pipeline...");
             var preprocess = BuildPreprocessingPipeline();
@@ -432,10 +641,15 @@ namespace Image_Checker.Services
             ct.ThrowIfCancellationRequested();
 
             Log("\n⚙️  Fitting preprocessing...");
-            var preprocessModel = preprocess.Fit(rawData);
+            // ✅ Fit ONLY on the training rows. Fitting on the full dataset
+            // (including test rows) leaks test-set categorical values into
+            // the vocabulary and test-set values into the normalization
+            // stats — which quietly hides exactly the "new/unseen value"
+            // problem this split is meant to reveal.
+            var preprocessModel = preprocess.Fit(split.TrainSet);
             var trainTransformed = preprocessModel.Transform(split.TrainSet);
             _ml.Data.Cache(trainTransformed);
-            Log("   ✅ Preprocessing fitted");
+            Log("   ✅ Preprocessing fitted (on training rows only)");
             ct.ThrowIfCancellationRequested();
 
             var trainers = BuildTrainerList(ct);

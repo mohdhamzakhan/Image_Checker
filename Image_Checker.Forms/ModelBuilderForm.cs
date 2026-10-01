@@ -221,6 +221,29 @@ namespace Image_Checker.Forms
             cols.ForEach(c => cmbTsDate.Items.Add(c));
             cmbTsDate.SelectedIndex = 0;
 
+            cmbSplitDateCol.Items.Clear();
+            cmbSplitDateCol.Items.Add("(none)");
+            cols.ForEach(c => cmbSplitDateCol.Items.Add(c));
+
+            // Best-effort default: if a column looks like a transaction date
+            // (TRX_DATE, ORDER_DATE, DATE, etc.), pre-select it and turn on
+            // the time-based split by default — it's the correct choice for
+            // sales/forecasting data far more often than a random split is.
+            var dateLike = cols.FirstOrDefault(c =>
+                c.Contains("DATE", StringComparison.OrdinalIgnoreCase) ||
+                c.Contains("TRX", StringComparison.OrdinalIgnoreCase));
+
+            if (dateLike != null)
+            {
+                cmbSplitDateCol.SelectedItem = dateLike;
+                chkTimeBasedSplit.Checked = true;
+            }
+            else
+            {
+                cmbSplitDateCol.SelectedIndex = 0;
+                chkTimeBasedSplit.Checked = false;
+            }
+
             clbFeatures.Items.Clear(); clbIgnore.Items.Clear();
             cols.ForEach(c => { clbFeatures.Items.Add(c, true); clbIgnore.Items.Add(c, false); });
 
@@ -393,6 +416,9 @@ namespace Image_Checker.Forms
                 Task = ParseTask(),
                 TestFraction = (double)nudTestPct.Value / 100.0,
                 Seed = (int)nudSeed.Value,
+                UseTimeBasedSplit = chkTimeBasedSplit.Checked,
+                SplitDateColumn = cmbSplitDateCol.SelectedIndex > 0
+                                    ? cmbSplitDateCol.SelectedItem?.ToString() : null,
                 OutputDirectory = Path.GetDirectoryName(txtFilePath.Text) ?? "",
                 TimeSeries = ts ? new TimeSeriesOptions
                 {
