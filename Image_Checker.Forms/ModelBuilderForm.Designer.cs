@@ -71,6 +71,8 @@ namespace Image_Checker.Forms
         private void InitializeComponent()
         {
             SuspendLayout();
+            AutoScaleDimensions = new SizeF(96F, 96F);
+            AutoScaleMode = AutoScaleMode.Dpi;
             tip = new ToolTip { AutoPopDelay = 10000, InitialDelay = 400 };
             Text = "📊  Data Model Builder";
             Size = new Size(1300, 870);

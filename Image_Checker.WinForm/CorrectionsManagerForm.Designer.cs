@@ -394,8 +394,8 @@
             // 
             // CorrectionsManagerForm
             // 
-            this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 20F);
-            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            this.AutoScaleDimensions = new System.Drawing.SizeF(96F, 96F);
+            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi;
             this.ClientSize = new System.Drawing.Size(1400, 800);
             this.Controls.Add(this.splitContainer);
             this.MinimumSize = new System.Drawing.Size(1000, 600);
