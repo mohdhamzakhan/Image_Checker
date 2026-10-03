@@ -204,6 +204,48 @@ namespace Image_Checker.Forms
             finally { SetBusy(false, ""); }
         }
 
+        /// <summary>
+        /// Picks a sensible default label column instead of blindly taking
+        /// the last column in the file (that default is exactly what sent a
+        /// whole training run into a cascade of failures when a text column
+        /// like OPERATING_UNIT happened to be last — SSA tried to aggregate
+        /// it numerically, got NaN for every period, and every regression
+        /// trainer failed with "0 valid instances").
+        ///
+        /// Preference order:
+        ///   1. A numeric column whose name matches a common target pattern
+        ///      (quantity, amount, sales, revenue, demand, value, price...).
+        ///   2. The first numeric column, if no name match is found.
+        ///   3. The last column, only as a last resort when NO column in the
+        ///      file is numeric at all (matches the old behavior).
+        /// </summary>
+        private string GuessLabelColumn(List<string> cols)
+        {
+            if (_raw == null || cols.Count == 0) return cols.LastOrDefault() ?? "";
+
+            bool IsNumeric(string col)
+            {
+                var type = _raw.Columns[col]?.DataType;
+                return type == typeof(int) || type == typeof(long) || type == typeof(short)
+                    || type == typeof(float) || type == typeof(double) || type == typeof(decimal);
+            }
+
+            var numericCols = cols.Where(IsNumeric).ToList();
+            if (numericCols.Count == 0) return cols[^1]; // nothing numeric — old fallback
+
+            string[] targetPatterns =
+                { "QUANTITY", "QTY", "AMOUNT", "SALES", "REVENUE", "DEMAND", "VALUE", "PRICE" };
+
+            foreach (var pattern in targetPatterns)
+            {
+                var match = numericCols.FirstOrDefault(c =>
+                    c.Contains(pattern, StringComparison.OrdinalIgnoreCase));
+                if (match != null) return match;
+            }
+
+            return numericCols[0];
+        }
+
         // ─────────────────────────────────────────────────────────────────
         //  FILL COLUMNS TAB
         // ─────────────────────────────────────────────────────────────────
@@ -214,7 +256,7 @@ namespace Image_Checker.Forms
 
             cmbLabel.Items.Clear();
             cmbLabel.Items.AddRange(cols.Cast<object>().ToArray());
-            cmbLabel.SelectedIndex = cols.Count - 1;
+            cmbLabel.SelectedIndex = Math.Max(0, cols.IndexOf(GuessLabelColumn(cols)));
 
             cmbTsDate.Items.Clear();
             cmbTsDate.Items.Add("(none)");

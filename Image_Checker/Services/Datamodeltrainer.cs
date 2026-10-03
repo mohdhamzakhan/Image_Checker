@@ -770,7 +770,20 @@ namespace Image_Checker.Services
             else  // Regression
             {
                 if (alg.UseSdcaRegression) list.Add(("SDCA_Regression", _ml.Regression.Trainers.Sdca("Label", NORM)));
-                if (alg.UseOlsRegression) list.Add(("LinearSGD_Regression", _ml.Regression.Trainers.OnlineGradientDescent("Label", NORM)));
+                // OnlineGradientDescent (plain SGD) only sees normalized FEATURES,
+                // not a normalized LABEL. ML.NET's default learning rate (0.1)
+                // is tuned assuming a label roughly on a similar scale; a
+                // regression target with a wide range or outliers (e.g. a few
+                // bulk-order rows) can make the squared-error gradient
+                // overshoot every step until the weights diverge to NaN. A
+                // smaller learning rate plus a little L2 regularization is
+                // the standard fix — it trades a few more iterations for
+                // numerical stability, which matters more than training speed
+                // here since this is one of five trainers run automatically.
+                if (alg.UseOlsRegression) list.Add(("LinearSGD_Regression",
+                    _ml.Regression.Trainers.OnlineGradientDescent(
+                        "Label", NORM, learningRate: 0.01f, l2Regularization: 0.01f,
+                        numberOfIterations: 30)));
                 if (alg.UseFastTreeRegression) list.Add(("FastTree_Regression", _ml.Regression.Trainers.FastTree("Label", RAW, numberOfLeaves: 20, numberOfTrees: 100, learningRate: 0.2)));
                 if (alg.UseFastForestRegression) list.Add(("FastForest_Regression", _ml.Regression.Trainers.FastForest("Label", RAW, numberOfLeaves: 20, numberOfTrees: 100)));
                 if (alg.UseLightGbmRegression) list.Add(("LightGBM_Regression", _ml.Regression.Trainers.LightGbm("Label", RAW, numberOfLeaves: 31, learningRate: 0.05f, numberOfIterations: 300)));
@@ -1113,18 +1126,35 @@ namespace Image_Checker.Services
         private (int window, int seriesLen) SafeSSAParams(
             int window, int seriesLen, int trainSize, int horizon)
         {
+            // ML.NET's hard requirement is trainSize > 2 * windowSize
+            // (STRICTLY greater — equal is rejected at Fit() time with
+            // "input size for training should be greater than twice the
+            // window size"). The old logic capped window against
+            // seriesLen/2 using >, which let window == seriesLen/2 slip
+            // through — exactly the boundary case that crashed. Capping
+            // directly against trainSize here makes the constraint
+            // impossible to violate regardless of what seriesLen becomes.
+            int maxWindow = Math.Max(1, (trainSize - 1) / 2);
+            if (window > maxWindow)
+            {
+                window = maxWindow;
+                Log($"   ⚠️  WindowSize capped to {window} (must be < trainSize/2, trainSize={trainSize}).");
+            }
+            if (window <= horizon)
+            {
+                int desired = horizon + 1;
+                window = Math.Min(desired, maxWindow);
+                Log($"   ⚠️  WindowSize adjusted to {window}.");
+                if (window <= horizon)
+                    Log($"   ⚠️  Not enough training data to fully support a horizon of " +
+                        $"{horizon} steps — forecast quality may be reduced.");
+            }
+
             if (seriesLen > trainSize)
             { seriesLen = trainSize; Log($"   ⚠️  SeriesLength capped to {seriesLen}."); }
-            if (window <= horizon)
-            { window = horizon + 1; Log($"   ⚠️  WindowSize adjusted to {window}."); }
             if (seriesLen <= window)
             { seriesLen = Math.Min(window + 1, trainSize); Log($"   ⚠️  SeriesLength expanded to {seriesLen}."); }
-            if (window > seriesLen / 2)
-            { window = Math.Max(horizon + 1, seriesLen / 2); Log($"   ⚠️  WindowSize capped to {window}."); }
-            if (seriesLen <= window)
-            { seriesLen = Math.Min(window + 1, trainSize); Log($"   ⚠️  SeriesLength re-adjusted to {seriesLen}."); }
-            if (seriesLen > trainSize)
-            { seriesLen = trainSize; Log($"   ⚠️  SeriesLength capped to trainSize {trainSize}."); }
+
             return (window, seriesLen);
         }
 

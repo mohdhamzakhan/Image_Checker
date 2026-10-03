@@ -177,6 +177,7 @@ namespace Image_Checker.Forms
         {
             tabMain = new System.Windows.Forms.TabControl
             {
+                Size = new System.Drawing.Size(1160, 800), // Pre-size to prevent 0x0 collapse
                 Dock = System.Windows.Forms.DockStyle.Fill,
                 Padding = new System.Drawing.Point(14, 5),
                 Font = new System.Drawing.Font("Segoe UI", 9.5f)
@@ -189,12 +190,14 @@ namespace Image_Checker.Forms
             tabOutput = new System.Windows.Forms.TabPage("Results")
             { BackColor = System.Drawing.Color.FromArgb(245, 247, 252) };
 
+            // 1. Add the tabs to the TabControl FIRST so they inherit its large starting size
+            tabMain.TabPages.AddRange(new System.Windows.Forms.TabPage[]
+                { tabInput, tabForecast, tabOutput });
+
+            // 2. NOW build their contents (Chart and SplitContainer will safely dock)
             BuildInputTab();
             BuildForecastTab();
             BuildOutputTab();
-
-            tabMain.TabPages.AddRange(new System.Windows.Forms.TabPage[]
-                { tabInput, tabForecast, tabOutput });
         }
 
         // ── INPUT TAB ────────────────────────────────────────────────────────
@@ -481,9 +484,12 @@ namespace Image_Checker.Forms
             // value for a single regression run).
             splitResults = new System.Windows.Forms.SplitContainer
             {
+                Size = new System.Drawing.Size(800, 600), // Must be added before Panel2MinSize
                 Dock = System.Windows.Forms.DockStyle.Fill,
                 Orientation = System.Windows.Forms.Orientation.Horizontal,
-                SplitterWidth = 6
+                SplitterWidth = 6,
+                FixedPanel = System.Windows.Forms.FixedPanel.Panel2,
+                Panel2MinSize = 220
             };
             splitResults.Panel1.Controls.Add(dgvOutput);
 
@@ -554,10 +560,6 @@ namespace Image_Checker.Forms
             chartHost.Controls.Add(chartBar);
 
             splitResults.Panel2.Controls.Add(chartHost);
-            splitResults.Layout += (s, e) =>
-            {
-                if (splitResults.Height > 200) splitResults.SplitterDistance = splitResults.Height - 220;
-            };
 
             tabOutput.Controls.Add(splitResults);
             tabOutput.Controls.Add(pBtns);
