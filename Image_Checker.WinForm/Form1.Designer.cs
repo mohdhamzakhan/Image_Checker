@@ -84,12 +84,12 @@
             // 
             // menuStrip
             // 
-            menuStrip.ImageScalingSize = new Size(24, 24);
+            menuStrip.GripMargin = new Padding(2);
             menuStrip.Items.AddRange(new ToolStripItem[] { menuFile });
             menuStrip.Location = new Point(0, 0);
             menuStrip.Name = "menuStrip";
-            menuStrip.Padding = new Padding(9, 3, 0, 3);
-            menuStrip.Size = new Size(1900, 35);
+            menuStrip.Padding = new Padding(4, 1, 0, 1);
+            menuStrip.Size = new Size(1268, 24);
             menuStrip.TabIndex = 16;
             menuStrip.Text = "menuStrip1";
             // 
@@ -97,60 +97,60 @@
             // 
             menuFile.DropDownItems.AddRange(new ToolStripItem[] { menuBuildModel, menuSelectModel, menuSeparator, menuChangeBasePath, verifyAllSettingToolStripMenuItem, manageCorrectionsToolStripMenuItem, menuEvaluateModel, MenuConnectUsbLight });
             menuFile.Name = "menuFile";
-            menuFile.Size = new Size(92, 29);
+            menuFile.Size = new Size(61, 22);
             menuFile.Text = "Settings";
             // 
             // menuBuildModel
             // 
             menuBuildModel.Name = "menuBuildModel";
-            menuBuildModel.Size = new Size(303, 34);
+            menuBuildModel.Size = new Size(228, 22);
             menuBuildModel.Text = "🤖 Build New Model...";
             menuBuildModel.Click += MenuBuildModel_Click;
             // 
             // menuSelectModel
             // 
             menuSelectModel.Name = "menuSelectModel";
-            menuSelectModel.Size = new Size(303, 34);
+            menuSelectModel.Size = new Size(228, 22);
             menuSelectModel.Text = "📂 Select Base Folder...";
             menuSelectModel.Click += MenuSelectModel_Click;
             // 
             // menuSeparator
             // 
             menuSeparator.Name = "menuSeparator";
-            menuSeparator.Size = new Size(300, 6);
+            menuSeparator.Size = new Size(225, 6);
             // 
             // menuChangeBasePath
             // 
             menuChangeBasePath.Name = "menuChangeBasePath";
-            menuChangeBasePath.Size = new Size(303, 34);
+            menuChangeBasePath.Size = new Size(228, 22);
             menuChangeBasePath.Text = "📁 Change Base Path...";
             menuChangeBasePath.Click += MenuChangeBasePath_Click;
             // 
             // verifyAllSettingToolStripMenuItem
             // 
             verifyAllSettingToolStripMenuItem.Name = "verifyAllSettingToolStripMenuItem";
-            verifyAllSettingToolStripMenuItem.Size = new Size(303, 34);
+            verifyAllSettingToolStripMenuItem.Size = new Size(228, 22);
             verifyAllSettingToolStripMenuItem.Text = "⚙️ Verify All Settings";
             verifyAllSettingToolStripMenuItem.Click += MenuVerifySetup_Click;
             // 
             // manageCorrectionsToolStripMenuItem
             // 
             manageCorrectionsToolStripMenuItem.Name = "manageCorrectionsToolStripMenuItem";
-            manageCorrectionsToolStripMenuItem.Size = new Size(303, 34);
+            manageCorrectionsToolStripMenuItem.Size = new Size(228, 22);
             manageCorrectionsToolStripMenuItem.Text = "📝 Manage Corrections";
             manageCorrectionsToolStripMenuItem.Click += MenuManageCorrections_Click;
             // 
             // menuEvaluateModel
             // 
             menuEvaluateModel.Name = "menuEvaluateModel";
-            menuEvaluateModel.Size = new Size(303, 34);
+            menuEvaluateModel.Size = new Size(228, 22);
             menuEvaluateModel.Text = "📊 Evaluate Model (OK/NG)...";
             menuEvaluateModel.Click += MenuEvaluateModel_Click;
             // 
             // MenuConnectUsbLight
             // 
             MenuConnectUsbLight.Name = "MenuConnectUsbLight";
-            MenuConnectUsbLight.Size = new Size(303, 34);
+            MenuConnectUsbLight.Size = new Size(228, 22);
             MenuConnectUsbLight.Text = "🔌 Connect USB Light";
             MenuConnectUsbLight.Click += MenuConnectUsbLight_Click;
             // 
@@ -158,12 +158,11 @@
             // 
             btnSelectFolder.BackColor = Color.FromArgb(0, 120, 215);
             btnSelectFolder.FlatStyle = FlatStyle.Flat;
-            btnSelectFolder.Font = new Font("Microsoft Sans Serif", 10F, FontStyle.Bold);
+            btnSelectFolder.Font = new Font("Microsoft Sans Serif", 6.666667F, FontStyle.Bold);
             btnSelectFolder.ForeColor = Color.White;
-            btnSelectFolder.Location = new Point(29, 58);
-            btnSelectFolder.Margin = new Padding(4, 5, 4, 5);
+            btnSelectFolder.Location = new Point(19, 39);
             btnSelectFolder.Name = "btnSelectFolder";
-            btnSelectFolder.Size = new Size(229, 67);
+            btnSelectFolder.Size = new Size(153, 45);
             btnSelectFolder.TabIndex = 0;
             btnSelectFolder.Text = "📁 Select Folder";
             tooltip.SetToolTip(btnSelectFolder, "Process multiple images from folder structure");
@@ -174,12 +173,11 @@
             // 
             btnSelectSingleImage.BackColor = Color.FromArgb(46, 125, 50);
             btnSelectSingleImage.FlatStyle = FlatStyle.Flat;
-            btnSelectSingleImage.Font = new Font("Microsoft Sans Serif", 10F, FontStyle.Bold);
+            btnSelectSingleImage.Font = new Font("Microsoft Sans Serif", 6.666667F, FontStyle.Bold);
             btnSelectSingleImage.ForeColor = Color.White;
-            btnSelectSingleImage.Location = new Point(1223, 58);
-            btnSelectSingleImage.Margin = new Padding(4, 5, 4, 5);
+            btnSelectSingleImage.Location = new Point(815, 39);
             btnSelectSingleImage.Name = "btnSelectSingleImage";
-            btnSelectSingleImage.Size = new Size(300, 67);
+            btnSelectSingleImage.Size = new Size(200, 45);
             btnSelectSingleImage.TabIndex = 18;
             btnSelectSingleImage.Text = "🖼️ Predict Single Image";
             tooltip.SetToolTip(btnSelectSingleImage, "Select and predict a single image file");
@@ -189,57 +187,54 @@
             // lblFolderFilter
             // 
             lblFolderFilter.AutoSize = true;
-            lblFolderFilter.Font = new Font("Microsoft Sans Serif", 9F);
-            lblFolderFilter.Location = new Point(286, 47);
-            lblFolderFilter.Margin = new Padding(4, 0, 4, 0);
+            lblFolderFilter.Font = new Font("Microsoft Sans Serif", 6F);
+            lblFolderFilter.Location = new Point(191, 31);
             lblFolderFilter.Name = "lblFolderFilter";
-            lblFolderFilter.Size = new Size(135, 22);
+            lblFolderFilter.Size = new Size(90, 15);
             lblFolderFilter.TabIndex = 1;
             lblFolderFilter.Text = "Filter by Folder:";
             // 
             // cbFolderFilter
             // 
             cbFolderFilter.DropDownStyle = ComboBoxStyle.DropDownList;
-            cbFolderFilter.Font = new Font("Microsoft Sans Serif", 10F);
+            cbFolderFilter.Font = new Font("Microsoft Sans Serif", 6.666667F);
             cbFolderFilter.FormattingEnabled = true;
-            cbFolderFilter.Location = new Point(286, 81);
-            cbFolderFilter.Margin = new Padding(4, 5, 4, 5);
+            cbFolderFilter.Location = new Point(191, 54);
             cbFolderFilter.Name = "cbFolderFilter";
-            cbFolderFilter.Size = new Size(284, 33);
+            cbFolderFilter.Size = new Size(191, 24);
             cbFolderFilter.TabIndex = 2;
             cbFolderFilter.SelectedIndexChanged += ApplyFilters;
             // 
             // lblPredFilter
             // 
             lblPredFilter.AutoSize = true;
-            lblPredFilter.Font = new Font("Microsoft Sans Serif", 9F);
-            lblPredFilter.Location = new Point(600, 47);
-            lblPredFilter.Margin = new Padding(4, 0, 4, 0);
+            lblPredFilter.Font = new Font("Microsoft Sans Serif", 6F);
+            lblPredFilter.Location = new Point(400, 31);
             lblPredFilter.Name = "lblPredFilter";
-            lblPredFilter.Size = new Size(164, 22);
+            lblPredFilter.Size = new Size(110, 15);
             lblPredFilter.TabIndex = 3;
             lblPredFilter.Text = "Filter by Prediction:";
             // 
             // cbPredFilter
             // 
             cbPredFilter.DropDownStyle = ComboBoxStyle.DropDownList;
-            cbPredFilter.Font = new Font("Microsoft Sans Serif", 10F);
+            cbPredFilter.Font = new Font("Microsoft Sans Serif", 6.666667F);
             cbPredFilter.FormattingEnabled = true;
-            cbPredFilter.Location = new Point(600, 81);
-            cbPredFilter.Margin = new Padding(4, 5, 4, 5);
+            cbPredFilter.Location = new Point(400, 54);
             cbPredFilter.Name = "cbPredFilter";
-            cbPredFilter.Size = new Size(284, 33);
+            cbPredFilter.Size = new Size(191, 24);
             cbPredFilter.TabIndex = 4;
             cbPredFilter.SelectedIndexChanged += ApplyFilters;
             // 
             // lblModelInfo
             // 
             lblModelInfo.AutoSize = true;
-            lblModelInfo.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Italic);
+            lblModelInfo.Font = new Font("Microsoft Sans Serif", 6F, FontStyle.Italic);
             lblModelInfo.ForeColor = Color.FromArgb(0, 120, 215);
-            lblModelInfo.Location = new Point(908, 92);
+            lblModelInfo.Location = new Point(605, 61);
+            lblModelInfo.Margin = new Padding(2, 0, 2, 0);
             lblModelInfo.Name = "lblModelInfo";
-            lblModelInfo.Size = new Size(145, 22);
+            lblModelInfo.Size = new Size(102, 15);
             lblModelInfo.TabIndex = 17;
             lblModelInfo.Text = "No model loaded";
             // 
@@ -268,14 +263,13 @@
             dataGridViewCellStyle2.SelectionForeColor = SystemColors.HighlightText;
             dataGridViewCellStyle2.WrapMode = DataGridViewTriState.False;
             grid.DefaultCellStyle = dataGridViewCellStyle2;
-            grid.Location = new Point(12, 138);
-            grid.Margin = new Padding(4, 5, 4, 5);
+            grid.Location = new Point(8, 92);
             grid.MultiSelect = false;
             grid.Name = "grid";
             grid.ReadOnly = true;
             grid.RowHeadersWidth = 51;
             grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            grid.Size = new Size(1194, 1183);
+            grid.Size = new Size(800, 680);
             grid.TabIndex = 5;
             grid.CellFormatting += Grid_CellFormatting;
             grid.SelectionChanged += Grid_SelectionChanged;
@@ -284,10 +278,9 @@
             // 
             pictureBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Right;
             pictureBox.BorderStyle = BorderStyle.FixedSingle;
-            pictureBox.Location = new Point(1214, 195);
-            pictureBox.Margin = new Padding(4, 5, 4, 5);
+            pictureBox.Location = new Point(813, 130);
             pictureBox.Name = "pictureBox";
-            pictureBox.Size = new Size(673, 719);
+            pictureBox.Size = new Size(449, 491);
             pictureBox.SizeMode = PictureBoxSizeMode.Zoom;
             pictureBox.TabIndex = 6;
             pictureBox.TabStop = false;
@@ -297,11 +290,10 @@
             lblInfo.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             lblInfo.BackColor = Color.FromArgb(240, 240, 240);
             lblInfo.BorderStyle = BorderStyle.FixedSingle;
-            lblInfo.Font = new Font("Microsoft Sans Serif", 9F);
-            lblInfo.Location = new Point(1214, 919);
-            lblInfo.Margin = new Padding(4, 0, 4, 0);
+            lblInfo.Font = new Font("Microsoft Sans Serif", 6F);
+            lblInfo.Location = new Point(813, 624);
             lblInfo.Name = "lblInfo";
-            lblInfo.Size = new Size(673, 49);
+            lblInfo.Size = new Size(449, 33);
             lblInfo.TabIndex = 7;
             lblInfo.Text = "Select an image row to preview";
             lblInfo.TextAlign = ContentAlignment.MiddleCenter;
@@ -310,11 +302,10 @@
             // 
             lblSelectLabel.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             lblSelectLabel.AutoSize = true;
-            lblSelectLabel.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
-            lblSelectLabel.Location = new Point(1214, 968);
-            lblSelectLabel.Margin = new Padding(4, 0, 4, 0);
+            lblSelectLabel.Font = new Font("Microsoft Sans Serif", 6F, FontStyle.Bold);
+            lblSelectLabel.Location = new Point(813, 657);
             lblSelectLabel.Name = "lblSelectLabel";
-            lblSelectLabel.Size = new Size(208, 22);
+            lblSelectLabel.Size = new Size(147, 15);
             lblSelectLabel.TabIndex = 8;
             lblSelectLabel.Text = "Correct Classification:";
             // 
@@ -322,12 +313,11 @@
             // 
             cbCorrection.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             cbCorrection.DropDownStyle = ComboBoxStyle.DropDownList;
-            cbCorrection.Font = new Font("Microsoft Sans Serif", 10F);
+            cbCorrection.Font = new Font("Microsoft Sans Serif", 6.666667F);
             cbCorrection.FormattingEnabled = true;
-            cbCorrection.Location = new Point(1214, 1012);
-            cbCorrection.Margin = new Padding(4, 5, 4, 5);
+            cbCorrection.Location = new Point(813, 686);
             cbCorrection.Name = "cbCorrection";
-            cbCorrection.Size = new Size(180, 33);
+            cbCorrection.Size = new Size(121, 24);
             cbCorrection.TabIndex = 9;
             // 
             // btnCorrect
@@ -335,12 +325,11 @@
             btnCorrect.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             btnCorrect.BackColor = Color.FromArgb(255, 140, 0);
             btnCorrect.FlatStyle = FlatStyle.Flat;
-            btnCorrect.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
+            btnCorrect.Font = new Font("Microsoft Sans Serif", 6F, FontStyle.Bold);
             btnCorrect.ForeColor = Color.White;
-            btnCorrect.Location = new Point(1410, 998);
-            btnCorrect.Margin = new Padding(4, 5, 4, 5);
+            btnCorrect.Location = new Point(944, 677);
             btnCorrect.Name = "btnCorrect";
-            btnCorrect.Size = new Size(477, 50);
+            btnCorrect.Size = new Size(318, 33);
             btnCorrect.TabIndex = 10;
             btnCorrect.Text = "✏️ Save Correction";
             btnCorrect.UseVisualStyleBackColor = false;
@@ -351,12 +340,11 @@
             btnQuickUpdate.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             btnQuickUpdate.BackColor = Color.FromArgb(76, 175, 80);
             btnQuickUpdate.FlatStyle = FlatStyle.Flat;
-            btnQuickUpdate.Font = new Font("Microsoft Sans Serif", 10F, FontStyle.Bold);
+            btnQuickUpdate.Font = new Font("Microsoft Sans Serif", 6.666667F, FontStyle.Bold);
             btnQuickUpdate.ForeColor = Color.White;
-            btnQuickUpdate.Location = new Point(1214, 1058);
-            btnQuickUpdate.Margin = new Padding(4, 5, 4, 5);
+            btnQuickUpdate.Location = new Point(813, 717);
             btnQuickUpdate.Name = "btnQuickUpdate";
-            btnQuickUpdate.Size = new Size(330, 67);
+            btnQuickUpdate.Size = new Size(220, 45);
             btnQuickUpdate.TabIndex = 11;
             btnQuickUpdate.Text = "⚡ Quick Update (Fast)";
             tooltip.SetToolTip(btnQuickUpdate, "True Incremental Learning:\n• Preserves original model knowledge\n• Learns from corrections\n• Fast (1-3 minutes)\n• Requires images.csv in base folder");
@@ -368,12 +356,11 @@
             btnRetrain.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             btnRetrain.BackColor = Color.FromArgb(156, 39, 176);
             btnRetrain.FlatStyle = FlatStyle.Flat;
-            btnRetrain.Font = new Font("Microsoft Sans Serif", 10F, FontStyle.Bold);
+            btnRetrain.Font = new Font("Microsoft Sans Serif", 6.666667F, FontStyle.Bold);
             btnRetrain.ForeColor = Color.White;
-            btnRetrain.Location = new Point(1557, 1058);
-            btnRetrain.Margin = new Padding(4, 5, 4, 5);
+            btnRetrain.Location = new Point(1042, 717);
             btnRetrain.Name = "btnRetrain";
-            btnRetrain.Size = new Size(330, 67);
+            btnRetrain.Size = new Size(220, 45);
             btnRetrain.TabIndex = 12;
             btnRetrain.Text = "🔄 Full Retrain (Slow)";
             tooltip.SetToolTip(btnRetrain, "Full Retrain:\n• Rebuilds model from scratch\n• Most accurate\n• Slow (5-15 minutes)\n• Use when accumulated many corrections");
@@ -385,11 +372,10 @@
             lblCorrectionCount.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             lblCorrectionCount.BackColor = Color.FromArgb(255, 248, 220);
             lblCorrectionCount.BorderStyle = BorderStyle.FixedSingle;
-            lblCorrectionCount.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
-            lblCorrectionCount.Location = new Point(1214, 1130);
-            lblCorrectionCount.Margin = new Padding(4, 0, 4, 0);
+            lblCorrectionCount.Font = new Font("Microsoft Sans Serif", 6F, FontStyle.Bold);
+            lblCorrectionCount.Location = new Point(813, 765);
             lblCorrectionCount.Name = "lblCorrectionCount";
-            lblCorrectionCount.Size = new Size(673, 40);
+            lblCorrectionCount.Size = new Size(449, 27);
             lblCorrectionCount.TabIndex = 13;
             lblCorrectionCount.Text = "Corrections pending: 0";
             lblCorrectionCount.TextAlign = ContentAlignment.MiddleCenter;
@@ -397,10 +383,9 @@
             // progressBar
             // 
             progressBar.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            progressBar.Location = new Point(1214, 1175);
-            progressBar.Margin = new Padding(4, 5, 4, 5);
+            progressBar.Location = new Point(813, 686);
             progressBar.Name = "progressBar";
-            progressBar.Size = new Size(673, 38);
+            progressBar.Size = new Size(449, 25);
             progressBar.Style = ProgressBarStyle.Marquee;
             progressBar.TabIndex = 14;
             progressBar.Visible = false;
@@ -410,12 +395,11 @@
             lblStatus.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             lblStatus.BackColor = Color.FromArgb(245, 245, 245);
             lblStatus.BorderStyle = BorderStyle.FixedSingle;
-            lblStatus.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Italic);
+            lblStatus.Font = new Font("Microsoft Sans Serif", 6F, FontStyle.Italic);
             lblStatus.ForeColor = Color.FromArgb(64, 64, 64);
-            lblStatus.Location = new Point(1214, 1222);
-            lblStatus.Margin = new Padding(4, 0, 4, 0);
+            lblStatus.Location = new Point(813, 705);
             lblStatus.Name = "lblStatus";
-            lblStatus.Size = new Size(673, 99);
+            lblStatus.Size = new Size(449, 67);
             lblStatus.TabIndex = 15;
             lblStatus.Text = "Model status will appear here";
             lblStatus.TextAlign = ContentAlignment.MiddleLeft;
@@ -425,12 +409,11 @@
             lblSingleImageResult.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             lblSingleImageResult.BackColor = Color.FromArgb(232, 245, 233);
             lblSingleImageResult.BorderStyle = BorderStyle.FixedSingle;
-            lblSingleImageResult.Font = new Font("Microsoft Sans Serif", 11F, FontStyle.Bold);
+            lblSingleImageResult.Font = new Font("Microsoft Sans Serif", 7.33333349F, FontStyle.Bold);
             lblSingleImageResult.ForeColor = Color.FromArgb(46, 125, 50);
-            lblSingleImageResult.Location = new Point(1214, 135);
-            lblSingleImageResult.Margin = new Padding(4, 0, 4, 0);
+            lblSingleImageResult.Location = new Point(813, 90);
             lblSingleImageResult.Name = "lblSingleImageResult";
-            lblSingleImageResult.Size = new Size(673, 50);
+            lblSingleImageResult.Size = new Size(449, 34);
             lblSingleImageResult.TabIndex = 19;
             lblSingleImageResult.Text = "Click 'Predict Single Image' to start";
             lblSingleImageResult.TextAlign = ContentAlignment.MiddleCenter;
@@ -440,11 +423,12 @@
             // 
             btnMonitorFolder.BackColor = Color.FromArgb(156, 39, 176);
             btnMonitorFolder.FlatStyle = FlatStyle.Flat;
-            btnMonitorFolder.Font = new Font("Microsoft Sans Serif", 10F, FontStyle.Bold);
+            btnMonitorFolder.Font = new Font("Microsoft Sans Serif", 6.666667F, FontStyle.Bold);
             btnMonitorFolder.ForeColor = Color.White;
-            btnMonitorFolder.Location = new Point(1530, 58);
+            btnMonitorFolder.Location = new Point(1020, 39);
+            btnMonitorFolder.Margin = new Padding(2, 2, 2, 2);
             btnMonitorFolder.Name = "btnMonitorFolder";
-            btnMonitorFolder.Size = new Size(357, 67);
+            btnMonitorFolder.Size = new Size(238, 45);
             btnMonitorFolder.TabIndex = 20;
             btnMonitorFolder.Text = "👁️ Monitor Folder (OFF)";
             tooltip.SetToolTip(btnMonitorFolder, "Auto-detect and predict new images in class folders");
@@ -454,11 +438,12 @@
             // lblUsbLightStatus
             // 
             lblUsbLightStatus.AutoSize = true;
-            lblUsbLightStatus.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Italic);
+            lblUsbLightStatus.Font = new Font("Microsoft Sans Serif", 6F, FontStyle.Italic);
             lblUsbLightStatus.ForeColor = Color.Sienna;
-            lblUsbLightStatus.Location = new Point(908, 47);
+            lblUsbLightStatus.Location = new Point(605, 31);
+            lblUsbLightStatus.Margin = new Padding(2, 0, 2, 0);
             lblUsbLightStatus.Name = "lblUsbLightStatus";
-            lblUsbLightStatus.Size = new Size(105, 22);
+            lblUsbLightStatus.Size = new Size(71, 15);
             lblUsbLightStatus.TabIndex = 21;
             lblUsbLightStatus.Text = "Light Status";
             // 
@@ -472,9 +457,11 @@
             groupBoxUsbPortControl.Controls.Add(btnTestConnection);
             groupBoxUsbPortControl.Controls.Add(btnCyclePort);
             groupBoxUsbPortControl.Controls.Add(btnDisconnectUsbHub);
-            groupBoxUsbPortControl.Location = new Point(12, 1175);
+            groupBoxUsbPortControl.Location = new Point(8, 675);
+            groupBoxUsbPortControl.Margin = new Padding(2, 2, 2, 2);
             groupBoxUsbPortControl.Name = "groupBoxUsbPortControl";
-            groupBoxUsbPortControl.Size = new Size(640, 146);
+            groupBoxUsbPortControl.Padding = new Padding(2, 2, 2, 2);
+            groupBoxUsbPortControl.Size = new Size(427, 97);
             groupBoxUsbPortControl.TabIndex = 200;
             groupBoxUsbPortControl.TabStop = false;
             groupBoxUsbPortControl.Text = "USB Port Power Control (Advanced)";
@@ -483,18 +470,20 @@
             // lblUsbPortStatus
             // 
             lblUsbPortStatus.BackColor = Color.FromArgb(240, 240, 240);
-            lblUsbPortStatus.Location = new Point(15, 20);
+            lblUsbPortStatus.Location = new Point(10, 13);
+            lblUsbPortStatus.Margin = new Padding(2, 0, 2, 0);
             lblUsbPortStatus.Name = "lblUsbPortStatus";
-            lblUsbPortStatus.Size = new Size(550, 39);
+            lblUsbPortStatus.Size = new Size(367, 26);
             lblUsbPortStatus.TabIndex = 0;
             lblUsbPortStatus.Text = "Status: Not connected";
             lblUsbPortStatus.TextAlign = ContentAlignment.MiddleLeft;
             // 
             // btnCheckUsbSupport
             // 
-            btnCheckUsbSupport.Location = new Point(15, 70);
+            btnCheckUsbSupport.Location = new Point(10, 47);
+            btnCheckUsbSupport.Margin = new Padding(2, 2, 2, 2);
             btnCheckUsbSupport.Name = "btnCheckUsbSupport";
-            btnCheckUsbSupport.Size = new Size(175, 30);
+            btnCheckUsbSupport.Size = new Size(117, 20);
             btnCheckUsbSupport.TabIndex = 1;
             btnCheckUsbSupport.Text = "✓ Check Support";
             btnCheckUsbSupport.UseVisualStyleBackColor = true;
@@ -502,9 +491,10 @@
             // 
             // btnTestUsbPortControl
             // 
-            btnTestUsbPortControl.Location = new Point(200, 70);
+            btnTestUsbPortControl.Location = new Point(133, 47);
+            btnTestUsbPortControl.Margin = new Padding(2, 2, 2, 2);
             btnTestUsbPortControl.Name = "btnTestUsbPortControl";
-            btnTestUsbPortControl.Size = new Size(175, 30);
+            btnTestUsbPortControl.Size = new Size(117, 20);
             btnTestUsbPortControl.TabIndex = 2;
             btnTestUsbPortControl.Text = "🔍 Run Diagnostics";
             btnTestUsbPortControl.UseVisualStyleBackColor = true;
@@ -513,9 +503,10 @@
             // btnConnectUsbHub
             // 
             btnConnectUsbHub.BackColor = Color.FromArgb(220, 255, 220);
-            btnConnectUsbHub.Location = new Point(385, 70);
+            btnConnectUsbHub.Location = new Point(257, 47);
+            btnConnectUsbHub.Margin = new Padding(2, 2, 2, 2);
             btnConnectUsbHub.Name = "btnConnectUsbHub";
-            btnConnectUsbHub.Size = new Size(175, 30);
+            btnConnectUsbHub.Size = new Size(117, 20);
             btnConnectUsbHub.TabIndex = 3;
             btnConnectUsbHub.Text = "🔌 Connect Hub";
             btnConnectUsbHub.UseVisualStyleBackColor = false;
@@ -523,9 +514,10 @@
             // 
             // btnTestConnection
             // 
-            btnTestConnection.Location = new Point(15, 105);
+            btnTestConnection.Location = new Point(10, 70);
+            btnTestConnection.Margin = new Padding(2, 2, 2, 2);
             btnTestConnection.Name = "btnTestConnection";
-            btnTestConnection.Size = new Size(175, 30);
+            btnTestConnection.Size = new Size(117, 20);
             btnTestConnection.TabIndex = 4;
             btnTestConnection.Text = "🔧 Test Connection";
             btnTestConnection.UseVisualStyleBackColor = true;
@@ -534,9 +526,10 @@
             // btnCyclePort
             // 
             btnCyclePort.BackColor = Color.FromArgb(255, 248, 220);
-            btnCyclePort.Location = new Point(200, 105);
+            btnCyclePort.Location = new Point(133, 70);
+            btnCyclePort.Margin = new Padding(2, 2, 2, 2);
             btnCyclePort.Name = "btnCyclePort";
-            btnCyclePort.Size = new Size(175, 30);
+            btnCyclePort.Size = new Size(117, 20);
             btnCyclePort.TabIndex = 5;
             btnCyclePort.Text = "⚡ Cycle Port";
             btnCyclePort.UseVisualStyleBackColor = false;
@@ -544,9 +537,10 @@
             // 
             // btnDisconnectUsbHub
             // 
-            btnDisconnectUsbHub.Location = new Point(385, 105);
+            btnDisconnectUsbHub.Location = new Point(257, 70);
+            btnDisconnectUsbHub.Margin = new Padding(2, 2, 2, 2);
             btnDisconnectUsbHub.Name = "btnDisconnectUsbHub";
-            btnDisconnectUsbHub.Size = new Size(175, 30);
+            btnDisconnectUsbHub.Size = new Size(117, 20);
             btnDisconnectUsbHub.TabIndex = 6;
             btnDisconnectUsbHub.Text = "⏹️ Disconnect";
             btnDisconnectUsbHub.UseVisualStyleBackColor = true;
@@ -557,7 +551,7 @@
             AutoScaleDimensions = new SizeF(96F, 96F);
             AutoScaleMode = AutoScaleMode.Dpi;
             BackColor = Color.White;
-            ClientSize = new Size(1900, 1333);
+            ClientSize = new Size(1268, 780);
             Controls.Add(lblUsbLightStatus);
             Controls.Add(lblSingleImageResult);
             Controls.Add(btnSelectSingleImage);
@@ -581,10 +575,9 @@
             Controls.Add(menuStrip);
             Controls.Add(groupBoxUsbPortControl);
             Controls.Add(btnMonitorFolder);
-            Font = new Font("Microsoft Sans Serif", 9F);
+            Font = new Font("Microsoft Sans Serif", 6F);
             MainMenuStrip = menuStrip;
-            Margin = new Padding(4, 5, 4, 5);
-            MinimumSize = new Size(1918, 1080);
+            MinimumSize = new Size(1284, 733);
             Name = "Form1";
             StartPosition = FormStartPosition.CenterScreen;
             Text = "MEAI Image Checking System";

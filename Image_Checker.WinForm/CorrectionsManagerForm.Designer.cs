@@ -28,392 +28,325 @@
         /// </summary>
         private void InitializeComponent()
         {
-            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle1 = new System.Windows.Forms.DataGridViewCellStyle();
-            this.splitContainer = new System.Windows.Forms.SplitContainer();
-            this.gridCorrections = new System.Windows.Forms.DataGridView();
-            this.colTimestamp = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.colFileName = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.colOriginalLabel = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.colConfidence = new System.Windows.Forms.DataGridViewTextBoxColumn();
-            this.colCorrectedLabel = new System.Windows.Forms.DataGridViewComboBoxColumn();
-            this.colDelete = new System.Windows.Forms.DataGridViewButtonColumn();
-            this.panelControls = new System.Windows.Forms.Panel();
-            this.btnClose = new System.Windows.Forms.Button();
-            this.btnDeleteAll = new System.Windows.Forms.Button();
-            this.btnExport = new System.Windows.Forms.Button();
-            this.btnRefresh = new System.Windows.Forms.Button();
-            this.cboFilterLabel = new System.Windows.Forms.ComboBox();
-            this.lblFilter = new System.Windows.Forms.Label();
-            this.txtSearch = new System.Windows.Forms.TextBox();
-            this.lblSearch = new System.Windows.Forms.Label();
-            this.lblStats = new System.Windows.Forms.Label();
-            this.panelPreview = new System.Windows.Forms.Panel();
-            this.picturePreview = new System.Windows.Forms.PictureBox();
-            this.panelEdit = new System.Windows.Forms.Panel();
-            this.btnDelete = new System.Windows.Forms.Button();
-            this.btnSave = new System.Windows.Forms.Button();
-            this.cboEditLabel = new System.Windows.Forms.ComboBox();
-            this.lblEdit = new System.Windows.Forms.Label();
-            this.lblImageInfo = new System.Windows.Forms.Label();
-            ((System.ComponentModel.ISupportInitialize)(this.splitContainer)).BeginInit();
-            this.splitContainer.Panel1.SuspendLayout();
-            this.splitContainer.Panel2.SuspendLayout();
-            this.splitContainer.SuspendLayout();
-            ((System.ComponentModel.ISupportInitialize)(this.gridCorrections)).BeginInit();
-            this.panelControls.SuspendLayout();
-            this.panelPreview.SuspendLayout();
-            ((System.ComponentModel.ISupportInitialize)(this.picturePreview)).BeginInit();
-            this.panelEdit.SuspendLayout();
-            this.SuspendLayout();
+            DataGridViewCellStyle dataGridViewCellStyle1 = new DataGridViewCellStyle();
+            splitContainer = new SplitContainer();
+            gridCorrections = new DataGridView();
+            colDelete = new DataGridViewButtonColumn();
+            panelControls = new Panel();
+            btnClose = new Button();
+            btnDeleteAll = new Button();
+            btnExport = new Button();
+            btnRefresh = new Button();
+            cboFilterLabel = new ComboBox();
+            lblFilter = new Label();
+            txtSearch = new TextBox();
+            lblSearch = new Label();
+            lblStats = new Label();
+            panelPreview = new Panel();
+            picturePreview = new PictureBox();
+            panelEdit = new Panel();
+            btnDelete = new Button();
+            btnSave = new Button();
+            cboEditLabel = new ComboBox();
+            lblEdit = new Label();
+            lblImageInfo = new Label();
+            ((System.ComponentModel.ISupportInitialize)splitContainer).BeginInit();
+            splitContainer.Panel1.SuspendLayout();
+            splitContainer.Panel2.SuspendLayout();
+            splitContainer.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)gridCorrections).BeginInit();
+            panelControls.SuspendLayout();
+            panelPreview.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)picturePreview).BeginInit();
+            panelEdit.SuspendLayout();
+            SuspendLayout();
             // 
             // splitContainer
             // 
-            this.splitContainer.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.splitContainer.FixedPanel = System.Windows.Forms.FixedPanel.Panel2;
-            this.splitContainer.Location = new System.Drawing.Point(0, 0);
-            this.splitContainer.Name = "splitContainer";
-            this.splitContainer.Orientation = System.Windows.Forms.Orientation.Horizontal;
+            splitContainer.Dock = DockStyle.Fill;
+            splitContainer.FixedPanel = FixedPanel.Panel2;
+            splitContainer.Location = new Point(0, 0);
+            splitContainer.Name = "splitContainer";
+            splitContainer.Orientation = Orientation.Horizontal;
             // 
             // splitContainer.Panel1
             // 
-            this.splitContainer.Panel1.Controls.Add(this.gridCorrections);
-            this.splitContainer.Panel1.Controls.Add(this.panelControls);
+            splitContainer.Panel1.Controls.Add(gridCorrections);
+            splitContainer.Panel1.Controls.Add(panelControls);
             // 
             // splitContainer.Panel2
             // 
-            this.splitContainer.Panel2.Controls.Add(this.panelPreview);
-            this.splitContainer.Panel2MinSize = 300;
-            this.splitContainer.Size = new System.Drawing.Size(1400, 800);
-            this.splitContainer.SplitterDistance = 400;
-            this.splitContainer.TabIndex = 0;
+            splitContainer.Panel2.Controls.Add(panelPreview);
+            splitContainer.Panel2MinSize = 300;
+            splitContainer.Size = new Size(1400, 780);
+            splitContainer.SplitterDistance = 380;
+            splitContainer.TabIndex = 0;
             // 
             // gridCorrections
             // 
-            this.gridCorrections.AllowUserToAddRows = false;
-            this.gridCorrections.AllowUserToDeleteRows = false;
-            this.gridCorrections.AutoGenerateColumns = false;
-            this.gridCorrections.BackgroundColor = System.Drawing.Color.White;
-            this.gridCorrections.BorderStyle = System.Windows.Forms.BorderStyle.None;
-            this.gridCorrections.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            this.gridCorrections.Columns.AddRange(new System.Windows.Forms.DataGridViewColumn[] {
-            this.colTimestamp,
-            this.colFileName,
-            this.colOriginalLabel,
-            this.colConfidence,
-            this.colCorrectedLabel,
-            this.colDelete});
-            this.gridCorrections.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.gridCorrections.Location = new System.Drawing.Point(0, 120);
-            this.gridCorrections.MultiSelect = false;
-            this.gridCorrections.Name = "gridCorrections";
-            this.gridCorrections.RowHeadersVisible = true;
-            this.gridCorrections.RowHeadersWidth = 51;
-            this.gridCorrections.RowTemplate.Height = 29;
-            this.gridCorrections.SelectionMode = System.Windows.Forms.DataGridViewSelectionMode.FullRowSelect;
-            this.gridCorrections.Size = new System.Drawing.Size(1400, 280);
-            this.gridCorrections.TabIndex = 1;
-            this.gridCorrections.CellClick += new System.Windows.Forms.DataGridViewCellEventHandler(this.GridCorrections_CellClick);
-            this.gridCorrections.CellValueChanged += new System.Windows.Forms.DataGridViewCellEventHandler(this.GridCorrections_CellValueChanged);
-            this.gridCorrections.SelectionChanged += new System.EventHandler(this.GridCorrections_SelectionChanged);
-            // 
-            // colTimestamp
-            // 
-            this.colTimestamp.DataPropertyName = "Timestamp";
-            this.colTimestamp.HeaderText = "Timestamp";
-            this.colTimestamp.MinimumWidth = 6;
-            this.colTimestamp.Name = "colTimestamp";
-            this.colTimestamp.ReadOnly = true;
-            this.colTimestamp.Width = 150;
-            // 
-            // colFileName
-            // 
-            this.colFileName.DataPropertyName = "FileName";
-            this.colFileName.HeaderText = "File Name";
-            this.colFileName.MinimumWidth = 6;
-            this.colFileName.Name = "colFileName";
-            this.colFileName.ReadOnly = true;
-            this.colFileName.Width = 200;
-            // 
-            // colOriginalLabel
-            // 
-            this.colOriginalLabel.DataPropertyName = "OriginalLabel";
-            this.colOriginalLabel.HeaderText = "Original Prediction";
-            this.colOriginalLabel.MinimumWidth = 6;
-            this.colOriginalLabel.Name = "colOriginalLabel";
-            this.colOriginalLabel.ReadOnly = true;
-            this.colOriginalLabel.Width = 140;
-            // 
-            // colConfidence
-            // 
-            this.colConfidence.DataPropertyName = "ConfidenceDisplay";
-            this.colConfidence.HeaderText = "Confidence";
-            this.colConfidence.MinimumWidth = 6;
-            this.colConfidence.Name = "colConfidence";
-            this.colConfidence.ReadOnly = true;
-            this.colConfidence.Width = 100;
-            // 
-            // colCorrectedLabel
-            // 
-            this.colCorrectedLabel.DataPropertyName = "CorrectedLabel";
-            this.colCorrectedLabel.HeaderText = "Corrected Label";
-            this.colCorrectedLabel.Items.AddRange(new object[] {
-            "OK",
-            "NG"});
-            this.colCorrectedLabel.MinimumWidth = 6;
-            this.colCorrectedLabel.Name = "colCorrectedLabel";
-            this.colCorrectedLabel.Resizable = System.Windows.Forms.DataGridViewTriState.True;
-            this.colCorrectedLabel.SortMode = System.Windows.Forms.DataGridViewColumnSortMode.Automatic;
-            this.colCorrectedLabel.Width = 130;
+            gridCorrections.AllowUserToAddRows = false;
+            gridCorrections.AllowUserToDeleteRows = false;
+            gridCorrections.BackgroundColor = Color.White;
+            gridCorrections.BorderStyle = BorderStyle.None;
+            gridCorrections.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            gridCorrections.Columns.AddRange(new DataGridViewColumn[] { colDelete });
+            gridCorrections.Dock = DockStyle.Fill;
+            gridCorrections.Location = new Point(0, 120);
+            gridCorrections.MultiSelect = false;
+            gridCorrections.Name = "gridCorrections";
+            gridCorrections.RowHeadersWidth = 51;
+            gridCorrections.RowTemplate.Height = 29;
+            gridCorrections.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            gridCorrections.Size = new Size(1400, 260);
+            gridCorrections.TabIndex = 1;
+            gridCorrections.CellClick += GridCorrections_CellClick;
+            gridCorrections.CellValueChanged += GridCorrections_CellValueChanged;
+            gridCorrections.SelectionChanged += GridCorrections_SelectionChanged;
             // 
             // colDelete
             // 
-            dataGridViewCellStyle1.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
-            dataGridViewCellStyle1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(220)))), ((int)(((byte)(53)))), ((int)(((byte)(69)))));
-            dataGridViewCellStyle1.ForeColor = System.Drawing.Color.White;
-            this.colDelete.DefaultCellStyle = dataGridViewCellStyle1;
-            this.colDelete.HeaderText = "Action";
-            this.colDelete.MinimumWidth = 6;
-            this.colDelete.Name = "colDelete";
-            this.colDelete.ReadOnly = true;
-            this.colDelete.Text = "Delete";
-            this.colDelete.UseColumnTextForButtonValue = true;
-            this.colDelete.Width = 80;
+            dataGridViewCellStyle1.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            dataGridViewCellStyle1.BackColor = Color.FromArgb(220, 53, 69);
+            dataGridViewCellStyle1.ForeColor = Color.White;
+            colDelete.DefaultCellStyle = dataGridViewCellStyle1;
+            colDelete.HeaderText = "Action";
+            colDelete.MinimumWidth = 6;
+            colDelete.Name = "colDelete";
+            colDelete.ReadOnly = true;
+            colDelete.Text = "Delete";
+            colDelete.UseColumnTextForButtonValue = true;
+            colDelete.Width = 80;
             // 
             // panelControls
             // 
-            this.panelControls.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(240)))), ((int)(((byte)(240)))), ((int)(((byte)(240)))));
-            this.panelControls.Controls.Add(this.btnClose);
-            this.panelControls.Controls.Add(this.btnDeleteAll);
-            this.panelControls.Controls.Add(this.btnExport);
-            this.panelControls.Controls.Add(this.btnRefresh);
-            this.panelControls.Controls.Add(this.cboFilterLabel);
-            this.panelControls.Controls.Add(this.lblFilter);
-            this.panelControls.Controls.Add(this.txtSearch);
-            this.panelControls.Controls.Add(this.lblSearch);
-            this.panelControls.Controls.Add(this.lblStats);
-            this.panelControls.Dock = System.Windows.Forms.DockStyle.Top;
-            this.panelControls.Location = new System.Drawing.Point(0, 0);
-            this.panelControls.Name = "panelControls";
-            this.panelControls.Padding = new System.Windows.Forms.Padding(10);
-            this.panelControls.Size = new System.Drawing.Size(1400, 120);
-            this.panelControls.TabIndex = 0;
+            panelControls.BackColor = Color.FromArgb(240, 240, 240);
+            panelControls.Controls.Add(btnClose);
+            panelControls.Controls.Add(btnDeleteAll);
+            panelControls.Controls.Add(btnExport);
+            panelControls.Controls.Add(btnRefresh);
+            panelControls.Controls.Add(cboFilterLabel);
+            panelControls.Controls.Add(lblFilter);
+            panelControls.Controls.Add(txtSearch);
+            panelControls.Controls.Add(lblSearch);
+            panelControls.Controls.Add(lblStats);
+            panelControls.Dock = DockStyle.Top;
+            panelControls.Location = new Point(0, 0);
+            panelControls.Name = "panelControls";
+            panelControls.Padding = new Padding(10, 10, 10, 10);
+            panelControls.Size = new Size(1400, 120);
+            panelControls.TabIndex = 0;
             // 
             // btnClose
             // 
-            this.btnClose.Location = new System.Drawing.Point(360, 80);
-            this.btnClose.Name = "btnClose";
-            this.btnClose.Size = new System.Drawing.Size(100, 30);
-            this.btnClose.TabIndex = 8;
-            this.btnClose.Text = "✖ Close";
-            this.btnClose.UseVisualStyleBackColor = true;
-            this.btnClose.Click += new System.EventHandler(this.BtnClose_Click);
+            btnClose.Location = new Point(360, 80);
+            btnClose.Name = "btnClose";
+            btnClose.Size = new Size(100, 30);
+            btnClose.TabIndex = 8;
+            btnClose.Text = "✖ Close";
+            btnClose.UseVisualStyleBackColor = true;
+            btnClose.Click += BtnClose_Click;
             // 
             // btnDeleteAll
             // 
-            this.btnDeleteAll.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(220)))), ((int)(((byte)(53)))), ((int)(((byte)(69)))));
-            this.btnDeleteAll.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnDeleteAll.ForeColor = System.Drawing.Color.White;
-            this.btnDeleteAll.Location = new System.Drawing.Point(240, 80);
-            this.btnDeleteAll.Name = "btnDeleteAll";
-            this.btnDeleteAll.Size = new System.Drawing.Size(110, 30);
-            this.btnDeleteAll.TabIndex = 7;
-            this.btnDeleteAll.Text = "🗑️ Clear All";
-            this.btnDeleteAll.UseVisualStyleBackColor = false;
-            this.btnDeleteAll.Click += new System.EventHandler(this.BtnDeleteAll_Click);
+            btnDeleteAll.BackColor = Color.FromArgb(220, 53, 69);
+            btnDeleteAll.FlatStyle = FlatStyle.Flat;
+            btnDeleteAll.ForeColor = Color.White;
+            btnDeleteAll.Location = new Point(240, 80);
+            btnDeleteAll.Name = "btnDeleteAll";
+            btnDeleteAll.Size = new Size(110, 30);
+            btnDeleteAll.TabIndex = 7;
+            btnDeleteAll.Text = "🗑️ Clear All";
+            btnDeleteAll.UseVisualStyleBackColor = false;
+            btnDeleteAll.Click += BtnDeleteAll_Click;
             // 
             // btnExport
             // 
-            this.btnExport.Location = new System.Drawing.Point(120, 80);
-            this.btnExport.Name = "btnExport";
-            this.btnExport.Size = new System.Drawing.Size(110, 30);
-            this.btnExport.TabIndex = 6;
-            this.btnExport.Text = "📊 Export CSV";
-            this.btnExport.UseVisualStyleBackColor = true;
-            this.btnExport.Click += new System.EventHandler(this.BtnExport_Click);
+            btnExport.Location = new Point(120, 80);
+            btnExport.Name = "btnExport";
+            btnExport.Size = new Size(110, 30);
+            btnExport.TabIndex = 6;
+            btnExport.Text = "📊 Export CSV";
+            btnExport.UseVisualStyleBackColor = true;
+            btnExport.Click += BtnExport_Click;
             // 
             // btnRefresh
             // 
-            this.btnRefresh.Location = new System.Drawing.Point(10, 80);
-            this.btnRefresh.Name = "btnRefresh";
-            this.btnRefresh.Size = new System.Drawing.Size(100, 30);
-            this.btnRefresh.TabIndex = 5;
-            this.btnRefresh.Text = "🔄 Refresh";
-            this.btnRefresh.UseVisualStyleBackColor = true;
-            this.btnRefresh.Click += new System.EventHandler(this.BtnRefresh_Click);
+            btnRefresh.Location = new Point(10, 80);
+            btnRefresh.Name = "btnRefresh";
+            btnRefresh.Size = new Size(100, 30);
+            btnRefresh.TabIndex = 5;
+            btnRefresh.Text = "🔄 Refresh";
+            btnRefresh.UseVisualStyleBackColor = true;
+            btnRefresh.Click += BtnRefresh_Click;
             // 
             // cboFilterLabel
             // 
-            this.cboFilterLabel.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this.cboFilterLabel.FormattingEnabled = true;
-            this.cboFilterLabel.Items.AddRange(new object[] {
-            "All",
-            "OK",
-            "NG"});
-            this.cboFilterLabel.Location = new System.Drawing.Point(415, 45);
-            this.cboFilterLabel.Name = "cboFilterLabel";
-            this.cboFilterLabel.Size = new System.Drawing.Size(120, 28);
-            this.cboFilterLabel.TabIndex = 4;
-            this.cboFilterLabel.SelectedIndexChanged += new System.EventHandler(this.CboFilterLabel_SelectedIndexChanged);
+            cboFilterLabel.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboFilterLabel.FormattingEnabled = true;
+            cboFilterLabel.Items.AddRange(new object[] { "All", "OK", "NG" });
+            cboFilterLabel.Location = new Point(415, 45);
+            cboFilterLabel.Name = "cboFilterLabel";
+            cboFilterLabel.Size = new Size(120, 23);
+            cboFilterLabel.TabIndex = 4;
+            cboFilterLabel.SelectedIndexChanged += CboFilterLabel_SelectedIndexChanged;
             // 
             // lblFilter
             // 
-            this.lblFilter.Location = new System.Drawing.Point(360, 45);
-            this.lblFilter.Name = "lblFilter";
-            this.lblFilter.Size = new System.Drawing.Size(50, 25);
-            this.lblFilter.TabIndex = 3;
-            this.lblFilter.Text = "Filter:";
-            this.lblFilter.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            lblFilter.Location = new Point(360, 45);
+            lblFilter.Name = "lblFilter";
+            lblFilter.Size = new Size(50, 25);
+            lblFilter.TabIndex = 3;
+            lblFilter.Text = "Filter:";
+            lblFilter.TextAlign = ContentAlignment.MiddleLeft;
             // 
             // txtSearch
             // 
-            this.txtSearch.Location = new System.Drawing.Point(95, 45);
-            this.txtSearch.Name = "txtSearch";
-            this.txtSearch.PlaceholderText = "Search by filename...";
-            this.txtSearch.Size = new System.Drawing.Size(250, 27);
-            this.txtSearch.TabIndex = 2;
-            this.txtSearch.TextChanged += new System.EventHandler(this.TxtSearch_TextChanged);
+            txtSearch.Location = new Point(95, 45);
+            txtSearch.Name = "txtSearch";
+            txtSearch.PlaceholderText = "Search by filename...";
+            txtSearch.Size = new Size(250, 31);
+            txtSearch.TabIndex = 2;
+            txtSearch.TextChanged += TxtSearch_TextChanged;
             // 
             // lblSearch
             // 
-            this.lblSearch.Location = new System.Drawing.Point(10, 45);
-            this.lblSearch.Name = "lblSearch";
-            this.lblSearch.Size = new System.Drawing.Size(80, 25);
-            this.lblSearch.TabIndex = 1;
-            this.lblSearch.Text = "🔍 Search:";
-            this.lblSearch.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            lblSearch.Location = new Point(10, 45);
+            lblSearch.Name = "lblSearch";
+            lblSearch.Size = new Size(80, 25);
+            lblSearch.TabIndex = 1;
+            lblSearch.Text = "🔍 Search:";
+            lblSearch.TextAlign = ContentAlignment.MiddleLeft;
             // 
             // lblStats
             // 
-            this.lblStats.Font = new System.Drawing.Font("Segoe UI", 10F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
-            this.lblStats.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(120)))), ((int)(((byte)(215)))));
-            this.lblStats.Location = new System.Drawing.Point(10, 10);
-            this.lblStats.Name = "lblStats";
-            this.lblStats.Size = new System.Drawing.Size(600, 25);
-            this.lblStats.TabIndex = 0;
-            this.lblStats.Text = "📊 Total Corrections: 0 | OK: 0 | NG: 0";
+            lblStats.Font = new Font("Segoe UI", 6.666667F, FontStyle.Bold);
+            lblStats.ForeColor = Color.FromArgb(0, 120, 215);
+            lblStats.Location = new Point(10, 10);
+            lblStats.Name = "lblStats";
+            lblStats.Size = new Size(600, 25);
+            lblStats.TabIndex = 0;
+            lblStats.Text = "📊 Total Corrections: 0 | OK: 0 | NG: 0";
             // 
             // panelPreview
             // 
-            this.panelPreview.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(250)))), ((int)(((byte)(250)))), ((int)(((byte)(250)))));
-            this.panelPreview.Controls.Add(this.picturePreview);
-            this.panelPreview.Controls.Add(this.panelEdit);
-            this.panelPreview.Controls.Add(this.lblImageInfo);
-            this.panelPreview.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.panelPreview.Location = new System.Drawing.Point(0, 0);
-            this.panelPreview.Name = "panelPreview";
-            this.panelPreview.Padding = new System.Windows.Forms.Padding(10);
-            this.panelPreview.Size = new System.Drawing.Size(1400, 396);
-            this.panelPreview.TabIndex = 0;
+            panelPreview.BackColor = Color.FromArgb(250, 250, 250);
+            panelPreview.Controls.Add(picturePreview);
+            panelPreview.Controls.Add(panelEdit);
+            panelPreview.Controls.Add(lblImageInfo);
+            panelPreview.Dock = DockStyle.Fill;
+            panelPreview.Location = new Point(0, 0);
+            panelPreview.Name = "panelPreview";
+            panelPreview.Padding = new Padding(10, 10, 10, 10);
+            panelPreview.Size = new Size(1400, 396);
+            panelPreview.TabIndex = 0;
             // 
             // picturePreview
             // 
-            this.picturePreview.BackColor = System.Drawing.Color.White;
-            this.picturePreview.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.picturePreview.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.picturePreview.Location = new System.Drawing.Point(10, 40);
-            this.picturePreview.Name = "picturePreview";
-            this.picturePreview.Size = new System.Drawing.Size(1380, 296);
-            this.picturePreview.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
-            this.picturePreview.TabIndex = 2;
-            this.picturePreview.TabStop = false;
+            picturePreview.BackColor = Color.White;
+            picturePreview.BorderStyle = BorderStyle.FixedSingle;
+            picturePreview.Dock = DockStyle.Fill;
+            picturePreview.Location = new Point(10, 40);
+            picturePreview.Name = "picturePreview";
+            picturePreview.Size = new Size(1380, 296);
+            picturePreview.SizeMode = PictureBoxSizeMode.Zoom;
+            picturePreview.TabIndex = 2;
+            picturePreview.TabStop = false;
             // 
             // panelEdit
             // 
-            this.panelEdit.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(240)))), ((int)(((byte)(240)))), ((int)(((byte)(240)))));
-            this.panelEdit.Controls.Add(this.btnDelete);
-            this.panelEdit.Controls.Add(this.btnSave);
-            this.panelEdit.Controls.Add(this.cboEditLabel);
-            this.panelEdit.Controls.Add(this.lblEdit);
-            this.panelEdit.Dock = System.Windows.Forms.DockStyle.Bottom;
-            this.panelEdit.Location = new System.Drawing.Point(10, 336);
-            this.panelEdit.Name = "panelEdit";
-            this.panelEdit.Padding = new System.Windows.Forms.Padding(10);
-            this.panelEdit.Size = new System.Drawing.Size(1380, 50);
-            this.panelEdit.TabIndex = 1;
+            panelEdit.BackColor = Color.FromArgb(240, 240, 240);
+            panelEdit.Controls.Add(btnDelete);
+            panelEdit.Controls.Add(btnSave);
+            panelEdit.Controls.Add(cboEditLabel);
+            panelEdit.Controls.Add(lblEdit);
+            panelEdit.Dock = DockStyle.Bottom;
+            panelEdit.Location = new Point(10, 336);
+            panelEdit.Name = "panelEdit";
+            panelEdit.Padding = new Padding(10, 10, 10, 10);
+            panelEdit.Size = new Size(1380, 50);
+            panelEdit.TabIndex = 1;
             // 
             // btnDelete
             // 
-            this.btnDelete.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(220)))), ((int)(((byte)(53)))), ((int)(((byte)(69)))));
-            this.btnDelete.Enabled = false;
-            this.btnDelete.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnDelete.ForeColor = System.Drawing.Color.White;
-            this.btnDelete.Location = new System.Drawing.Point(355, 8);
-            this.btnDelete.Name = "btnDelete";
-            this.btnDelete.Size = new System.Drawing.Size(100, 30);
-            this.btnDelete.TabIndex = 3;
-            this.btnDelete.Text = "🗑️ Delete";
-            this.btnDelete.UseVisualStyleBackColor = false;
-            this.btnDelete.Click += new System.EventHandler(this.BtnDelete_Click);
+            btnDelete.BackColor = Color.FromArgb(220, 53, 69);
+            btnDelete.Enabled = false;
+            btnDelete.FlatStyle = FlatStyle.Flat;
+            btnDelete.ForeColor = Color.White;
+            btnDelete.Location = new Point(355, 8);
+            btnDelete.Name = "btnDelete";
+            btnDelete.Size = new Size(100, 30);
+            btnDelete.TabIndex = 3;
+            btnDelete.Text = "🗑️ Delete";
+            btnDelete.UseVisualStyleBackColor = false;
+            btnDelete.Click += BtnDelete_Click;
             // 
             // btnSave
             // 
-            this.btnSave.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(40)))), ((int)(((byte)(167)))), ((int)(((byte)(69)))));
-            this.btnSave.Enabled = false;
-            this.btnSave.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
-            this.btnSave.ForeColor = System.Drawing.Color.White;
-            this.btnSave.Location = new System.Drawing.Point(225, 8);
-            this.btnSave.Name = "btnSave";
-            this.btnSave.Size = new System.Drawing.Size(120, 30);
-            this.btnSave.TabIndex = 2;
-            this.btnSave.Text = "💾 Save Change";
-            this.btnSave.UseVisualStyleBackColor = false;
-            this.btnSave.Click += new System.EventHandler(this.BtnSave_Click);
+            btnSave.BackColor = Color.FromArgb(40, 167, 69);
+            btnSave.Enabled = false;
+            btnSave.FlatStyle = FlatStyle.Flat;
+            btnSave.ForeColor = Color.White;
+            btnSave.Location = new Point(225, 8);
+            btnSave.Name = "btnSave";
+            btnSave.Size = new Size(120, 30);
+            btnSave.TabIndex = 2;
+            btnSave.Text = "💾 Save Change";
+            btnSave.UseVisualStyleBackColor = false;
+            btnSave.Click += BtnSave_Click;
             // 
             // cboEditLabel
             // 
-            this.cboEditLabel.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this.cboEditLabel.Enabled = false;
-            this.cboEditLabel.FormattingEnabled = true;
-            this.cboEditLabel.Items.AddRange(new object[] {
-            "OK",
-            "NG"});
-            this.cboEditLabel.Location = new System.Drawing.Point(115, 10);
-            this.cboEditLabel.Name = "cboEditLabel";
-            this.cboEditLabel.Size = new System.Drawing.Size(100, 28);
-            this.cboEditLabel.TabIndex = 1;
+            cboEditLabel.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboEditLabel.Enabled = false;
+            cboEditLabel.FormattingEnabled = true;
+            cboEditLabel.Items.AddRange(new object[] { "OK", "NG" });
+            cboEditLabel.Location = new Point(115, 10);
+            cboEditLabel.Name = "cboEditLabel";
+            cboEditLabel.Size = new Size(100, 23);
+            cboEditLabel.TabIndex = 1;
             // 
             // lblEdit
             // 
-            this.lblEdit.Location = new System.Drawing.Point(10, 12);
-            this.lblEdit.Name = "lblEdit";
-            this.lblEdit.Size = new System.Drawing.Size(100, 25);
-            this.lblEdit.TabIndex = 0;
-            this.lblEdit.Text = "Change Label:";
-            this.lblEdit.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            lblEdit.Location = new Point(10, 12);
+            lblEdit.Name = "lblEdit";
+            lblEdit.Size = new Size(100, 25);
+            lblEdit.TabIndex = 0;
+            lblEdit.Text = "Change Label:";
+            lblEdit.TextAlign = ContentAlignment.MiddleLeft;
             // 
             // lblImageInfo
             // 
-            this.lblImageInfo.Dock = System.Windows.Forms.DockStyle.Top;
-            this.lblImageInfo.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point);
-            this.lblImageInfo.Location = new System.Drawing.Point(10, 10);
-            this.lblImageInfo.Name = "lblImageInfo";
-            this.lblImageInfo.Size = new System.Drawing.Size(1380, 30);
-            this.lblImageInfo.TabIndex = 0;
-            this.lblImageInfo.Text = "Select a correction to preview";
-            this.lblImageInfo.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            lblImageInfo.Dock = DockStyle.Top;
+            lblImageInfo.Font = new Font("Segoe UI", 6F, FontStyle.Bold);
+            lblImageInfo.Location = new Point(10, 10);
+            lblImageInfo.Name = "lblImageInfo";
+            lblImageInfo.Size = new Size(1380, 30);
+            lblImageInfo.TabIndex = 0;
+            lblImageInfo.Text = "Select a correction to preview";
+            lblImageInfo.TextAlign = ContentAlignment.MiddleLeft;
             // 
             // CorrectionsManagerForm
             // 
-            this.AutoScaleDimensions = new System.Drawing.SizeF(96F, 96F);
-            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Dpi;
-            this.ClientSize = new System.Drawing.Size(1400, 800);
-            this.Controls.Add(this.splitContainer);
-            this.MinimumSize = new System.Drawing.Size(1000, 600);
-            this.Name = "CorrectionsManagerForm";
-            this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
-            this.Text = "Corrections Manager";
-            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.CorrectionsManagerForm_FormClosing);
-            this.splitContainer.Panel1.ResumeLayout(false);
-            this.splitContainer.Panel2.ResumeLayout(false);
-            ((System.ComponentModel.ISupportInitialize)(this.splitContainer)).EndInit();
-            this.splitContainer.ResumeLayout(false);
-            ((System.ComponentModel.ISupportInitialize)(this.gridCorrections)).EndInit();
-            this.panelControls.ResumeLayout(false);
-            this.panelControls.PerformLayout();
-            this.panelPreview.ResumeLayout(false);
-            ((System.ComponentModel.ISupportInitialize)(this.picturePreview)).EndInit();
-            this.panelEdit.ResumeLayout(false);
-            this.ResumeLayout(false);
+            AutoScaleDimensions = new SizeF(96F, 96F);
+            AutoScaleMode = AutoScaleMode.Dpi;
+            ClientSize = new Size(1400, 780);
+            Controls.Add(splitContainer);
+            MinimumSize = new Size(998, 594);
+            Name = "CorrectionsManagerForm";
+            StartPosition = FormStartPosition.CenterScreen;
+            Text = "Corrections Manager";
+            FormClosing += CorrectionsManagerForm_FormClosing;
+            splitContainer.Panel1.ResumeLayout(false);
+            splitContainer.Panel2.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)splitContainer).EndInit();
+            splitContainer.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)gridCorrections).EndInit();
+            panelControls.ResumeLayout(false);
+            panelControls.PerformLayout();
+            panelPreview.ResumeLayout(false);
+            ((System.ComponentModel.ISupportInitialize)picturePreview).EndInit();
+            panelEdit.ResumeLayout(false);
+            ResumeLayout(false);
 
         }
 
