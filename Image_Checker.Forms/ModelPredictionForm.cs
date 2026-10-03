@@ -37,7 +37,20 @@ namespace Image_Checker.Forms
             InitForm();
             WireEvents();
         }
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
 
+            // Force window handle creation for all hidden tabs now that 
+            // the main form handle actually exists. 
+            this.SuspendLayout();
+            foreach (TabPage tab in tabMain.TabPages)
+            {
+                tabMain.SelectedTab = tab;
+            }
+            tabMain.SelectedIndex = 0;
+            this.ResumeLayout(true);
+        }
         // ── Event wiring ───────────────────────────────────────────────────
         private void WireEvents()
         {
@@ -82,10 +95,13 @@ namespace Image_Checker.Forms
                         $"Horizon: {_meta?.HorizonSteps} {_meta?.Granularity ?? "steps"}  |  " +
                         $"Trained: {_meta?.TrainedAt?[..10] ?? "?"}";
 
-                    SetupForecastTab();
+                    // ✅ SWITCH TAB FIRST so the controls have a visible parent
                     tabMain.SelectedTab = tabForecast;
                     tabForecast.Enabled = true;
                     tabInput.Enabled = false;
+
+                    // ✅ BUILD CONTROLS SECOND
+                    SetupForecastTab();
                 }
                 else
                 {
@@ -96,10 +112,13 @@ namespace Image_Checker.Forms
                         $"R²: {_meta?.PrimaryMetric:F4}  |  " +
                         $"Trained: {_meta?.TrainedAt?[..10] ?? "?"}";
 
-                    BuildInputGrid();
+                    // ✅ SWITCH TAB FIRST
                     tabMain.SelectedTab = tabInput;
                     tabInput.Enabled = true;
                     tabForecast.Enabled = false;
+
+                    // ✅ BUILD CONTROLS SECOND
+                    BuildInputGrid();
                 }
 
                 SetStatus($"Loaded: {Path.GetFileName(_modelPath)}", false);
@@ -189,8 +208,7 @@ namespace Image_Checker.Forms
                     cmb.Items.Add("");
                     foreach (var v in vals) cmb.Items.Add(v);
                     cmb.SelectedIndex = 0;
-                    cmb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
-                    cmb.AutoCompleteSource = AutoCompleteSource.ListItems;
+                   
                     input = cmb;
                 }
                 else
@@ -223,6 +241,12 @@ namespace Image_Checker.Forms
             pnlInputGrid.Controls.Add(tbl);
             pnlInputGrid.AutoScroll = true;
             lblColumnHint.Text = $"Fill in values for {rawCols.Length} feature column(s), then click Predict.";
+
+            foreach (var cmb in _inputControls.Values.OfType<ComboBox>())
+            {
+                cmb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+                cmb.AutoCompleteSource = AutoCompleteSource.ListItems;
+            }
         }
 
         private readonly Dictionary<string, Control> _inputControls = new();
@@ -381,11 +405,23 @@ namespace Image_Checker.Forms
         {
             pnlFilterGrid.Controls.Clear();
             _filterControls.Clear();
-            if (_meta?.FeatureColumns == null) return;
+            if (_meta == null) return;
 
-            var filterCols = _meta.FeatureColumns
-                .Where(c => !string.Equals(c, _meta.DateColumn, StringComparison.OrdinalIgnoreCase))
+            // 1. Gather all potential columns from Features, Categoricals, and tracked UniqueValues
+            var allCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (_meta.FeatureColumns != null)
+                foreach (var c in _meta.FeatureColumns) allCols.Add(c);
+            if (_meta.CategoricalColumns != null)
+                foreach (var c in _meta.CategoricalColumns) allCols.Add(c);
+            if (_meta.UniqueValues != null)
+                foreach (var c in _meta.UniqueValues.Keys) allCols.Add(c);
+
+            // 2. Remove the Date and Label/Quantity columns from the filter list
+            var filterCols = allCols
+                .Where(c => !string.Equals(c, _meta.DateColumn, StringComparison.OrdinalIgnoreCase) &&
+                            !string.Equals(c, _meta.LabelColumn, StringComparison.OrdinalIgnoreCase))
                 .ToArray();
+
             if (filterCols.Length == 0) return;
 
             var tbl = new TableLayoutPanel
@@ -414,7 +450,9 @@ namespace Image_Checker.Forms
             for (int ri = 0; ri < filterCols.Length; ri++)
             {
                 string col = filterCols[ri];
-                bool isCat = catSet.Contains(col);
+
+                // Treat it as categorical if it's explicitly marked or has known unique values
+                bool isCat = catSet.Contains(col) || (_meta.UniqueValues?.ContainsKey(col) == true);
                 Color bg = ri % 2 == 0 ? Color.FromArgb(245, 248, 255) : Color.White;
 
                 tbl.Controls.Add(new Label
@@ -440,8 +478,6 @@ namespace Image_Checker.Forms
                 if (_meta.UniqueValues != null && _meta.UniqueValues.TryGetValue(col, out var vals))
                     foreach (var v in vals) cmb.Items.Add(v);
                 cmb.SelectedIndex = 0;
-                cmb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
-                cmb.AutoCompleteSource = AutoCompleteSource.ListItems;
 
                 tbl.Controls.Add(cmb, 1, ri + 1);
                 tbl.Controls.Add(new Label
@@ -459,6 +495,13 @@ namespace Image_Checker.Forms
 
             pnlFilterGrid.Controls.Add(tbl);
             pnlFilterGrid.AutoScroll = true;
+
+            // Safely apply AutoComplete after parenting
+            foreach (var cmb in _filterControls.Values)
+            {
+                cmb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+                cmb.AutoCompleteSource = AutoCompleteSource.ListItems;
+            }
         }
 
         private Dictionary<string, string> GetFilterValues()
