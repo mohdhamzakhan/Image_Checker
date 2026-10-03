@@ -44,6 +44,10 @@ namespace Image_Checker.Forms
 
         // Output tab
         private System.Windows.Forms.DataGridView dgvOutput;
+        private System.Windows.Forms.SplitContainer splitResults;
+        private System.Windows.Forms.DataVisualization.Charting.Chart chtOutput;
+        private System.Windows.Forms.ComboBox cmbChartType;
+        private System.Windows.Forms.CheckedListBox clbChartSeries;
         private System.Windows.Forms.Label lblOutputInfo;
         private System.Windows.Forms.Button btnExportCsv, btnExportHtml;
 
@@ -213,25 +217,34 @@ namespace Image_Checker.Forms
                 AutoScroll = true,
                 BackColor = System.Drawing.Color.White
             };
+            // Empty-state placeholder: BuildInputGrid() clears this panel's
+            // Controls the moment a model loads, so this never needs removing
+            // by hand — it just disappears the first time real fields appear.
+            pnlInputGrid.Controls.Add(new System.Windows.Forms.Label
+            {
+                Text = "Load a model above to see its input fields here.",
+                AutoSize = false,
+                Dock = System.Windows.Forms.DockStyle.Top,
+                Height = 120,
+                TextAlign = System.Drawing.ContentAlignment.MiddleCenter,
+                ForeColor = System.Drawing.Color.Silver,
+                Font = new System.Drawing.Font("Segoe UI", 11f)
+            });
 
             var btnBar = new System.Windows.Forms.FlowLayoutPanel
             {
                 Dock = System.Windows.Forms.DockStyle.Bottom,
-                Height = 60, // Increased to prevent button clipping
-                Padding = new System.Windows.Forms.Padding(8, 10, 0, 0),
+                Height = 48,
+                Padding = new System.Windows.Forms.Padding(8, 8, 0, 0),
                 FlowDirection = System.Windows.Forms.FlowDirection.LeftToRight,
                 BackColor = System.Drawing.Color.FromArgb(232, 239, 255)
             };
 
             btnClearRows = Btn("Clear Values", System.Drawing.Point.Empty, 120, false);
-            btnClearRows.Height = 36;
-
             btnAddRow = Btn("Reset", System.Drawing.Point.Empty, 100, false);
-            btnAddRow.Height = 36;
-
-            btnPredict = Btn("Predict", System.Drawing.Point.Empty, 180, true);
-            btnPredict.Font = new System.Drawing.Font("Segoe UI", 10.5f, System.Drawing.FontStyle.Bold);
-            btnPredict.Height = 38;
+            btnPredict = Btn("Predict Quantity", System.Drawing.Point.Empty, 180, true);
+            btnPredict.Font = new System.Drawing.Font("Segoe UI", 10f, System.Drawing.FontStyle.Bold);
+            btnPredict.Height = 34;
 
             btnBar.Controls.AddRange(new System.Windows.Forms.Control[]
                 { btnClearRows, btnAddRow, btnPredict });
@@ -244,133 +257,171 @@ namespace Image_Checker.Forms
         // ── FORECAST TAB ─────────────────────────────────────────────────────
         private void BuildForecastTab()
         {
-            var tblOuter = new System.Windows.Forms.TableLayoutPanel
-            {
-                Dock = System.Windows.Forms.DockStyle.Fill,
-                ColumnCount = 1,
-                RowCount = 3,
-                Padding = new System.Windows.Forms.Padding(12)
-            };
-            tblOuter.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100f));
-            tblOuter.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
-            tblOuter.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100f));
-            tblOuter.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Absolute, 60f));
+            // Previously this tab put everything inside a fixed-size "pnl"
+            // panel (Size = 900x680, no Anchor/Dock) sitting inside this
+            // AutoScroll "outer" panel. A fixed-size child never resizes no
+            // matter how big its parent gets — that's why the Forecast
+            // Settings box stayed exactly the same size however much the
+            // window was enlarged. Controls now go directly into "outer"
+            // with Anchor = Top|Left|Right, so their WIDTH actually tracks
+            // the window instead of being frozen at its initial size.
+            var outer = new System.Windows.Forms.Panel
+            { Dock = System.Windows.Forms.DockStyle.Fill, AutoScroll = true };
 
+            // ── Forecast settings group ───────────────────────────────────
+            // Built with a TableLayoutPanel instead of hand-placed Point()
+            // coordinates: column widths are computed from each cell's real
+            // preferred size, so a label can never silently run into the
+            // control next to it the way fixed pixel gaps could.
             grpForecastMode = new System.Windows.Forms.GroupBox
             {
                 Text = "Forecast Settings",
-                Dock = System.Windows.Forms.DockStyle.Fill,
-                Font = new System.Drawing.Font("Segoe UI", 9.5f, System.Drawing.FontStyle.Bold),
-                Margin = new System.Windows.Forms.Padding(0, 0, 0, 10),
-                AutoSize = true
+                Location = new System.Drawing.Point(12, 12),
+                Size = new System.Drawing.Size(870, 190),
+                Anchor = System.Windows.Forms.AnchorStyles.Top
+                       | System.Windows.Forms.AnchorStyles.Left
+                       | System.Windows.Forms.AnchorStyles.Right,
+                Font = new System.Drawing.Font("Segoe UI", 9.5f, System.Drawing.FontStyle.Bold)
             };
 
-            var tblSettings = new System.Windows.Forms.TableLayoutPanel
+            var tblForecast = new System.Windows.Forms.TableLayoutPanel
             {
-                Dock = System.Windows.Forms.DockStyle.Fill,
+                Location = new System.Drawing.Point(10, 26),
+                Size = new System.Drawing.Size(850, 150),
+                Anchor = System.Windows.Forms.AnchorStyles.Top
+                       | System.Windows.Forms.AnchorStyles.Left
+                       | System.Windows.Forms.AnchorStyles.Right,
                 ColumnCount = 4,
-                RowCount = 4,
-                Padding = new System.Windows.Forms.Padding(5),
-                AutoSize = true
+                RowCount = 4
             };
-            tblSettings.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.AutoSize));
-            tblSettings.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.AutoSize));
-            tblSettings.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.AutoSize));
-            tblSettings.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100f));
+            tblForecast.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.AutoSize));
+            tblForecast.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.AutoSize));
+            tblForecast.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.AutoSize));
+            tblForecast.ColumnStyles.Add(new System.Windows.Forms.ColumnStyle(System.Windows.Forms.SizeType.Percent, 100));
+            for (int r = 0; r < 4; r++)
+                tblForecast.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
 
-            lblHorizonCount = new System.Windows.Forms.Label { Text = "Steps to forecast:", AutoSize = true, Font = new System.Drawing.Font("Segoe UI", 9f), Anchor = System.Windows.Forms.AnchorStyles.Left };
-            nudHorizonCount = new System.Windows.Forms.NumericUpDown { Width = 80, Minimum = 1, Maximum = 2000, Value = 12, Font = new System.Drawing.Font("Segoe UI", 9f), Anchor = System.Windows.Forms.AnchorStyles.Left };
+            var cellMargin = new System.Windows.Forms.Padding(0, 6, 14, 6);
+            var font9 = new System.Drawing.Font("Segoe UI", 9f);
 
-            lblGranularity = new System.Windows.Forms.Label { Text = "Granularity:", AutoSize = true, Font = new System.Drawing.Font("Segoe UI", 9f), Anchor = System.Windows.Forms.AnchorStyles.Left, Margin = new System.Windows.Forms.Padding(15, 0, 0, 0) };
-            cmbGranularity = new System.Windows.Forms.ComboBox { Width = 110, DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList, Font = new System.Drawing.Font("Segoe UI", 9f), Anchor = System.Windows.Forms.AnchorStyles.Left };
+            var lblSteps = new System.Windows.Forms.Label
+            { Text = "Steps to forecast:", AutoSize = true, Font = font9, Margin = cellMargin, Anchor = System.Windows.Forms.AnchorStyles.Left };
+
+            nudHorizonCount = new System.Windows.Forms.NumericUpDown
+            { Width = 80, Minimum = 1, Maximum = 2000, Value = 12, Font = font9, Margin = cellMargin, Anchor = System.Windows.Forms.AnchorStyles.Left };
+
+            lblGranularity = new System.Windows.Forms.Label
+            { Text = "Granularity:", AutoSize = true, Font = font9, Margin = cellMargin, Anchor = System.Windows.Forms.AnchorStyles.Left };
+
+            cmbGranularity = new System.Windows.Forms.ComboBox
+            { Width = 120, DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList, Font = font9, Margin = cellMargin, Anchor = System.Windows.Forms.AnchorStyles.Left };
             cmbGranularity.Items.AddRange(new object[] { "Day", "Month", "Year" });
             cmbGranularity.SelectedIndex = 1;
 
-            lblStartDate = new System.Windows.Forms.Label { Text = "Forecast start date:", AutoSize = true, Font = new System.Drawing.Font("Segoe UI", 9f), Anchor = System.Windows.Forms.AnchorStyles.Left };
-            dtpStartDate = new System.Windows.Forms.DateTimePicker { Width = 160, Format = System.Windows.Forms.DateTimePickerFormat.Short, Value = System.DateTime.Today, Font = new System.Drawing.Font("Segoe UI", 9f), Anchor = System.Windows.Forms.AnchorStyles.Left };
+            lblStartDate = new System.Windows.Forms.Label
+            { Text = "Forecast start date:", AutoSize = true, Font = font9, Margin = cellMargin, Anchor = System.Windows.Forms.AnchorStyles.Left };
 
-            // Added significant left margin to push the hint away from the Date Picker dropdown arrow
-            var lblDateHint = new System.Windows.Forms.Label { Text = "Step 1 = one period AFTER this date (e.g. today → next month for Month)", AutoSize = true, ForeColor = System.Drawing.Color.DimGray, Font = new System.Drawing.Font("Segoe UI", 8f), Anchor = System.Windows.Forms.AnchorStyles.Left, Margin = new System.Windows.Forms.Padding(20, 0, 0, 0) };
+            dtpStartDate = new System.Windows.Forms.DateTimePicker
+            { Width = 170, Format = System.Windows.Forms.DateTimePickerFormat.Short, Value = System.DateTime.Today, Font = font9, Margin = cellMargin, Anchor = System.Windows.Forms.AnchorStyles.Left };
 
-            chkClampNeg = new System.Windows.Forms.CheckBox { Text = "Clamp negative values to 0 (quantities cannot be negative)", AutoSize = true, Checked = true, Font = new System.Drawing.Font("Segoe UI", 9f), ForeColor = System.Drawing.Color.FromArgb(0, 100, 0), Margin = new System.Windows.Forms.Padding(3, 10, 3, 3) };
+            var lblStepHint = new System.Windows.Forms.Label
+            {
+                Text = "Step 1 = one period AFTER this date  (e.g. today → next month for Month)",
+                AutoSize = true,
+                ForeColor = System.Drawing.Color.DimGray,
+                Font = new System.Drawing.Font("Segoe UI", 8f),
+                Margin = cellMargin,
+                Anchor = System.Windows.Forms.AnchorStyles.Left
+            };
+
+            chkClampNeg = new System.Windows.Forms.CheckBox
+            {
+                Text = "Clamp negative values to 0  (quantities cannot be negative)",
+                AutoSize = true,
+                Checked = true,
+                Font = font9,
+                ForeColor = System.Drawing.Color.FromArgb(0, 100, 0),
+                Margin = cellMargin,
+                Anchor = System.Windows.Forms.AnchorStyles.Left
+            };
             chkClampNeg.CheckedChanged += (s2, e2) => _clampNegative = chkClampNeg.Checked;
 
-            var lblSettingHint = new System.Windows.Forms.Label { Text = "Leave filters blank for a global forecast, or fill in values to forecast for a specific customer/item.", AutoSize = true, ForeColor = System.Drawing.Color.SteelBlue, Font = new System.Drawing.Font("Segoe UI", 8.5f), Margin = new System.Windows.Forms.Padding(3, 8, 3, 5) };
+            var lblFilterGuidance = new System.Windows.Forms.Label
+            {
+                Text = "Leave filters blank for a global forecast, or fill in values to forecast for a specific customer/item.",
+                AutoSize = true,
+                ForeColor = System.Drawing.Color.SteelBlue,
+                Font = new System.Drawing.Font("Segoe UI", 8.5f),
+                Margin = cellMargin,
+                Anchor = System.Windows.Forms.AnchorStyles.Left
+            };
 
-            // Row 0
-            tblSettings.Controls.Add(lblHorizonCount, 0, 0);
-            tblSettings.Controls.Add(nudHorizonCount, 1, 0);
-            tblSettings.Controls.Add(lblGranularity, 2, 0);
-            tblSettings.Controls.Add(cmbGranularity, 3, 0);
+            tblForecast.Controls.Add(lblSteps, 0, 0);
+            tblForecast.Controls.Add(nudHorizonCount, 1, 0);
+            tblForecast.Controls.Add(lblGranularity, 2, 0);
+            tblForecast.Controls.Add(cmbGranularity, 3, 0);
 
-            // Row 1
-            tblSettings.Controls.Add(lblStartDate, 0, 1);
-            tblSettings.Controls.Add(dtpStartDate, 1, 1);
-            tblSettings.Controls.Add(lblDateHint, 2, 1);
-            tblSettings.SetColumnSpan(lblDateHint, 2);
+            tblForecast.Controls.Add(lblStartDate, 0, 1);
+            tblForecast.Controls.Add(dtpStartDate, 1, 1);
+            tblForecast.Controls.Add(lblStepHint, 2, 1);
+            tblForecast.SetColumnSpan(lblStepHint, 2);
 
-            // Row 2
-            tblSettings.Controls.Add(chkClampNeg, 0, 2);
-            tblSettings.SetColumnSpan(chkClampNeg, 4);
+            tblForecast.Controls.Add(chkClampNeg, 0, 2);
+            tblForecast.SetColumnSpan(chkClampNeg, 4);
 
-            // Row 3
-            tblSettings.Controls.Add(lblSettingHint, 0, 3);
-            tblSettings.SetColumnSpan(lblSettingHint, 4);
+            tblForecast.Controls.Add(lblFilterGuidance, 0, 3);
+            tblForecast.SetColumnSpan(lblFilterGuidance, 4);
 
-            grpForecastMode.Controls.Add(tblSettings);
+            grpForecastMode.Controls.Add(tblForecast);
 
             // ── Filter section ────────────────────────────────────────────
             var grpFilter = new System.Windows.Forms.GroupBox
             {
                 Text = "Filter by Customer / Item  (optional — leave blank for global forecast)",
-                Dock = System.Windows.Forms.DockStyle.Fill,
-                Font = new System.Drawing.Font("Segoe UI", 9.5f, System.Drawing.FontStyle.Bold),
-                Margin = new System.Windows.Forms.Padding(0, 0, 0, 10)
+                Location = new System.Drawing.Point(12, 212),
+                Size = new System.Drawing.Size(870, 320),
+                Anchor = System.Windows.Forms.AnchorStyles.Top
+                       | System.Windows.Forms.AnchorStyles.Left
+                       | System.Windows.Forms.AnchorStyles.Right,
+                Font = new System.Drawing.Font("Segoe UI", 9.5f, System.Drawing.FontStyle.Bold)
             };
-
-            var tblFilter = new System.Windows.Forms.TableLayoutPanel
-            {
-                Dock = System.Windows.Forms.DockStyle.Fill,
-                ColumnCount = 1,
-                RowCount = 2,
-                Padding = new System.Windows.Forms.Padding(5)
-            };
-            tblFilter.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.AutoSize));
-            tblFilter.RowStyles.Add(new System.Windows.Forms.RowStyle(System.Windows.Forms.SizeType.Percent, 100f));
 
             lblFilterHint = new System.Windows.Forms.Label
             {
                 Text = "Dropdowns are populated from your training data. Select a PARTY_NAME + INVENTORY_ITEM_ID combination.",
-                AutoSize = true,
+                Location = new System.Drawing.Point(8, 28),
+                Size = new System.Drawing.Size(850, 18),
+                Anchor = System.Windows.Forms.AnchorStyles.Top
+                       | System.Windows.Forms.AnchorStyles.Left
+                       | System.Windows.Forms.AnchorStyles.Right,
                 ForeColor = System.Drawing.Color.FromArgb(50, 80, 150),
-                Font = new System.Drawing.Font("Segoe UI", 8.5f),
-                Margin = new System.Windows.Forms.Padding(3, 0, 3, 5)
+                Font = new System.Drawing.Font("Segoe UI", 8.5f)
             };
 
             pnlFilterGrid = new System.Windows.Forms.Panel
             {
-                Dock = System.Windows.Forms.DockStyle.Fill,
+                Location = new System.Drawing.Point(8, 50),
+                Size = new System.Drawing.Size(854, 260),
+                Anchor = System.Windows.Forms.AnchorStyles.Top
+                       | System.Windows.Forms.AnchorStyles.Left
+                       | System.Windows.Forms.AnchorStyles.Right,
                 AutoScroll = true,
                 BackColor = System.Drawing.Color.White,
                 BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle
             };
 
-            tblFilter.Controls.Add(lblFilterHint, 0, 0);
-            tblFilter.Controls.Add(pnlFilterGrid, 0, 1);
-            grpFilter.Controls.Add(tblFilter);
+            grpFilter.Controls.Add(lblFilterHint);
+            grpFilter.Controls.Add(pnlFilterGrid);
 
             // ── Run button ────────────────────────────────────────────────
-            btnForecast = Btn("Run Forecast", System.Drawing.Point.Empty, 200, true);
-            btnForecast.Anchor = System.Windows.Forms.AnchorStyles.Left | System.Windows.Forms.AnchorStyles.Top;
+            btnForecast = Btn("Run Forecast", new System.Drawing.Point(12, 544), 200, true);
             btnForecast.Height = 44;
             btnForecast.Font = new System.Drawing.Font("Segoe UI", 11f, System.Drawing.FontStyle.Bold);
+            btnForecast.Anchor = System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Left;
 
-            // Add all components to the outer layout
-            tblOuter.Controls.Add(grpForecastMode, 0, 0);
-            tblOuter.Controls.Add(grpFilter, 0, 1);
-            tblOuter.Controls.Add(btnForecast, 0, 2);
-
-            tabForecast.Controls.Add(tblOuter);
+            outer.Controls.AddRange(new System.Windows.Forms.Control[]
+                { grpForecastMode, grpFilter, btnForecast });
+            tabForecast.Controls.Add(outer);
         }
 
         // ── OUTPUT TAB ───────────────────────────────────────────────────────
@@ -411,26 +462,107 @@ namespace Image_Checker.Forms
             var pBtns = new System.Windows.Forms.FlowLayoutPanel
             {
                 Dock = System.Windows.Forms.DockStyle.Bottom,
-                Height = 60, // Increased to match the Input tab fixes
-                Padding = new System.Windows.Forms.Padding(8, 10, 0, 0),
+                Height = 48,
+                Padding = new System.Windows.Forms.Padding(8, 8, 0, 0),
                 FlowDirection = System.Windows.Forms.FlowDirection.LeftToRight,
                 BackColor = System.Drawing.Color.FromArgb(232, 239, 255)
             };
 
             btnExportCsv = Btn("Export CSV", System.Drawing.Point.Empty, 140, true);
-            btnExportCsv.Height = 36;
-
             btnExportHtml = Btn("Export HTML", System.Drawing.Point.Empty, 140, false);
-            btnExportHtml.Height = 36;
-
             btnExportCsv.Enabled = btnExportHtml.Enabled = false;
             pBtns.Controls.AddRange(new System.Windows.Forms.Control[] { btnExportCsv, btnExportHtml });
 
-            tabOutput.Controls.Add(dgvOutput);
+            // ── Grid / Chart split ───────────────────────────────────────
+            // Top: the existing results grid. Bottom: a trend chart whose
+            // type and plotted value(s) the user picks, built from whatever
+            // numeric columns the current result table has (Forecast,
+            // Lower/Upper bound for a time-series run, or the predicted
+            // value for a single regression run).
+            splitResults = new System.Windows.Forms.SplitContainer
+            {
+                Dock = System.Windows.Forms.DockStyle.Fill,
+                Orientation = System.Windows.Forms.Orientation.Horizontal,
+                SplitterWidth = 6
+            };
+            splitResults.Panel1.Controls.Add(dgvOutput);
+
+            var chartBar = new System.Windows.Forms.Panel
+            {
+                Dock = System.Windows.Forms.DockStyle.Top,
+                Height = 34,
+                BackColor = System.Drawing.Color.FromArgb(240, 244, 252)
+            };
+            var lblChartType = new System.Windows.Forms.Label
+            {
+                Text = "Chart type:",
+                AutoSize = true,
+                Location = new System.Drawing.Point(10, 9),
+                Font = new System.Drawing.Font("Segoe UI", 8.5f)
+            };
+            cmbChartType = new System.Windows.Forms.ComboBox
+            {
+                Location = new System.Drawing.Point(80, 5),
+                Width = 110,
+                DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList,
+                Font = new System.Drawing.Font("Segoe UI", 8.5f)
+            };
+            cmbChartType.Items.AddRange(new object[] { "Line", "Spline", "Column", "Area", "Scatter" });
+            cmbChartType.SelectedIndex = 0;
+            cmbChartType.SelectedIndexChanged += (s2, e2) => RenderChart();
+
+            var lblChartValue = new System.Windows.Forms.Label
+            {
+                Text = "Plot:",
+                AutoSize = true,
+                Location = new System.Drawing.Point(206, 9),
+                Font = new System.Drawing.Font("Segoe UI", 8.5f)
+            };
+            clbChartSeries = new System.Windows.Forms.CheckedListBox
+            {
+                Location = new System.Drawing.Point(240, 3),
+                Size = new System.Drawing.Size(320, 28),
+                CheckOnClick = true,
+                MultiColumn = true,
+                ColumnWidth = 110,
+                Font = new System.Drawing.Font("Segoe UI", 8.5f),
+                BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle
+            };
+            // ItemCheck fires BEFORE the checked state is actually applied,
+            // so defer the redraw until right after this event finishes.
+            clbChartSeries.ItemCheck += (s2, e2) => BeginInvoke((Action)RenderChart);
+
+            chartBar.Controls.AddRange(new System.Windows.Forms.Control[]
+                { lblChartType, cmbChartType, lblChartValue, clbChartSeries });
+
+            chtOutput = new System.Windows.Forms.DataVisualization.Charting.Chart
+            {
+                Dock = System.Windows.Forms.DockStyle.Fill,
+                BackColor = System.Drawing.Color.White
+            };
+            var area = new System.Windows.Forms.DataVisualization.Charting.ChartArea("main");
+            area.AxisX.MajorGrid.LineColor = System.Drawing.Color.FromArgb(230, 235, 245);
+            area.AxisY.MajorGrid.LineColor = System.Drawing.Color.FromArgb(230, 235, 245);
+            area.AxisX.LabelStyle.Angle = -45;
+            chtOutput.ChartAreas.Add(area);
+            var legend = new System.Windows.Forms.DataVisualization.Charting.Legend("legend")
+            { Docking = System.Windows.Forms.DataVisualization.Charting.Docking.Top };
+            chtOutput.Legends.Add(legend);
+
+            var chartHost = new System.Windows.Forms.Panel { Dock = System.Windows.Forms.DockStyle.Fill };
+            chartHost.Controls.Add(chtOutput);
+            chartHost.Controls.Add(chartBar);
+
+            splitResults.Panel2.Controls.Add(chartHost);
+            splitResults.Layout += (s, e) =>
+            {
+                if (splitResults.Height > 200) splitResults.SplitterDistance = splitResults.Height - 220;
+            };
+
+            tabOutput.Controls.Add(splitResults);
             tabOutput.Controls.Add(pBtns);
             tabOutput.Controls.Add(lblOutputInfo);
         }
-
 
         // ── STATUS BAR ───────────────────────────────────────────────────────
         private void BuildStatusBar()

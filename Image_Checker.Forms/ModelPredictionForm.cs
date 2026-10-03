@@ -772,6 +772,86 @@ namespace Image_Checker.Forms
             lblOutputInfo.Text = $"{info}  |  {dt.Rows.Count:N0} rows";
             btnExportCsv.Enabled = btnExportHtml.Enabled = true;
             ApplyOutputGridStyle();
+            UpdateChartSeriesOptions(dt);
+            RenderChart();
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        //  TREND CHART  –  user picks chart type and which column(s) to plot
+        // ════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Repopulates the "Plot:" checklist with the current result table's
+        /// numeric, plottable columns (everything except the row-index-like
+        /// "Step" column), defaulting to the first one checked so the chart
+        /// shows something immediately after a run.
+        /// </summary>
+        private void UpdateChartSeriesOptions(DataTable dt)
+        {
+            clbChartSeries.Items.Clear();
+
+            var numericCols = dt.Columns.Cast<DataColumn>()
+                .Where(c => (c.DataType == typeof(double) || c.DataType == typeof(float)
+                             || c.DataType == typeof(int))
+                            && !c.ColumnName.Equals("Step", StringComparison.OrdinalIgnoreCase))
+                .Select(c => c.ColumnName)
+                .ToList();
+
+            foreach (var col in numericCols) clbChartSeries.Items.Add(col);
+            if (clbChartSeries.Items.Count > 0) clbChartSeries.SetItemChecked(0, true);
+        }
+
+        /// <summary>
+        /// Builds the chart from _lastOutput using whatever chart type and
+        /// series the user currently has selected. X-axis uses "Period" if
+        /// present (forecast results), else "Step", else the row index.
+        /// Safe to call with no plottable columns — it just clears the chart.
+        /// </summary>
+        private void RenderChart()
+        {
+            chtOutput.Series.Clear();
+            if (_lastOutput == null || _lastOutput.Rows.Count == 0) return;
+            if (clbChartSeries.CheckedItems.Count == 0) return;
+
+            var dt = _lastOutput;
+            bool hasPeriod = dt.Columns.Contains("Period");
+            bool hasStep = dt.Columns.Contains("Step");
+
+            var chartType = (cmbChartType.SelectedItem?.ToString() ?? "Line") switch
+            {
+                "Line" => System.Windows.Forms.DataVisualization.Charting.SeriesChartType.Line,
+                "Spline" => System.Windows.Forms.DataVisualization.Charting.SeriesChartType.Spline,
+                "Column" => System.Windows.Forms.DataVisualization.Charting.SeriesChartType.Column,
+                "Area" => System.Windows.Forms.DataVisualization.Charting.SeriesChartType.SplineArea,
+                "Scatter" => System.Windows.Forms.DataVisualization.Charting.SeriesChartType.Point,
+                _ => System.Windows.Forms.DataVisualization.Charting.SeriesChartType.Line
+            };
+
+            foreach (var seriesName in clbChartSeries.CheckedItems.Cast<string>())
+            {
+                var series = new System.Windows.Forms.DataVisualization.Charting.Series(seriesName)
+                {
+                    ChartType = chartType,
+                    ChartArea = "main",
+                    Legend = "legend",
+                    BorderWidth = 2,
+                    IsValueShownAsLabel = false
+                };
+
+                foreach (DataRow row in dt.Rows)
+                {
+                    if (row[seriesName] == DBNull.Value) continue;
+                    double y = Convert.ToDouble(row[seriesName]);
+                    string x = hasPeriod ? row["Period"].ToString()!
+                             : hasStep ? row["Step"].ToString()!
+                             : (dt.Rows.IndexOf(row) + 1).ToString();
+                    series.Points.AddXY(x, y);
+                }
+
+                chtOutput.Series.Add(series);
+            }
+
+            chtOutput.ChartAreas["main"].AxisX.Interval = 1;
         }
 
         private void ApplyOutputGridStyle()
