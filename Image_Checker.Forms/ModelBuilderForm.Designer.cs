@@ -692,7 +692,17 @@ namespace Image_Checker.Forms
             chkPerceptron = AC("Averaged Perceptron  (binary only)", false);
             ay += 6;
             Sec("── Regression Only ──────────────────────────────");
-            chkLinearSGD = AC("Linear SGD  (fast linear baseline)", true);
+            // Defaults to OFF: OnlineGradientDescent has repeatedly diverged
+            // to NaN/Infinite weights on real sales data even after a lower
+            // learning rate and NaN/Infinite-row filtering — it's a linear
+            // model, and a target like LINE_AMOUNT that's essentially
+            // QUANTITY × UNIT_PRICE (a multiplicative relationship) isn't
+            // something a linear model can represent well regardless of
+            // tuning. SDCA (also linear, but far more numerically stable)
+            // already covers the "fast linear baseline" role; FastTree /
+            // FastForest / LightGBM handle multiplicative interactions
+            // naturally. Still available to opt back into per-run.
+            chkLinearSGD = AC("Linear SGD  (fast linear baseline)", false);
             ay += 14;
 
             pnlAlgoScroll.Controls.Add(new Label

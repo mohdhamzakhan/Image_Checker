@@ -38,12 +38,19 @@ namespace Image_Checker.Services
             var model = mlContext.Model.Load(modelZipPath, out var schema);
 
             // ── Load cleaned data ─────────────────────────────────────────────
-            var loader = mlContext.Data.CreateTextLoader(new Microsoft.ML.Data.TextLoader.Options
-            {
-                HasHeader = true,
-                Separators = new[] { ',' },
-                AllowQuoting = true
-            });
+            // TextLoader.Options has no auto-detection of its own -- it
+            // always needs an explicit Columns definition, which the old
+            // code never provided (that's exactly what
+            // "Can't determine the number of source columns without valid
+            // data" means here). Building the loader from the model's own
+            // schema avoids having to reconstruct that list by hand, and
+            // guarantees it matches the exact column names/types/order the
+            // model was actually trained on.
+            var loader = mlContext.Data.CreateTextLoader(
+                schema,
+                hasHeader: true,
+                separatorChar: ',',
+                allowQuoting: true);
             var data = loader.Load(cleanedCsvPath);
             var preds = model.Transform(data);
 

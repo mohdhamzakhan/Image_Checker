@@ -986,7 +986,21 @@ namespace Image_Checker.Services
         //  BUILD UNIQUE VALUES FOR DROPDOWN MENUS
         // ════════════════════════════════════════════════════════════════════
 
-        private const int MaxUniquePerCol = 500;
+        // Raised from 500: a real part-number or item-description catalog
+        // can easily run into the low thousands, and the old cap silently
+        // dropped the ENTIRE column's dropdown support once exceeded —
+        // degrading exactly the columns that matter most (item number) to
+        // a blank free-text box with no guidance, which is how users ended
+        // up typing values the model had never seen and getting near-zero
+        // predictions back with no explanation.
+        private const int MaxUniquePerCol = 5000;
+
+        // For a column that STILL exceeds the cap even at 5000 (a raw
+        // invoice/transaction ID column, say), keep the most frequently
+        // occurring values rather than dropping the column outright — a
+        // partial, frequency-ranked dropdown is still far more useful than
+        // an unguided text box.
+        private const int TopNWhenOverCap = 2000;
 
         private Dictionary<string, List<string>> BuildUniqueValues(
             IEnumerable<string> featureCols)
@@ -1008,12 +1022,19 @@ namespace Image_Checker.Services
                 .Where(c => colIndex.ContainsKey(c))
                 .ToArray();
 
-            var sets = new Dictionary<string, HashSet<string>>(
+            // Track frequency, not just presence, so an over-cap column can
+            // fall back to "most common N values" instead of being dropped.
+            var counts = new Dictionary<string, Dictionary<string, int>>(
                 StringComparer.OrdinalIgnoreCase);
-            var overCap = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
             foreach (var col in wanted)
-                sets[col] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                counts[col] = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            // Hard safety ceiling so a true identifier column (millions of
+            // distinct values) doesn't blow up memory tracking frequencies
+            // for every single one. Columns hitting THIS are genuinely not
+            // dropdown-appropriate at all, unlike the normal over-cap case.
+            const int hardCeiling = 50_000;
+            var abandoned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             for (int li = 1; li < rawLines.Length; li++)
             {
@@ -1022,33 +1043,53 @@ namespace Image_Checker.Services
 
                 foreach (var col in wanted)
                 {
-                    if (overCap.Contains(col)) continue;
+                    if (abandoned.Contains(col)) continue;
                     int ci = colIndex[col];
                     if (ci >= cells.Length) continue;
                     string val = cells[ci];
                     if (string.IsNullOrWhiteSpace(val)) continue;
-                    var set = sets[col];
-                    set.Add(val);
-                    if (set.Count > MaxUniquePerCol)
+
+                    var map = counts[col];
+                    map[val] = map.TryGetValue(val, out var c0) ? c0 + 1 : 1;
+
+                    if (map.Count > hardCeiling)
                     {
-                        overCap.Add(col);
-                        sets.Remove(col);
+                        abandoned.Add(col);
+                        counts.Remove(col);
                     }
                 }
             }
 
-            foreach (var kv in sets)
+            var overCap = new List<string>();
+            foreach (var kv in counts)
             {
-                var sorted = kv.Value
-                    .OrderBy(v => v, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-                result[kv.Key] = sorted;
-                Log($"   UniqueValues: {kv.Key} → {sorted.Count} values");
+                if (kv.Value.Count > MaxUniquePerCol)
+                {
+                    overCap.Add(kv.Key);
+                    var top = kv.Value
+                        .OrderByDescending(p => p.Value)
+                        .Take(TopNWhenOverCap)
+                        .Select(p => p.Key)
+                        .OrderBy(v => v, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    result[kv.Key] = top;
+                    Log($"   UniqueValues: {kv.Key} → {top.Count:N0} values " +
+                        $"(most frequent, of {kv.Value.Count:N0} total distinct)");
+                }
+                else
+                {
+                    var sorted = kv.Value.Keys
+                        .OrderBy(v => v, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    result[kv.Key] = sorted;
+                    Log($"   UniqueValues: {kv.Key} → {sorted.Count:N0} values");
+                }
             }
 
-            if (overCap.Count > 0)
-                Log($"   UniqueValues: skipped {overCap.Count} high-cardinality col(s) " +
-                    $"(>{MaxUniquePerCol} distinct): {string.Join(", ", overCap)}");
+            if (abandoned.Count > 0)
+                Log($"   UniqueValues: no dropdown for {abandoned.Count} col(s) " +
+                    $"(>{hardCeiling:N0} distinct — effectively a free-form identifier, " +
+                    $"not a real category): {string.Join(", ", abandoned)}");
 
             return result;
         }
@@ -1247,9 +1288,31 @@ namespace Image_Checker.Services
                     Columns = cols
                 });
                 var data = loader.Load(_cfg.DataFilePath);
-                long rowCount = data.GetRowCount() ?? -1;
-                Log(rowCount >= 0
-                    ? $"   ✅ Loaded {rowCount:N0} rows, {data.Schema.Count} columns"
+                long originalCount = data.GetRowCount() ?? -1;
+
+                // Defensive cleanup: a single row with a NaN or Infinite
+                // numeric value (label or feature) can propagate into
+                // training and corrupt it — gradient-based trainers like
+                // OnlineGradientDescent are the most sensitive and fail
+                // with "weights contain NaN or Infinite", but any trainer
+                // can be affected. Bounds comparisons against NaN/Infinity
+                // are always false, so filtering to [MinValue, MaxValue]
+                // drops both as a side effect, in one pass per column.
+                var numericCols = cols
+                    .Where(c => c.DataKind == DataKind.Single || c.DataKind == DataKind.Double)
+                    .Select(c => c.Name)
+                    .ToArray();
+                foreach (var col in numericCols)
+                    data = _ml.Data.FilterRowsByColumn(data, col,
+                        lowerBound: double.MinValue, upperBound: double.MaxValue);
+
+                long cleanedCount = data.GetRowCount() ?? -1;
+                if (originalCount >= 0 && cleanedCount >= 0 && cleanedCount < originalCount)
+                    Log($"   ⚠️ Removed {originalCount - cleanedCount:N0} row(s) with NaN/Infinite " +
+                        "numeric values (label or feature) before training.");
+
+                Log(cleanedCount >= 0
+                    ? $"   ✅ Loaded {cleanedCount:N0} rows, {data.Schema.Count} columns"
                     : $"   ✅ Data loaded, {data.Schema.Count} columns");
                 return data;
             }

@@ -37,20 +37,7 @@ namespace Image_Checker.Forms
             InitForm();
             WireEvents();
         }
-        protected override void OnLoad(EventArgs e)
-        {
-            base.OnLoad(e);
 
-            // Force window handle creation for all hidden tabs now that 
-            // the main form handle actually exists. 
-            this.SuspendLayout();
-            foreach (TabPage tab in tabMain.TabPages)
-            {
-                tabMain.SelectedTab = tab;
-            }
-            tabMain.SelectedIndex = 0;
-            this.ResumeLayout(true);
-        }
         // ── Event wiring ───────────────────────────────────────────────────
         private void WireEvents()
         {
@@ -61,6 +48,41 @@ namespace Image_Checker.Forms
             btnExportHtml.Click += (_, _) => ExportResults("html");
             btnAddRow.Click += OnAddRow;
             btnClearRows.Click += (_, _) => ClearInputGrid();
+
+            // FixedPanel/Panel2MinSize/SplitterDistance all get validated
+            // against splitResults' CURRENT size, which only becomes the
+            // real, final size once the form has loaded and Dock=Fill has
+            // taken effect — setting any of them earlier (e.g. in the
+            // Designer's object initializer) throws, because the control's
+            // tiny pre-layout default size can't satisfy a 220px minimum.
+            this.Load += (_, _) => ConfigureResultsSplitter();
+        }
+
+        /// <summary>
+        /// Safely sets up splitResults' fixed chart pane. Called once, from
+        /// the Form's Load event, after the control actually has its real,
+        /// final size — see the comment on splitResults in the Designer file
+        /// for why this can't be done any earlier.
+        /// </summary>
+        private void ConfigureResultsSplitter()
+        {
+            try
+            {
+                const int chartPaneHeight = 220;
+                splitResults.Panel2MinSize = chartPaneHeight;
+                splitResults.FixedPanel = System.Windows.Forms.FixedPanel.Panel2;
+                splitResults.SplitterDistance = Math.Max(
+                    splitResults.Panel1MinSize,
+                    splitResults.Height - chartPaneHeight - splitResults.SplitterWidth);
+            }
+            catch
+            {
+                // If the form is somehow still too small for a 220px chart
+                // pane even at Load time (a very small MinimumSize override,
+                // say), just leave the SplitContainer at its own safe
+                // default rather than letting a cosmetic sizing preference
+                // crash the form on startup.
+            }
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -95,13 +117,10 @@ namespace Image_Checker.Forms
                         $"Horizon: {_meta?.HorizonSteps} {_meta?.Granularity ?? "steps"}  |  " +
                         $"Trained: {_meta?.TrainedAt?[..10] ?? "?"}";
 
-                    // ✅ SWITCH TAB FIRST so the controls have a visible parent
+                    SetupForecastTab();
                     tabMain.SelectedTab = tabForecast;
                     tabForecast.Enabled = true;
                     tabInput.Enabled = false;
-
-                    // ✅ BUILD CONTROLS SECOND
-                    SetupForecastTab();
                 }
                 else
                 {
@@ -112,13 +131,10 @@ namespace Image_Checker.Forms
                         $"R²: {_meta?.PrimaryMetric:F4}  |  " +
                         $"Trained: {_meta?.TrainedAt?[..10] ?? "?"}";
 
-                    // ✅ SWITCH TAB FIRST
+                    BuildInputGrid();
                     tabMain.SelectedTab = tabInput;
                     tabInput.Enabled = true;
                     tabForecast.Enabled = false;
-
-                    // ✅ BUILD CONTROLS SECOND
-                    BuildInputGrid();
                 }
 
                 SetStatus($"Loaded: {Path.GetFileName(_modelPath)}", false);
@@ -208,7 +224,8 @@ namespace Image_Checker.Forms
                     cmb.Items.Add("");
                     foreach (var v in vals) cmb.Items.Add(v);
                     cmb.SelectedIndex = 0;
-                   
+                    cmb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+                    cmb.AutoCompleteSource = AutoCompleteSource.ListItems;
                     input = cmb;
                 }
                 else
@@ -241,12 +258,6 @@ namespace Image_Checker.Forms
             pnlInputGrid.Controls.Add(tbl);
             pnlInputGrid.AutoScroll = true;
             lblColumnHint.Text = $"Fill in values for {rawCols.Length} feature column(s), then click Predict.";
-
-            foreach (var cmb in _inputControls.Values.OfType<ComboBox>())
-            {
-                cmb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
-                cmb.AutoCompleteSource = AutoCompleteSource.ListItems;
-            }
         }
 
         private readonly Dictionary<string, Control> _inputControls = new();
@@ -293,6 +304,38 @@ namespace Image_Checker.Forms
                     "Proceed anyway? (empty values will be treated as 0 / unknown)",
                     "Missing Values", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
                 if (ans == DialogResult.No) return;
+            }
+
+            // Warn about values the model likely never saw during training.
+            // A one-hot/categorical feature the model has no vocabulary
+            // entry for gets encoded as all-zero at prediction time — the
+            // model silently loses that signal entirely, which is usually
+            // what's behind a suspiciously-low or flat-zero prediction with
+            // no visible error. Note: for very high-cardinality columns,
+            // UniqueValues only stores the most frequent subset (see
+            // BuildUniqueValues), so this can also flag a value that WAS
+            // seen in training but didn't make that cutoff — worded below
+            // to reflect that uncertainty rather than stating it as fact.
+            if (_meta?.UniqueValues != null)
+            {
+                var unseen = inputValues
+                    .Where(kv => kv.Value != "" && _meta.UniqueValues.ContainsKey(kv.Key))
+                    .Where(kv => !_meta.UniqueValues[kv.Key]
+                        .Any(v => string.Equals(v, kv.Value, StringComparison.OrdinalIgnoreCase)))
+                    .Select(kv => $"{kv.Key} = '{kv.Value}'")
+                    .ToList();
+
+                if (unseen.Count > 0)
+                {
+                    var ans = MessageBox.Show(
+                        "These values don't match what the model saw during training " +
+                        "(or weren't common enough to be remembered for the dropdown):\n\n" +
+                        string.Join("\n", unseen) +
+                        "\n\nThe model will treat them as unknown, which often produces a " +
+                        "near-zero or otherwise unreliable prediction. Proceed anyway?",
+                        "Possibly Unrecognized Values", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                    if (ans == DialogResult.No) return;
+                }
             }
 
             SetBusy(true, "Running prediction...");
@@ -405,23 +448,11 @@ namespace Image_Checker.Forms
         {
             pnlFilterGrid.Controls.Clear();
             _filterControls.Clear();
-            if (_meta == null) return;
+            if (_meta?.FeatureColumns == null) return;
 
-            // 1. Gather all potential columns from Features, Categoricals, and tracked UniqueValues
-            var allCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (_meta.FeatureColumns != null)
-                foreach (var c in _meta.FeatureColumns) allCols.Add(c);
-            if (_meta.CategoricalColumns != null)
-                foreach (var c in _meta.CategoricalColumns) allCols.Add(c);
-            if (_meta.UniqueValues != null)
-                foreach (var c in _meta.UniqueValues.Keys) allCols.Add(c);
-
-            // 2. Remove the Date and Label/Quantity columns from the filter list
-            var filterCols = allCols
-                .Where(c => !string.Equals(c, _meta.DateColumn, StringComparison.OrdinalIgnoreCase) &&
-                            !string.Equals(c, _meta.LabelColumn, StringComparison.OrdinalIgnoreCase))
+            var filterCols = _meta.FeatureColumns
+                .Where(c => !string.Equals(c, _meta.DateColumn, StringComparison.OrdinalIgnoreCase))
                 .ToArray();
-
             if (filterCols.Length == 0) return;
 
             var tbl = new TableLayoutPanel
@@ -450,9 +481,7 @@ namespace Image_Checker.Forms
             for (int ri = 0; ri < filterCols.Length; ri++)
             {
                 string col = filterCols[ri];
-
-                // Treat it as categorical if it's explicitly marked or has known unique values
-                bool isCat = catSet.Contains(col) || (_meta.UniqueValues?.ContainsKey(col) == true);
+                bool isCat = catSet.Contains(col);
                 Color bg = ri % 2 == 0 ? Color.FromArgb(245, 248, 255) : Color.White;
 
                 tbl.Controls.Add(new Label
@@ -478,6 +507,8 @@ namespace Image_Checker.Forms
                 if (_meta.UniqueValues != null && _meta.UniqueValues.TryGetValue(col, out var vals))
                     foreach (var v in vals) cmb.Items.Add(v);
                 cmb.SelectedIndex = 0;
+                cmb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+                cmb.AutoCompleteSource = AutoCompleteSource.ListItems;
 
                 tbl.Controls.Add(cmb, 1, ri + 1);
                 tbl.Controls.Add(new Label
@@ -495,13 +526,6 @@ namespace Image_Checker.Forms
 
             pnlFilterGrid.Controls.Add(tbl);
             pnlFilterGrid.AutoScroll = true;
-
-            // Safely apply AutoComplete after parenting
-            foreach (var cmb in _filterControls.Values)
-            {
-                cmb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
-                cmb.AutoCompleteSource = AutoCompleteSource.ListItems;
-            }
         }
 
         private Dictionary<string, string> GetFilterValues()
