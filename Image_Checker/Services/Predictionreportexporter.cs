@@ -42,15 +42,17 @@ namespace Image_Checker.Services
             // always needs an explicit Columns definition, which the old
             // code never provided (that's exactly what
             // "Can't determine the number of source columns without valid
-            // data" means here). Building the loader from the model's own
-            // schema avoids having to reconstruct that list by hand, and
-            // guarantees it matches the exact column names/types/order the
-            // model was actually trained on.
-            var loader = mlContext.Data.CreateTextLoader(
-                schema,
-                hasHeader: true,
-                separatorChar: ',',
-                allowQuoting: true);
+            // data" means here). Building Columns from the model's own
+            // schema avoids reconstructing that list by hand, and
+            // guarantees it matches the exact column names/order the model
+            // was actually trained on.
+            var loader = mlContext.Data.CreateTextLoader(new TextLoader.Options
+            {
+                HasHeader = true,
+                Separators = new[] { ',' },
+                AllowQuoting = true,
+                Columns = BuildColumnsFromSchema(schema)
+            });
             var data = loader.Load(cleanedCsvPath);
             var preds = model.Transform(data);
 
@@ -67,6 +69,28 @@ namespace Image_Checker.Services
             WriteHtml(rows, metrics, modelZipPath, task, htmlPath);
 
             return (csvPath, htmlPath);
+        }
+
+        // ── Schema → TextLoader.Column[] ────────────────────────────────────
+        //  TextLoader.Options always needs an explicit Columns definition;
+        //  there's no built-in overload in this ML.NET version that builds
+        //  one directly from a DataViewSchema, so it's done by hand here.
+        //  Only Single (numeric) and String (text) are produced because
+        //  those are the only two kinds the original training-time
+        //  TextLoader ever assigns (see InferTextLoaderColumns in
+        //  Datamodeltrainer.cs) -- this schema came from that same model,
+        //  so it can only ever contain those two kinds for raw input columns.
+
+        private static TextLoader.Column[] BuildColumnsFromSchema(DataViewSchema schema)
+        {
+            var cols = new List<TextLoader.Column>();
+            foreach (var col in schema)
+            {
+                if (col.IsHidden) continue;
+                var kind = col.Type is TextDataViewType ? DataKind.String : DataKind.Single;
+                cols.Add(new TextLoader.Column(col.Name, kind, col.Index));
+            }
+            return cols.ToArray();
         }
 
         // ── Row extraction ────────────────────────────────────────────────────
