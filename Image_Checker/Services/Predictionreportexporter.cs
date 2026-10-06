@@ -56,6 +56,35 @@ namespace Image_Checker.Services
             var data = loader.Load(cleanedCsvPath);
             var preds = model.Transform(data);
 
+            // ── SSA / time-series models don't fit this report format ─────────
+            // An SSA model is trained on a single aggregated series (e.g. 48
+            // monthly totals), not per-row transactions -- its output has
+            // "Value"/"Forecast" (a float[] per row) instead of "Label"/
+            // "Score", and running it against cleanedCsvPath (the raw,
+            // per-transaction data) isn't just a naming mismatch: it's a
+            // different data shape than what the model was trained on, so
+            // there's no meaningful "Actual vs Predicted" row to show here.
+            // The real forecast (with confidence intervals) is already in
+            // the training log and the Forecast tab -- this just explains
+            // that plainly instead of surfacing a raw column-not-found error.
+            bool isTimeSeriesModel = !preds.Schema.Any(c => c.Name == "Label")
+                                   && preds.Schema.Any(c => c.Name == "Forecast");
+            if (isTimeSeriesModel)
+            {
+                var tsRows = new List<(string, string, float)>
+                {
+                    ("—", "This is a time-series (SSA) forecast model. Its output is a " +
+                          "multi-step forecast over an aggregated series, not a per-row " +
+                          "prediction, so it doesn't fit this report's Actual/Predicted " +
+                          "table format. See the training log or the Forecast tab for the " +
+                          "full forecast with confidence intervals.", 0f)
+                };
+                WriteCsv(tsRows, csvPath);
+                WriteHtml(tsRows, new Dictionary<string, string> { ["Model type"] = "Time-Series (SSA)" },
+                    modelZipPath, task, htmlPath);
+                return (csvPath, htmlPath);
+            }
+
             // ── Extract actual + predicted ────────────────────────────────────
             var rows = BuildReportRows(mlContext, preds, labelColumn, task);
 
