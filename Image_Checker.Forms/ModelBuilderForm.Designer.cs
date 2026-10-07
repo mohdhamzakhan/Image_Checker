@@ -123,12 +123,7 @@ namespace Image_Checker.Forms
 
             pnlTop.Resize += (s, e) =>
             {
-                int centerY = (pnlTop.Height - txtFilePath.Height) / 2;
-                txtFilePath.Top = centerY;
-                btnBrowse.Top = centerY;
-                btnLoadFile.Top = centerY;
-                lblFileCaption.Top = centerY + 3;
-
+                // Horizontal anchoring only; vertical positioning uses the initial Location coordinates.
                 btnLoadFile.Left = pnlTop.Width - btnLoadFile.Width - 10;
                 btnBrowse.Left = btnLoadFile.Left - btnBrowse.Width - 10;
                 txtFilePath.Width = btnBrowse.Left - txtFilePath.Left - 10;

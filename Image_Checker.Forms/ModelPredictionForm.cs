@@ -44,17 +44,13 @@ namespace Image_Checker.Forms
             btnLoadModel.Click += OnLoadModel;
             btnPredict.Click += OnPredict;
             btnForecast.Click += OnForecast;
+
             btnExportCsv.Click += (_, _) => ExportResults("csv");
             btnExportHtml.Click += (_, _) => ExportResults("html");
+
             btnAddRow.Click += OnAddRow;
             btnClearRows.Click += (_, _) => ClearInputGrid();
 
-            // FixedPanel/Panel2MinSize/SplitterDistance all get validated
-            // against splitResults' CURRENT size, which only becomes the
-            // real, final size once the form has loaded and Dock=Fill has
-            // taken effect — setting any of them earlier (e.g. in the
-            // Designer's object initializer) throws, because the control's
-            // tiny pre-layout default size can't satisfy a 220px minimum.
             this.Load += (_, _) => ConfigureResultsSplitter();
         }
 
@@ -159,12 +155,23 @@ namespace Image_Checker.Forms
         /// </summary>
         private static void ClearAndDispose(Control.ControlCollection controls)
         {
+            void DisposeTree(Control c)
+            {
+                for (int i = c.Controls.Count - 1; i >= 0; i--)
+                    DisposeTree(c.Controls[i]);
+                c.Dispose();
+            }
+
             while (controls.Count > 0)
             {
                 var c = controls[0];
                 controls.RemoveAt(0);
-                c.Dispose();
+                DisposeTree(c);
             }
+
+            // Force immediate cleanup of unmanaged Win32 handles
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
         }
 
         // ════════════════════════════════════════════════════════════════════
@@ -180,6 +187,16 @@ namespace Image_Checker.Forms
                 .ToArray();
             if (rawCols.Length == 0) return;
 
+            // Safety limit: Windows limits UI handles. Over 200 inputs is virtually unusable anyway.
+            if (rawCols.Length > 200)
+            {
+                MessageBox.Show($"Model has {rawCols.Length} features. Displaying first 200 to prevent crashing.",
+                    "High Dimensionality", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                rawCols = rawCols.Take(200).ToArray();
+            }
+
+            pnlInputGrid.SuspendLayout();
+
             var catSet = new HashSet<string>(
                 _meta.CategoricalColumns ?? Array.Empty<string>(),
                 StringComparer.OrdinalIgnoreCase);
@@ -189,12 +206,14 @@ namespace Image_Checker.Forms
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 ColumnCount = 3,
-                Padding = new Padding(8, 8, 8, 8)
+                RowCount = rawCols.Length + 1,
+                Padding = new Padding(8),
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
             };
+            tbl.SuspendLayout();
             tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 200));
             tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
-            tbl.RowCount = rawCols.Length + 1;
 
             void AddHeader(string t, int col) =>
                 tbl.Controls.Add(new Label
@@ -218,21 +237,19 @@ namespace Image_Checker.Forms
                 bool isCat = catSet.Contains(col);
                 Color bg = ri % 2 == 0 ? Color.FromArgb(245, 248, 255) : Color.White;
 
-                var lbl = new Label
+                tbl.Controls.Add(new Label
                 {
                     Text = col,
                     Dock = DockStyle.Fill,
                     Font = new Font("Segoe UI", 9f, FontStyle.Bold),
                     ForeColor = Color.FromArgb(30, 60, 120),
+                    BackColor = bg,
                     TextAlign = ContentAlignment.MiddleLeft,
-                    Padding = new Padding(6, 0, 0, 0),
-                    BackColor = bg
-                };
+                    Padding = new Padding(6, 0, 0, 0)
+                }, 0, ri + 1);
 
                 Control input;
-                if (_meta.UniqueValues != null
-                    && _meta.UniqueValues.TryGetValue(col, out var vals)
-                    && vals.Count > 0)
+                if (_meta.UniqueValues != null && _meta.UniqueValues.TryGetValue(col, out var vals) && vals.Count > 0)
                 {
                     var cmb = new ComboBox
                     {
@@ -242,21 +259,14 @@ namespace Image_Checker.Forms
                         BackColor = bg,
                         Tag = col
                     };
-                    cmb.BeginUpdate();
-                    cmb.Items.Add("");
-                    foreach (var v in vals) cmb.Items.Add(v);
-                    cmb.EndUpdate();
+
+                    // CRITICAL FIX: AddRange defers handle creation. Do not use BeginUpdate/EndUpdate or AutoComplete.
+                    var itemsArray = new string[vals.Count + 1];
+                    itemsArray[0] = "";
+                    vals.CopyTo(itemsArray, 1);
+                    cmb.Items.AddRange(itemsArray);
                     cmb.SelectedIndex = 0;
 
-                    // See BuildFilterPanel for why this is guarded: native
-                    // AutoComplete (SuggestAppend + ListItems) is known to
-                    // throw "Error creating window handle" with very large
-                    // candidate lists.
-                    if (vals.Count <= 300)
-                    {
-                        cmb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
-                        cmb.AutoCompleteSource = AutoCompleteSource.ListItems;
-                    }
                     input = cmb;
                 }
                 else
@@ -270,7 +280,10 @@ namespace Image_Checker.Forms
                     };
                 }
 
-                var badge = new Label
+                tbl.Controls.Add(input, 1, ri + 1);
+                _inputControls[col] = input;
+
+                tbl.Controls.Add(new Label
                 {
                     Text = isCat ? "text" : "number",
                     Dock = DockStyle.Fill,
@@ -278,16 +291,16 @@ namespace Image_Checker.Forms
                     Font = new Font("Segoe UI", 7.5f),
                     ForeColor = Color.White,
                     BackColor = isCat ? Color.FromArgb(100, 130, 200) : Color.FromArgb(40, 160, 100)
-                };
-
-                tbl.Controls.Add(lbl, 0, ri + 1);
-                tbl.Controls.Add(input, 1, ri + 1);
-                tbl.Controls.Add(badge, 2, ri + 1);
-                _inputControls[col] = input;
+                }, 2, ri + 1);
             }
 
             pnlInputGrid.Controls.Add(tbl);
             pnlInputGrid.AutoScroll = true;
+
+            tbl.ResumeLayout(false);
+            tbl.PerformLayout();
+            pnlInputGrid.ResumeLayout(true);
+
             lblColumnHint.Text = $"Fill in values for {rawCols.Length} feature column(s), then click Predict.";
         }
 
@@ -475,134 +488,172 @@ namespace Image_Checker.Forms
         // ════════════════════════════════════════════════════════════════════
         private readonly Dictionary<string, Control> _filterControls = new();
 
+        // ════════════════════════════════════════════════════════════════════
+        // FILTER PANEL
+        // ════════════════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════════════════════
+        // FILTER PANEL
+        // ════════════════════════════════════════════════════════════════════
         private void BuildFilterPanel()
         {
+            pnlFilterGrid.AutoScroll = false;
+            pnlFilterGrid.AutoScrollPosition = new Point(0, 0);
+
             ClearAndDispose(pnlFilterGrid.Controls);
             _filterControls.Clear();
+
             if (_meta?.FeatureColumns == null) return;
 
             var filterCols = _meta.FeatureColumns
                 .Where(c => !string.Equals(c, _meta.DateColumn, StringComparison.OrdinalIgnoreCase))
+                .Take(200)
                 .ToArray();
+
             if (filterCols.Length == 0) return;
 
-            var tbl = new TableLayoutPanel
-            { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3, Padding = new Padding(0, 4, 0, 4) };
-            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
-            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 70));
+            // ----------------------------------------------------------------
+            // NEW: DYNAMICALLY UPDATE THE HINT TEXT BASED ON ACTUAL DROPDOWNS
+            // ----------------------------------------------------------------
+            var dropCols = filterCols
+                .Where(c => _meta.UniqueValues != null && _meta.UniqueValues.ContainsKey(c) && _meta.UniqueValues[c].Count > 0)
+                .ToList();
 
-            foreach (var (t, col) in new[] { ("Column", 0), ("Filter Value (blank = all)", 1), ("Type", 2) })
+            if (dropCols.Count > 0)
+            {
+                lblFilterHint.Text = $"Dropdowns are populated from your training data. Select a combination of: {string.Join(" + ", dropCols)}";
+            }
+            else
+            {
+                lblFilterHint.Text = "Enter values below to filter the forecast. Leave blank for a global forecast.";
+            }
+            // ----------------------------------------------------------------
+
+            pnlFilterGrid.SuspendLayout();
+
+            var tbl = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                ColumnCount = 3,
+                RowCount = filterCols.Length + 1,
+                Padding = new Padding(0),
+                Margin = Padding.Empty,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink
+            };
+
+            tbl.ColumnStyles.Clear();
+            tbl.RowStyles.Clear();
+
+            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220F));
+            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 70F));
+
+            int scrollWidth = SystemInformation.VerticalScrollBarWidth;
+            tbl.Width = Math.Max(300, pnlFilterGrid.ClientSize.Width - scrollWidth - 2);
+
+            pnlFilterGrid.Resize += (s, e) => {
+                int sw = pnlFilterGrid.VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth : 0;
+                tbl.Width = Math.Max(300, pnlFilterGrid.ClientSize.Width - sw - 2);
+            };
+
+            // -- HEADER ROW --
+            tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 36F));
+            string[] headers = { "Column", "Filter Value (blank = all)", "Type" };
+            for (int i = 0; i < headers.Length; i++)
+            {
                 tbl.Controls.Add(new Label
                 {
-                    Text = t,
+                    Text = headers[i],
                     Dock = DockStyle.Fill,
-                    Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+                    Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
                     ForeColor = Color.White,
                     BackColor = Color.FromArgb(41, 98, 200),
                     TextAlign = ContentAlignment.MiddleLeft,
-                    Padding = new Padding(4, 0, 0, 0),
-                    Height = 26
-                }, col, 0);
+                    Padding = new Padding(6, 0, 0, 0),
+                    Margin = new Padding(0, 0, 0, 2)
+                }, i, 0);
+            }
 
-            var catSet = new HashSet<string>(
-                _meta.CategoricalColumns ?? Array.Empty<string>(),
-                StringComparer.OrdinalIgnoreCase);
+            var catSet = new HashSet<string>(_meta.CategoricalColumns ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
 
+            // -- DATA ROWS --
             for (int ri = 0; ri < filterCols.Length; ri++)
             {
+                tbl.RowStyles.Add(new RowStyle(SizeType.Absolute, 40F));
+
                 string col = filterCols[ri];
                 bool isCat = catSet.Contains(col);
                 Color bg = ri % 2 == 0 ? Color.FromArgb(245, 248, 255) : Color.White;
 
+                // Label
                 tbl.Controls.Add(new Label
                 {
                     Text = col,
                     Dock = DockStyle.Fill,
-                    Font = new Font("Segoe UI", 8.5f, FontStyle.Bold),
+                    Font = new Font("Segoe UI", 9F, FontStyle.Bold),
                     ForeColor = Color.FromArgb(30, 60, 120),
                     BackColor = bg,
                     TextAlign = ContentAlignment.MiddleLeft,
-                    Padding = new Padding(4, 0, 0, 0)
+                    Padding = new Padding(6, 0, 0, 0),
+                    Margin = new Padding(0, 1, 0, 1)
                 }, 0, ri + 1);
 
                 List<string>? vals = null;
-
-                if (_meta.UniqueValues != null)
-                {
-                    _meta.UniqueValues.TryGetValue(col, out vals);
-                }
-
-                int valCount = vals?.Count ?? 0;
-
-                // High-cardinality NUMERIC columns (price, quantity, amount...)
-                // rarely benefit from an exact-match dropdown anyway -- a
-                // continuous-ish value is more naturally typed than picked
-                // from thousands of options -- so give those a plain TextBox
-                // instead of a massive ComboBox.
-                const int autoCompleteSafeLimit = 300;
-                bool useTextBoxInstead = !isCat && valCount > autoCompleteSafeLimit;
+                if (_meta.UniqueValues != null) _meta.UniqueValues.TryGetValue(col, out vals);
 
                 Control inputCtl;
-                if (useTextBoxInstead)
-                {
-                    inputCtl = new TextBox
-                    {
-                        Dock = DockStyle.Fill,
-                        Font = new Font("Segoe UI", 8.5f),
-                        BackColor = bg,
-                        Tag = col
-                    };
-                }
-                else
+                if (vals != null && vals.Count > 0)
                 {
                     var cmb = new ComboBox
                     {
-                        Dock = DockStyle.Fill,
+                        Anchor = AnchorStyles.Left | AnchorStyles.Right,
                         DropDownStyle = ComboBoxStyle.DropDown,
-                        Font = new Font("Segoe UI", 8.5f),
+                        Font = new Font("Segoe UI", 9.5F),
                         BackColor = bg,
-                        Tag = col
+                        Tag = col,
+                        Margin = new Padding(4, 7, 4, 7),
+                        MaxDropDownItems = 6,
+                        IntegralHeight = false,
+                        DropDownHeight = 130
                     };
-                    cmb.BeginUpdate();
-                    cmb.Items.Add("");
-                    if (vals != null) foreach (var v in vals) cmb.Items.Add(v);
-                    cmb.EndUpdate();
+                    var items = new string[vals.Count + 1];
+                    items[0] = "";
+                    vals.CopyTo(items, 1);
+                    cmb.Items.AddRange(items);
                     cmb.SelectedIndex = 0;
-
-                    // WinForms' native AutoComplete (SuggestAppend +
-                    // ListItems) is backed by a COM component that's known
-                    // to throw "Error creating window handle" when given a
-                    // very large candidate list, especially across several
-                    // such controls built in one pass -- which is exactly
-                    // what a high-cardinality column like TRX_DATE or
-                    // ITEM_NUMBER produces. Only enable it below a safe
-                    // item count; above that, the dropdown still works for
-                    // browsing, just without native autocomplete-as-you-type.
-                    if (valCount <= autoCompleteSafeLimit)
-                    {
-                        cmb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
-                        cmb.AutoCompleteSource = AutoCompleteSource.ListItems;
-                    }
-
                     inputCtl = cmb;
+                }
+                else
+                {
+                    inputCtl = new TextBox
+                    {
+                        Anchor = AnchorStyles.Left | AnchorStyles.Right,
+                        Font = new Font("Segoe UI", 9.5F),
+                        BackColor = bg,
+                        Tag = col,
+                        Margin = new Padding(4, 7, 4, 7)
+                    };
                 }
 
                 _filterControls[col] = inputCtl;
                 tbl.Controls.Add(inputCtl, 1, ri + 1);
+
+                // Type Badge
                 tbl.Controls.Add(new Label
                 {
                     Text = isCat ? "text" : "num",
                     Dock = DockStyle.Fill,
                     TextAlign = ContentAlignment.MiddleCenter,
-                    Font = new Font("Segoe UI", 7.5f),
+                    Font = new Font("Segoe UI", 8F, FontStyle.Bold),
                     ForeColor = Color.White,
-                    BackColor = isCat ? Color.FromArgb(100, 130, 200) : Color.FromArgb(40, 160, 100)
+                    BackColor = isCat ? Color.FromArgb(100, 130, 200) : Color.FromArgb(40, 160, 100),
+                    Margin = new Padding(4, 8, 4, 8)
                 }, 2, ri + 1);
             }
 
             pnlFilterGrid.Controls.Add(tbl);
             pnlFilterGrid.AutoScroll = true;
+            pnlFilterGrid.ResumeLayout(true);
         }
 
         private Dictionary<string, string> GetFilterValues()
