@@ -16,7 +16,6 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using TorchSharp.Modules;
 
 namespace Image_Checker.Forms
 {
@@ -147,12 +146,33 @@ namespace Image_Checker.Forms
             }
         }
 
+        /// <summary>
+        /// Controls.Clear() removes child controls from their parent but
+        /// does NOT dispose them -- their native window handles stay alive
+        /// until the GC eventually finalizes them, which isn't fast enough
+        /// to prevent handle exhaustion if a model is loaded more than once
+        /// in a session (very likely while testing). Each load can create
+        /// hundreds to thousands of controls (one ComboBox/TextBox per
+        /// feature column, each potentially holding thousands of items), so
+        /// disposing the previous batch explicitly before rebuilding matters
+        /// here far more than it would for a handful of static controls.
+        /// </summary>
+        private static void ClearAndDispose(Control.ControlCollection controls)
+        {
+            while (controls.Count > 0)
+            {
+                var c = controls[0];
+                controls.RemoveAt(0);
+                c.Dispose();
+            }
+        }
+
         // ════════════════════════════════════════════════════════════════════
         // INPUT GRID – dropdowns populated from JSON unique values
         // ════════════════════════════════════════════════════════════════════
         private void BuildInputGrid()
         {
-            pnlInputGrid.Controls.Clear();
+            ClearAndDispose(pnlInputGrid.Controls);
             if (_meta == null) return;
 
             var rawCols = (_meta.FeatureColumns ?? Array.Empty<string>())
@@ -222,8 +242,10 @@ namespace Image_Checker.Forms
                         BackColor = bg,
                         Tag = col
                     };
+                    cmb.BeginUpdate();
                     cmb.Items.Add("");
                     foreach (var v in vals) cmb.Items.Add(v);
+                    cmb.EndUpdate();
                     cmb.SelectedIndex = 0;
 
                     // See BuildFilterPanel for why this is guarded: native
@@ -455,7 +477,7 @@ namespace Image_Checker.Forms
 
         private void BuildFilterPanel()
         {
-            pnlFilterGrid.Controls.Clear();
+            ClearAndDispose(pnlFilterGrid.Controls);
             _filterControls.Clear();
             if (_meta?.FeatureColumns == null) return;
 
@@ -542,8 +564,10 @@ namespace Image_Checker.Forms
                         BackColor = bg,
                         Tag = col
                     };
+                    cmb.BeginUpdate();
                     cmb.Items.Add("");
                     if (vals != null) foreach (var v in vals) cmb.Items.Add(v);
+                    cmb.EndUpdate();
                     cmb.SelectedIndex = 0;
 
                     // WinForms' native AutoComplete (SuggestAppend +
