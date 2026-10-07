@@ -1,5 +1,5 @@
 ﻿// ══════════════════════════════════════════════════════════════════════════════
-//  ModelPredictionForm.cs  –  Complete rewrite with working predictions
+// ModelPredictionForm.cs – Complete rewrite with working predictions
 // ══════════════════════════════════════════════════════════════════════════════
 
 using Image_Checker.Services;
@@ -16,6 +16,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using TorchSharp.Modules;
 
 namespace Image_Checker.Forms
 {
@@ -37,20 +38,7 @@ namespace Image_Checker.Forms
             InitForm();
             WireEvents();
         }
-        protected override void OnLoad(EventArgs e)
-        {
-            base.OnLoad(e);
 
-            // Force window handle creation for all hidden tabs now that 
-            // the main form handle actually exists. 
-            this.SuspendLayout();
-            foreach (TabPage tab in tabMain.TabPages)
-            {
-                tabMain.SelectedTab = tab;
-            }
-            tabMain.SelectedIndex = 0;
-            this.ResumeLayout(true);
-        }
         // ── Event wiring ───────────────────────────────────────────────────
         private void WireEvents()
         {
@@ -61,10 +49,45 @@ namespace Image_Checker.Forms
             btnExportHtml.Click += (_, _) => ExportResults("html");
             btnAddRow.Click += OnAddRow;
             btnClearRows.Click += (_, _) => ClearInputGrid();
+
+            // FixedPanel/Panel2MinSize/SplitterDistance all get validated
+            // against splitResults' CURRENT size, which only becomes the
+            // real, final size once the form has loaded and Dock=Fill has
+            // taken effect — setting any of them earlier (e.g. in the
+            // Designer's object initializer) throws, because the control's
+            // tiny pre-layout default size can't satisfy a 220px minimum.
+            this.Load += (_, _) => ConfigureResultsSplitter();
+        }
+
+        /// <summary>
+        /// Safely sets up splitResults' fixed chart pane. Called once, from
+        /// the Form's Load event, after the control actually has its real,
+        /// final size — see the comment on splitResults in the Designer file
+        /// for why this can't be done any earlier.
+        /// </summary>
+        private void ConfigureResultsSplitter()
+        {
+            try
+            {
+                const int chartPaneHeight = 220;
+                splitResults.Panel2MinSize = chartPaneHeight;
+                splitResults.FixedPanel = System.Windows.Forms.FixedPanel.Panel2;
+                splitResults.SplitterDistance = Math.Max(
+                    splitResults.Panel1MinSize,
+                    splitResults.Height - chartPaneHeight - splitResults.SplitterWidth);
+            }
+            catch
+            {
+                // If the form is somehow still too small for a 220px chart
+                // pane even at Load time (a very small MinimumSize override,
+                // say), just leave the SplitContainer at its own safe
+                // default rather than letting a cosmetic sizing preference
+                // crash the form on startup.
+            }
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  LOAD MODEL
+        // LOAD MODEL
         // ════════════════════════════════════════════════════════════════════
         private void OnLoadModel(object? s, EventArgs e)
         {
@@ -91,34 +114,28 @@ namespace Image_Checker.Forms
                 if (isTs)
                 {
                     lblModelInfo.Text =
-                        $"TimeSeries (SSA)  |  Label: {_meta?.LabelColumn ?? "?"}  |  " +
-                        $"Horizon: {_meta?.HorizonSteps} {_meta?.Granularity ?? "steps"}  |  " +
+                        $"TimeSeries (SSA) | Label: {_meta?.LabelColumn ?? "?"} | " +
+                        $"Horizon: {_meta?.HorizonSteps} {_meta?.Granularity ?? "steps"} | " +
                         $"Trained: {_meta?.TrainedAt?[..10] ?? "?"}";
 
-                    // ✅ SWITCH TAB FIRST so the controls have a visible parent
+                    SetupForecastTab();
                     tabMain.SelectedTab = tabForecast;
                     tabForecast.Enabled = true;
                     tabInput.Enabled = false;
-
-                    // ✅ BUILD CONTROLS SECOND
-                    SetupForecastTab();
                 }
                 else
                 {
                     lblModelInfo.Text =
-                        $"Task: {_meta?.Task ?? "Regression"}  |  " +
-                        $"Label: {_meta?.LabelColumn ?? "?"}  |  " +
-                        $"Best Model: {_meta?.BestModel ?? "?"}  |  " +
-                        $"R²: {_meta?.PrimaryMetric:F4}  |  " +
+                        $"Task: {_meta?.Task ?? "Regression"} | " +
+                        $"Label: {_meta?.LabelColumn ?? "?"} | " +
+                        $"Best Model: {_meta?.BestModel ?? "?"} | " +
+                        $"R²: {_meta?.PrimaryMetric:F4} | " +
                         $"Trained: {_meta?.TrainedAt?[..10] ?? "?"}";
 
-                    // ✅ SWITCH TAB FIRST
+                    BuildInputGrid();
                     tabMain.SelectedTab = tabInput;
                     tabInput.Enabled = true;
                     tabForecast.Enabled = false;
-
-                    // ✅ BUILD CONTROLS SECOND
-                    BuildInputGrid();
                 }
 
                 SetStatus($"Loaded: {Path.GetFileName(_modelPath)}", false);
@@ -131,7 +148,7 @@ namespace Image_Checker.Forms
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  INPUT GRID  –  dropdowns populated from JSON unique values
+        // INPUT GRID – dropdowns populated from JSON unique values
         // ════════════════════════════════════════════════════════════════════
         private void BuildInputGrid()
         {
@@ -209,6 +226,15 @@ namespace Image_Checker.Forms
                     foreach (var v in vals) cmb.Items.Add(v);
                     cmb.SelectedIndex = 0;
 
+                    // See BuildFilterPanel for why this is guarded: native
+                    // AutoComplete (SuggestAppend + ListItems) is known to
+                    // throw "Error creating window handle" with very large
+                    // candidate lists.
+                    if (vals.Count <= 300)
+                    {
+                        cmb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+                        cmb.AutoCompleteSource = AutoCompleteSource.ListItems;
+                    }
                     input = cmb;
                 }
                 else
@@ -241,12 +267,6 @@ namespace Image_Checker.Forms
             pnlInputGrid.Controls.Add(tbl);
             pnlInputGrid.AutoScroll = true;
             lblColumnHint.Text = $"Fill in values for {rawCols.Length} feature column(s), then click Predict.";
-
-            foreach (var cmb in _inputControls.Values.OfType<ComboBox>())
-            {
-                cmb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
-                cmb.AutoCompleteSource = AutoCompleteSource.ListItems;
-            }
         }
 
         private readonly Dictionary<string, Control> _inputControls = new();
@@ -263,7 +283,7 @@ namespace Image_Checker.Forms
         private void OnAddRow(object? s, EventArgs e) => ClearInputGrid();
 
         // ════════════════════════════════════════════════════════════════════
-        //  RUN TABULAR PREDICTION
+        // RUN TABULAR PREDICTION
         // ════════════════════════════════════════════════════════════════════
         private async void OnPredict(object? s, EventArgs e)
         {
@@ -295,6 +315,38 @@ namespace Image_Checker.Forms
                 if (ans == DialogResult.No) return;
             }
 
+            // Warn about values the model likely never saw during training.
+            // A one-hot/categorical feature the model has no vocabulary
+            // entry for gets encoded as all-zero at prediction time — the
+            // model silently loses that signal entirely, which is usually
+            // what's behind a suspiciously-low or flat-zero prediction with
+            // no visible error. Note: for very high-cardinality columns,
+            // UniqueValues only stores the most frequent subset (see
+            // BuildUniqueValues), so this can also flag a value that WAS
+            // seen in training but didn't make that cutoff — worded below
+            // to reflect that uncertainty rather than stating it as fact.
+            if (_meta?.UniqueValues != null)
+            {
+                var unseen = inputValues
+                    .Where(kv => kv.Value != "" && _meta.UniqueValues.ContainsKey(kv.Key))
+                    .Where(kv => !_meta.UniqueValues[kv.Key]
+                        .Any(v => string.Equals(v, kv.Value, StringComparison.OrdinalIgnoreCase)))
+                    .Select(kv => $"{kv.Key} = '{kv.Value}'")
+                    .ToList();
+
+                if (unseen.Count > 0)
+                {
+                    var ans = MessageBox.Show(
+                        "These values don't match what the model saw during training " +
+                        "(or weren't common enough to be remembered for the dropdown):\n\n" +
+                        string.Join("\n", unseen) +
+                        "\n\nThe model will treat them as unknown, which often produces a " +
+                        "near-zero or otherwise unreliable prediction. Proceed anyway?",
+                        "Possibly Unrecognized Values", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                    if (ans == DialogResult.No) return;
+                }
+            }
+
             SetBusy(true, "Running prediction...");
             DataTable? result = null;
             Exception? err = null;
@@ -314,7 +366,7 @@ namespace Image_Checker.Forms
                 return;
             }
 
-            ShowOutput(result!, $"Predicted  |  Label: {_meta?.LabelColumn ?? "?"}");
+            ShowOutput(result!, $"Predicted | Label: {_meta?.LabelColumn ?? "?"}");
             tabMain.SelectedTab = tabOutput;
         }
 
@@ -379,7 +431,7 @@ namespace Image_Checker.Forms
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  FORECAST TAB SETUP
+        // FORECAST TAB SETUP
         // ════════════════════════════════════════════════════════════════════
         private void SetupForecastTab()
         {
@@ -397,31 +449,19 @@ namespace Image_Checker.Forms
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  FILTER PANEL
+        // FILTER PANEL
         // ════════════════════════════════════════════════════════════════════
-        private readonly Dictionary<string, ComboBox> _filterControls = new();
+        private readonly Dictionary<string, Control> _filterControls = new();
 
         private void BuildFilterPanel()
         {
             pnlFilterGrid.Controls.Clear();
             _filterControls.Clear();
-            if (_meta == null) return;
+            if (_meta?.FeatureColumns == null) return;
 
-            // 1. Gather all potential columns from Features, Categoricals, and tracked UniqueValues
-            var allCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (_meta.FeatureColumns != null)
-                foreach (var c in _meta.FeatureColumns) allCols.Add(c);
-            if (_meta.CategoricalColumns != null)
-                foreach (var c in _meta.CategoricalColumns) allCols.Add(c);
-            if (_meta.UniqueValues != null)
-                foreach (var c in _meta.UniqueValues.Keys) allCols.Add(c);
-
-            // 2. Remove the Date and Label/Quantity columns from the filter list
-            var filterCols = allCols
-                .Where(c => !string.Equals(c, _meta.DateColumn, StringComparison.OrdinalIgnoreCase) &&
-                            !string.Equals(c, _meta.LabelColumn, StringComparison.OrdinalIgnoreCase))
+            var filterCols = _meta.FeatureColumns
+                .Where(c => !string.Equals(c, _meta.DateColumn, StringComparison.OrdinalIgnoreCase))
                 .ToArray();
-
             if (filterCols.Length == 0) return;
 
             var tbl = new TableLayoutPanel
@@ -450,9 +490,7 @@ namespace Image_Checker.Forms
             for (int ri = 0; ri < filterCols.Length; ri++)
             {
                 string col = filterCols[ri];
-
-                // Treat it as categorical if it's explicitly marked or has known unique values
-                bool isCat = catSet.Contains(col) || (_meta.UniqueValues?.ContainsKey(col) == true);
+                bool isCat = catSet.Contains(col);
                 Color bg = ri % 2 == 0 ? Color.FromArgb(245, 248, 255) : Color.White;
 
                 tbl.Controls.Add(new Label
@@ -466,20 +504,68 @@ namespace Image_Checker.Forms
                     Padding = new Padding(4, 0, 0, 0)
                 }, 0, ri + 1);
 
-                var cmb = new ComboBox
-                {
-                    Dock = DockStyle.Fill,
-                    DropDownStyle = ComboBoxStyle.DropDown,
-                    Font = new Font("Segoe UI", 8.5f),
-                    BackColor = bg,
-                    Tag = col
-                };
-                cmb.Items.Add("");
-                if (_meta.UniqueValues != null && _meta.UniqueValues.TryGetValue(col, out var vals))
-                    foreach (var v in vals) cmb.Items.Add(v);
-                cmb.SelectedIndex = 0;
+                List<string>? vals = null;
 
-                tbl.Controls.Add(cmb, 1, ri + 1);
+                if (_meta.UniqueValues != null)
+                {
+                    _meta.UniqueValues.TryGetValue(col, out vals);
+                }
+
+                int valCount = vals?.Count ?? 0;
+
+                // High-cardinality NUMERIC columns (price, quantity, amount...)
+                // rarely benefit from an exact-match dropdown anyway -- a
+                // continuous-ish value is more naturally typed than picked
+                // from thousands of options -- so give those a plain TextBox
+                // instead of a massive ComboBox.
+                const int autoCompleteSafeLimit = 300;
+                bool useTextBoxInstead = !isCat && valCount > autoCompleteSafeLimit;
+
+                Control inputCtl;
+                if (useTextBoxInstead)
+                {
+                    inputCtl = new TextBox
+                    {
+                        Dock = DockStyle.Fill,
+                        Font = new Font("Segoe UI", 8.5f),
+                        BackColor = bg,
+                        Tag = col
+                    };
+                }
+                else
+                {
+                    var cmb = new ComboBox
+                    {
+                        Dock = DockStyle.Fill,
+                        DropDownStyle = ComboBoxStyle.DropDown,
+                        Font = new Font("Segoe UI", 8.5f),
+                        BackColor = bg,
+                        Tag = col
+                    };
+                    cmb.Items.Add("");
+                    if (vals != null) foreach (var v in vals) cmb.Items.Add(v);
+                    cmb.SelectedIndex = 0;
+
+                    // WinForms' native AutoComplete (SuggestAppend +
+                    // ListItems) is backed by a COM component that's known
+                    // to throw "Error creating window handle" when given a
+                    // very large candidate list, especially across several
+                    // such controls built in one pass -- which is exactly
+                    // what a high-cardinality column like TRX_DATE or
+                    // ITEM_NUMBER produces. Only enable it below a safe
+                    // item count; above that, the dropdown still works for
+                    // browsing, just without native autocomplete-as-you-type.
+                    if (valCount <= autoCompleteSafeLimit)
+                    {
+                        cmb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+                        cmb.AutoCompleteSource = AutoCompleteSource.ListItems;
+                    }
+
+                    inputCtl = cmb;
+                }
+
+                _filterControls[col] = inputCtl;
+                tbl.Controls.Add(inputCtl, 1, ri + 1);
                 tbl.Controls.Add(new Label
                 {
                     Text = isCat ? "text" : "num",
@@ -489,19 +575,10 @@ namespace Image_Checker.Forms
                     ForeColor = Color.White,
                     BackColor = isCat ? Color.FromArgb(100, 130, 200) : Color.FromArgb(40, 160, 100)
                 }, 2, ri + 1);
-
-                _filterControls[col] = cmb;
             }
 
             pnlFilterGrid.Controls.Add(tbl);
             pnlFilterGrid.AutoScroll = true;
-
-            // Safely apply AutoComplete after parenting
-            foreach (var cmb in _filterControls.Values)
-            {
-                cmb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
-                cmb.AutoCompleteSource = AutoCompleteSource.ListItems;
-            }
         }
 
         private Dictionary<string, string> GetFilterValues()
@@ -516,7 +593,7 @@ namespace Image_Checker.Forms
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  RUN FORECAST
+        // RUN FORECAST
         // ════════════════════════════════════════════════════════════════════
         private async void OnForecast(object? s, EventArgs e)
         {
@@ -529,8 +606,8 @@ namespace Image_Checker.Forms
             var labelCol = _meta?.LabelColumn ?? "QUANTITY_INVOICED";
 
             string filterDesc = filterVals.Count > 0
-                ? "  |  " + string.Join(", ", filterVals.Select(kv => $"{kv.Key}={kv.Value}"))
-                : "  |  All data";
+                ? " | " + string.Join(", ", filterVals.Select(kv => $"{kv.Key}={kv.Value}"))
+                : " | All data";
 
             SetBusy(true, $"Forecasting {horizon} {gran}(s)...");
             DataTable? result = null;
@@ -550,12 +627,12 @@ namespace Image_Checker.Forms
                 return;
             }
 
-            ShowOutput(result!, $"SSA Forecast: {horizon} {gran}(s)  |  {labelCol}{filterDesc}");
+            ShowOutput(result!, $"SSA Forecast: {horizon} {gran}(s) | {labelCol}{filterDesc}");
             tabMain.SelectedTab = tabOutput;
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  SSA FORECAST ENGINE
+        // SSA FORECAST ENGINE
         // ════════════════════════════════════════════════════════════════════
         private DataTable RunSSAForecast(int horizon, string gran, DateTime startDate,
             Dictionary<string, string> filterValues)
@@ -609,7 +686,7 @@ namespace Image_Checker.Forms
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  FILTERED FORECAST
+        // FILTERED FORECAST
         // ════════════════════════════════════════════════════════════════════
         private DataTable RunFilteredForecast(
             int horizon, string gran, DateTime startDate,
@@ -666,7 +743,7 @@ namespace Image_Checker.Forms
             if (matchedRows == 0)
                 throw new InvalidOperationException(
                     "No rows matched the filters:\n" +
-                    string.Join("\n", filters.Select(kv => $"  {kv.Key} = {kv.Value}")) +
+                    string.Join("\n", filters.Select(kv => $" {kv.Key} = {kv.Value}")) +
                     "\n\nValues are case-sensitive. Check the dropdown values.");
 
             if (periodSums.Count < 4)
@@ -706,7 +783,7 @@ namespace Image_Checker.Forms
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  BUILD FORECAST TABLE
+        // BUILD FORECAST TABLE
         // ════════════════════════════════════════════════════════════════════
         private DataTable BuildForecastTable(
             float[] fc, float[] lo, float[] hi,
@@ -740,7 +817,7 @@ namespace Image_Checker.Forms
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  HELPERS
+        // HELPERS
         // ════════════════════════════════════════════════════════════════════
         private static DateTime? ParseDate(string raw)
         {
@@ -805,14 +882,14 @@ namespace Image_Checker.Forms
                 ? $"\"{s.Replace("\"", "\"\"")}\"" : s;
 
         // ════════════════════════════════════════════════════════════════════
-        //  OUTPUT / EXPORT
+        // OUTPUT / EXPORT
         // ════════════════════════════════════════════════════════════════════
         private void ShowOutput(DataTable dt, string info)
         {
             _lastOutput = dt;
             dgvOutput.DataSource = null;
             dgvOutput.DataSource = dt;
-            lblOutputInfo.Text = $"{info}  |  {dt.Rows.Count:N0} rows";
+            lblOutputInfo.Text = $"{info} | {dt.Rows.Count:N0} rows";
             btnExportCsv.Enabled = btnExportHtml.Enabled = true;
             ApplyOutputGridStyle();
             UpdateChartSeriesOptions(dt);
@@ -820,7 +897,7 @@ namespace Image_Checker.Forms
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  TREND CHART  –  user picks chart type and which column(s) to plot
+        // TREND CHART – user picks chart type and which column(s) to plot
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
@@ -984,7 +1061,7 @@ namespace Image_Checker.Forms
             s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 
         // ════════════════════════════════════════════════════════════════════
-        //  UI HELPERS
+        // UI HELPERS
         // ════════════════════════════════════════════════════════════════════
         private void SetBusy(bool busy, string msg)
         {
@@ -1030,7 +1107,7 @@ namespace Image_Checker.Forms
         }
 
         // ════════════════════════════════════════════════════════════════════
-        //  SSA INNER TYPES
+        // SSA INNER TYPES
         // ════════════════════════════════════════════════════════════════════
         private class TsValueRow
         {
@@ -1047,7 +1124,7 @@ namespace Image_Checker.Forms
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    //  JSON CONFIG POCO
+    // JSON CONFIG POCO
     // ════════════════════════════════════════════════════════════════════════
     internal class ModelMetaConfig
     {
