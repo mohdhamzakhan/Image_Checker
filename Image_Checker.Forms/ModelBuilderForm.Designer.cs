@@ -422,53 +422,6 @@ namespace Image_Checker.Forms
             tpCleaning.Controls.Add(toolbar);
         }
 
-        private DataGridView BuildCleanGrid()
-        {
-            var g = StyledGrid(false);
-            g.Dock = DockStyle.Fill; g.RowTemplate.Height = 30;
-            g.AllowUserToAddRows = g.AllowUserToDeleteRows = false;
-            g.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            g.EditMode = DataGridViewEditMode.EditOnEnter;
-
-            g.Columns.Add(new DataGridViewTextBoxColumn
-            {
-                Name = "ColName",
-                HeaderText = "Column Name",
-                ReadOnly = true,
-                Width = 180,
-                DefaultCellStyle = { BackColor = Color.FromArgb(237, 243, 255), Font = new Font("Segoe UI", 9f, FontStyle.Bold) }
-            });
-            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "ColType", HeaderText = "Type", ReadOnly = true, Width = 85 });
-            g.Columns.Add(new DataGridViewComboBoxColumn
-            {
-                Name = "Missing",
-                HeaderText = "Missing Value Strategy",
-                Width = 200,
-                FlatStyle = FlatStyle.Flat,
-                DataSource = new[] { "Mean (average)", "Median (middle)", "Mode (most frequent)", "Delete Row", "None – leave as is" }
-            });
-            g.Columns.Add(new DataGridViewComboBoxColumn
-            {
-                Name = "OutlierMethod",
-                HeaderText = "Outlier Detection",
-                Width = 175,
-                FlatStyle = FlatStyle.Flat,
-                DataSource = new[] { "None", "IQR  (Q1 – k×IQR  to  Q3 + k×IQR)", "Z-Score  ( |z| > threshold )" }
-            });
-            g.Columns.Add(new DataGridViewComboBoxColumn
-            {
-                Name = "OutlierAction",
-                HeaderText = "Outlier Action",
-                Width = 160,
-                FlatStyle = FlatStyle.Flat,
-                DataSource = new[] { "Cap to boundary value", "Remove the row" }
-            });
-            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "IQRk", HeaderText = "IQR k", Width = 70 });
-            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "ZThresh", HeaderText = "Z Threshold", Width = 100 });
-            g.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.AllCells;
-            return g;
-        }
-
         // ═════════════════════════════════════════════════════════════════════
         //  TRANSFORM TAB
         // ═════════════════════════════════════════════════════════════════════
@@ -500,37 +453,84 @@ namespace Image_Checker.Forms
             g.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             g.EditMode = DataGridViewEditMode.EditOnEnter;
 
-            g.Columns.Add(new DataGridViewTextBoxColumn
-            {
-                Name = "ColName",
-                HeaderText = "Column Name",
-                ReadOnly = true,
-                Width = 180,
-                DefaultCellStyle = { BackColor = Color.FromArgb(237, 243, 255), Font = new Font("Segoe UI", 9f, FontStyle.Bold) }
-            });
+            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "ColName", HeaderText = "Column Name", ReadOnly = true, Width = 180, DefaultCellStyle = { BackColor = Color.FromArgb(237, 243, 255), Font = new Font("Segoe UI", 9f, FontStyle.Bold) } });
             g.Columns.Add(new DataGridViewTextBoxColumn { Name = "ColType", HeaderText = "Type", ReadOnly = true, Width = 85 });
-            g.Columns.Add(new DataGridViewComboBoxColumn
-            {
-                Name = "Norm",
-                HeaderText = "Normalization  (numeric)",
-                Width = 240,
-                FlatStyle = FlatStyle.Flat,
-                DataSource = new[] { "None – raw values", "Min-Max  →  [0, 1]", "Z-Score  →  (x − μ) / σ",
-                    "Decimal Scaling  →  ÷ 10ᵏ", "Log Transform  →  ln(x + 1)" }
-            });
-            g.Columns.Add(new DataGridViewComboBoxColumn
-            {
-                Name = "Enc",
-                HeaderText = "Encoding  (categorical)",
-                Width = 250,
-                FlatStyle = FlatStyle.Flat,
-                DataSource = new[] { "One-Hot Encoding  (binary dummy columns)", "Label Encoding  (integer index)", "None – keep as text" }
-            });
+
+            // FIX: Use Items.AddRange instead of DataSource
+            var normCol = new DataGridViewComboBoxColumn { Name = "Norm", HeaderText = "Normalization  (numeric)", Width = 240, FlatStyle = FlatStyle.Flat };
+            normCol.Items.AddRange("None – raw values", "Min-Max  →  [0, 1]", "Z-Score  →  (x − μ) / σ", "Decimal Scaling  →  ÷ 10ᵏ", "Log Transform  →  ln(x + 1)");
+            g.Columns.Add(normCol);
+
+            // FIX: Use Items.AddRange instead of DataSource
+            var encCol = new DataGridViewComboBoxColumn { Name = "Enc", HeaderText = "Encoding  (categorical)", Width = 250, FlatStyle = FlatStyle.Flat };
+            encCol.Items.AddRange("One-Hot Encoding  (binary dummy columns)", "Label Encoding  (integer index)", "None – keep as text");
+            g.Columns.Add(encCol);
+
             g.Columns.Add(new DataGridViewCheckBoxColumn { Name = "Bin", HeaderText = "Binning", Width = 75, TrueValue = true, FalseValue = false });
             g.Columns.Add(new DataGridViewTextBoxColumn { Name = "BinCount", HeaderText = "Bin Count", Width = 90 });
             return g;
         }
 
+        private DataGridView BuildCleanGrid()
+        {
+            var g = StyledGrid(false);
+            g.Dock = DockStyle.Fill; g.RowTemplate.Height = 30;
+            g.AllowUserToAddRows = g.AllowUserToDeleteRows = false;
+            g.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            g.EditMode = DataGridViewEditMode.EditOnEnter;
+
+            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "ColName", HeaderText = "Column Name", ReadOnly = true, Width = 180, DefaultCellStyle = { BackColor = Color.FromArgb(237, 243, 255), Font = new Font("Segoe UI", 9f, FontStyle.Bold) } });
+            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "ColType", HeaderText = "Type", ReadOnly = true, Width = 85 });
+
+            var missingCol = new DataGridViewComboBoxColumn { Name = "Missing", HeaderText = "Missing Value Strategy", Width = 200, FlatStyle = FlatStyle.Flat };
+            missingCol.Items.AddRange("Mean (average)", "Median (middle)", "Mode (most frequent)", "Delete Row", "None – leave as is");
+            g.Columns.Add(missingCol);
+
+            var outlierCol = new DataGridViewComboBoxColumn { Name = "OutlierMethod", HeaderText = "Outlier Detection", Width = 175, FlatStyle = FlatStyle.Flat };
+            outlierCol.Items.AddRange("None", "IQR  (Q1 – k×IQR  to  Q3 + k×IQR)", "Z-Score  ( |z| > threshold )");
+            g.Columns.Add(outlierCol);
+
+            var actionCol = new DataGridViewComboBoxColumn { Name = "OutlierAction", HeaderText = "Outlier Action", Width = 160, FlatStyle = FlatStyle.Flat };
+            actionCol.Items.AddRange("Cap to boundary value", "Remove the row");
+            g.Columns.Add(actionCol);
+
+            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "IQRk", HeaderText = "IQR k", Width = 70 });
+            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "ZThresh", HeaderText = "Z Threshold", Width = 100 });
+            g.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.AllCells;
+            return g;
+        }
+
+        private DataGridView BuildReductionGrid()
+        {
+            var g = StyledGrid(false);
+            g.Dock = DockStyle.Fill; g.RowTemplate.Height = 30;
+            g.AllowUserToAddRows = g.AllowUserToDeleteRows = false;
+            g.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            g.EditMode = DataGridViewEditMode.EditOnEnter;
+
+            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "ColName", HeaderText = "Column Name", ReadOnly = true, Width = 180, DefaultCellStyle = { BackColor = Color.FromArgb(237, 243, 255), Font = new Font("Segoe UI", 9f, FontStyle.Bold) } });
+            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "ColType", HeaderText = "Type", ReadOnly = true, Width = 85 });
+            g.Columns.Add(new DataGridViewCheckBoxColumn { Name = "Include", HeaderText = "Include", Width = 80, TrueValue = true, FalseValue = false });
+
+            var stratCol = new DataGridViewComboBoxColumn
+            {
+                Name = "Strategy",
+                HeaderText = "Feature Selection Strategy",
+                Width = 270,
+                FlatStyle = FlatStyle.Flat
+            };
+            stratCol.Items.AddRange(
+                 "Always include",
+                 "Variance Filter  (drop near-zero variance)",
+                 "Top-N Correlation  (with label column)",
+                 "Exclude this column"
+             );
+            g.Columns.Add(stratCol);
+
+            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "VarThresh", HeaderText = "Variance Threshold", Width = 160 });
+            g.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.AllCells;
+            return g;
+        }
         // ═════════════════════════════════════════════════════════════════════
         //  REDUCTION TAB
         // ═════════════════════════════════════════════════════════════════════
@@ -566,9 +566,9 @@ namespace Image_Checker.Forms
                 ColumnCount = 10,
                 RowCount = 2,
                 Padding = new Padding(12, 8, 12, 8),
-                AutoSize = true
+                //AutoSize = true
             };
-            for (int i = 0; i < 8; i++) tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            for (int i = 0; i < 7; i++) tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             tbl.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             tbl.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -614,37 +614,6 @@ namespace Image_Checker.Forms
         private static Label MkClickLabel(string text, RadioButton rb) =>
             new Label { Text = text, AutoSize = true }.Also(l => l.Click += (s, e) => rb.Checked = true);
 
-        private DataGridView BuildReductionGrid()
-        {
-            var g = StyledGrid(false);
-            g.Dock = DockStyle.Fill; g.RowTemplate.Height = 30;
-            g.AllowUserToAddRows = g.AllowUserToDeleteRows = false;
-            g.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            g.EditMode = DataGridViewEditMode.EditOnEnter;
-
-            g.Columns.Add(new DataGridViewTextBoxColumn
-            {
-                Name = "ColName",
-                HeaderText = "Column Name",
-                ReadOnly = true,
-                Width = 180,
-                DefaultCellStyle = { BackColor = Color.FromArgb(237, 243, 255), Font = new Font("Segoe UI", 9f, FontStyle.Bold) }
-            });
-            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "ColType", HeaderText = "Type", ReadOnly = true, Width = 85 });
-            g.Columns.Add(new DataGridViewCheckBoxColumn { Name = "Include", HeaderText = "Include", Width = 80, TrueValue = true, FalseValue = false });
-            g.Columns.Add(new DataGridViewComboBoxColumn
-            {
-                Name = "Strategy",
-                HeaderText = "Feature Selection Strategy",
-                Width = 270,
-                FlatStyle = FlatStyle.Flat,
-                DataSource = new[] { "Always include", "Variance Filter  (drop near-zero variance)",
-                    "Top-N Correlation  (with label column)", "Exclude this column" }
-            });
-            g.Columns.Add(new DataGridViewTextBoxColumn { Name = "VarThresh", HeaderText = "Variance Threshold", Width = 160 });
-            g.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.AllCells;
-            return g;
-        }
 
         // ═════════════════════════════════════════════════════════════════════
         //  TRAINING TAB

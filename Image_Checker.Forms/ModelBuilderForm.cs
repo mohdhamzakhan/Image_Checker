@@ -109,6 +109,10 @@ namespace Image_Checker.Forms
             InitializeComponent();
             WireEvents();
             SetAlgoInfo("SDCA");
+
+            // ADD THIS: Force handle creation for all hidden tabs immediately.
+            // This prevents layout exceptions when filling the DataGridViews in the background.
+            foreach (TabPage tab in tabMain.TabPages) { var _ = tab.Handle; }
         }
 
         // ── wiring ─────────────────────────────────────────────────────────
@@ -387,8 +391,7 @@ namespace Image_Checker.Forms
             _previousLabel = newLabel;
         }
 
-        private static void HideGridRow(DataGridView grid,
-                                         string labelName, string previousLabel)
+        private static void HideGridRow(DataGridView grid, string labelName, string previousLabel)
         {
             foreach (DataGridViewRow row in grid.Rows)
             {
@@ -396,19 +399,15 @@ namespace Image_Checker.Forms
 
                 if (colName == labelName)
                 {
-                    row.Height = 0;
-                    row.ReadOnly = true;
-                    row.DefaultCellStyle.BackColor = Color.FromArgb(220, 228, 245);
-                    row.DefaultCellStyle.ForeColor = Color.FromArgb(180, 185, 210);
                     row.Visible = false;
+                    row.ReadOnly = true;
+                    // REMOVED: row.Height = 0; (This corrupts layout bounds!)
                 }
                 else if (colName == previousLabel && !string.IsNullOrEmpty(previousLabel))
                 {
                     row.Visible = true;
                     row.ReadOnly = false;
-                    row.Height = 30;
-                    row.DefaultCellStyle.BackColor = Color.Empty;
-                    row.DefaultCellStyle.ForeColor = Color.Empty;
+                    // REMOVED: row.Height = 30;
                 }
             }
         }
