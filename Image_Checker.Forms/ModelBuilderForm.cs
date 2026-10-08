@@ -393,6 +393,9 @@ namespace Image_Checker.Forms
 
         private static void HideGridRow(DataGridView grid, string labelName, string previousLabel)
         {
+            // ✅ ADDED: Prevent Handle crashes by dropping active cell focus before hiding rows
+            grid.CurrentCell = null;
+
             foreach (DataGridViewRow row in grid.Rows)
             {
                 string colName = row.Cells["ColName"].Value?.ToString() ?? string.Empty;
@@ -401,13 +404,11 @@ namespace Image_Checker.Forms
                 {
                     row.Visible = false;
                     row.ReadOnly = true;
-                    // REMOVED: row.Height = 0; (This corrupts layout bounds!)
                 }
                 else if (colName == previousLabel && !string.IsNullOrEmpty(previousLabel))
                 {
                     row.Visible = true;
                     row.ReadOnly = false;
-                    // REMOVED: row.Height = 30;
                 }
             }
         }

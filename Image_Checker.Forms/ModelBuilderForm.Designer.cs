@@ -496,7 +496,9 @@ namespace Image_Checker.Forms
 
             g.Columns.Add(new DataGridViewTextBoxColumn { Name = "IQRk", HeaderText = "IQR k", Width = 70 });
             g.Columns.Add(new DataGridViewTextBoxColumn { Name = "ZThresh", HeaderText = "Z Threshold", Width = 100 });
-            g.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.AllCells;
+
+            // ✅ REMOVED: AutoSizeColumnsMode.AllCells
+
             return g;
         }
 
@@ -528,7 +530,9 @@ namespace Image_Checker.Forms
             g.Columns.Add(stratCol);
 
             g.Columns.Add(new DataGridViewTextBoxColumn { Name = "VarThresh", HeaderText = "Variance Threshold", Width = 160 });
-            g.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.AllCells;
+
+            // ✅ REMOVED: AutoSizeColumnsMode.AllCells
+
             return g;
         }
         // ═════════════════════════════════════════════════════════════════════
