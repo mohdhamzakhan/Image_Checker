@@ -219,7 +219,7 @@
             // 
             // lblStats
             // 
-            lblStats.Font = new Font("Segoe UI", 6.666667F, FontStyle.Bold);
+            lblStats.Font = new Font("Segoe UI", 4.44444466F, FontStyle.Bold);
             lblStats.ForeColor = Color.FromArgb(0, 120, 215);
             lblStats.Location = new Point(10, 10);
             lblStats.Name = "lblStats";
@@ -317,7 +317,7 @@
             // lblImageInfo
             // 
             lblImageInfo.Dock = DockStyle.Top;
-            lblImageInfo.Font = new Font("Segoe UI", 6F, FontStyle.Bold);
+            lblImageInfo.Font = new Font("Segoe UI", 4F, FontStyle.Bold);
             lblImageInfo.Location = new Point(10, 10);
             lblImageInfo.Name = "lblImageInfo";
             lblImageInfo.Size = new Size(1380, 30);
@@ -331,7 +331,7 @@
             AutoScaleMode = AutoScaleMode.Dpi;
             ClientSize = new Size(1400, 780);
             Controls.Add(splitContainer);
-            MinimumSize = new Size(998, 594);
+            MinimumSize = new Size(996, 588);
             Name = "CorrectionsManagerForm";
             StartPosition = FormStartPosition.CenterScreen;
             Text = "Corrections Manager";

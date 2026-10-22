@@ -11,6 +11,15 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+	  <Compile Remove="ModelBuilderFormForSales.cs" />
+	  <Compile Remove="ModelBuilderFormForSales.Designer.cs" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <EmbeddedResource Remove="ModelBuilderFormForSales.resx" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<ProjectReference Include="..\Image_Checker\Image_Checker.csproj" />
 	</ItemGroup>
 

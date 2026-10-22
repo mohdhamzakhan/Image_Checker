@@ -41,6 +41,7 @@ namespace Image_Checker.WinForm
             SyncImageSizeWithRoi();
         }
 
+
         private void RoiSizeChanged(object sender, EventArgs e) => SyncImageSizeWithRoi();
 
         private void SyncImageSizeWithRoi()
