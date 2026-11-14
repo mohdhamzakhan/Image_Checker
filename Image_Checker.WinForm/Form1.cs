@@ -39,6 +39,9 @@ namespace Image_Checker.WinForm
         private ModelType _activeModelType = ModelType.MlNet;
         private CnnIncrementalTrainer? _cnnIncrementalTrainer;
         private OneClassChecker? _oneClassChecker;
+        private CheckCuda _checkCuda;
+
+
         public Form1()
         {
             InitializeComponent();
@@ -141,7 +144,10 @@ namespace Image_Checker.WinForm
         {
             OpenCorrectionsManager();
         }
-
+        private readonly HashSet<string> _seenImages = new(StringComparer.OrdinalIgnoreCase);
+        private DateTime _lastScanUtc = DateTime.MinValue;
+        private int _rootIgnoredCount = 0;
+        private int _rootIgnoredReported = 0;
         private void BtnTestUsbPortControl_Click(object sender, EventArgs e)
         {
             Console.WriteLine("\n" + new string('=', 60));
@@ -265,6 +271,162 @@ namespace Image_Checker.WinForm
                     "Test Failed",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
+            }
+        }
+
+        // Ready = nobody is still WRITING the file. Readers (antivirus, indexer, preview) are fine.
+        private static bool IsFileReady(string path)
+        {
+            try
+            {
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                return fs.Length > 0;
+            }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+        }
+
+        private bool TryEnqueueImage(string fullPath, string source)
+        {
+            var ext = Path.GetExtension(fullPath).ToLowerInvariant();
+            if (ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".bmp")
+            {
+                if (source != "scan")
+                    LogMonitor($"IGNORED (unsupported type '{ext}'): {fullPath}");
+                return false;
+            }
+
+            var parent = Path.GetDirectoryName(fullPath);
+            var root = _monitoredFolder;
+            if (string.IsNullOrEmpty(parent) || string.IsNullOrEmpty(root) ||
+                string.Equals(parent.TrimEnd('\\', '/'), root.TrimEnd('\\', '/'),
+                              StringComparison.OrdinalIgnoreCase))
+            {
+                if (source != "scan")
+                {
+                    Interlocked.Increment(ref _rootIgnoredCount);
+                    LogMonitor($"IGNORED (file is in the monitored root, not in a class subfolder): {fullPath}");
+                }
+                return false;
+            }
+
+            lock (_newImageQueue)
+            {
+                if (!_seenImages.Add(fullPath)) return false;   // already queued or processed
+                _newImageQueue.Enqueue(fullPath);
+            }
+            LogMonitor($"QUEUED ({source}): {fullPath}");
+            return true;
+        }
+
+        // Remember what is already in the folder so only NEW images are predicted
+        private void SeedSeenImages()
+        {
+            lock (_newImageQueue)
+            {
+                _seenImages.Clear();
+                try
+                {
+                    foreach (var f in Directory.EnumerateFiles(_monitoredFolder!, "*.*", SearchOption.AllDirectories))
+                        _seenImages.Add(f);
+                }
+                catch (Exception ex) { LogMonitor($"SEED ERROR: {ex.Message}"); }
+            }
+        }
+
+        // Safety net in case the FileSystemWatcher misses events
+        private void ScanForNewImages()
+        {
+            if (string.IsNullOrEmpty(_monitoredFolder) || !Directory.Exists(_monitoredFolder)) return;
+
+            var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                foreach (var f in Directory.EnumerateFiles(_monitoredFolder, "*.*", SearchOption.AllDirectories))
+                {
+                    present.Add(f);
+                    TryEnqueueImage(f, "scan");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogMonitor($"SCAN ERROR: {ex.Message}");
+                return;
+            }
+
+            // forget deleted files so a re-created file with the same name is predicted again
+            lock (_newImageQueue) { _seenImages.RemoveWhere(p => !present.Contains(p)); }
+        }
+
+        private void OnNewImageDetected(object sender, FileSystemEventArgs e)
+        {
+            LogMonitor($"EVENT {e.ChangeType}: {e.FullPath}");
+            TryEnqueueImage(e.FullPath, "watcher");
+        }
+
+        private void OnImageRenamed(object sender, RenamedEventArgs e)
+        {
+            LogMonitor($"EVENT Renamed: {e.OldFullPath} -> {e.FullPath}");
+            TryEnqueueImage(e.FullPath, "watcher-rename");
+        }
+
+        private void OnImageDeleted(object sender, FileSystemEventArgs e)
+        {
+            lock (_newImageQueue) { _seenImages.Remove(e.FullPath); }
+        }
+
+        private void OnWatcherError(object sender, ErrorEventArgs e)
+        {
+            LogMonitor($"WATCHER ERROR: {e.GetException().Message} (the 5 s rescan keeps monitoring working)");
+        }
+
+        // TEMP: lets you see timings/errors, since Console output is invisible in a WinExe
+        private static void LogMonitor(string message)
+        {
+            try
+            {
+                File.AppendAllText(Path.Combine(AppContext.BaseDirectory, "monitor.log"),
+                    $"{DateTime.Now:HH:mm:ss.fff} {message}{Environment.NewLine}");
+            }
+            catch { }
+        }
+
+        /// Adds one monitored image to the grid with ONE grid refresh (not five).
+        private void AddMonitoredRow(ImageResult row)
+        {
+            string? selectedPath = grid.SelectedRows.Count > 0
+                ? grid.SelectedRows[0].Cells["ImagePath"].Value?.ToString()
+                : null;
+
+            _results.Add(row);
+
+            // Rebuild the filter lists only when a new folder/label appears
+            bool newFolder = !cbFolderFilter.Items.Contains(row.Subfolder ?? "");
+            bool newLabel = !cbPredFilter.Items.Contains(row.PredictedLabel ?? "");
+            if (newFolder || newLabel)
+                PopulateFilters();
+            else
+                ApplyFilters(this, EventArgs.Empty);   // one refresh, honouring current filters
+
+            PopulateCorrectionComboBox();
+
+            if (selectedPath != null)
+            {
+                // keep the row the operator is working on
+                foreach (DataGridViewRow r in grid.Rows)
+                {
+                    if (r.Cells["ImagePath"].Value?.ToString() == selectedPath)
+                    {
+                        r.Selected = true;
+                        break;
+                    }
+                }
+            }
+            else if (grid.Rows.Count > 0)
+            {
+                grid.ClearSelection();   // binding auto-selects row 0; undo that
+                try { grid.FirstDisplayedScrollingRowIndex = grid.Rows.Count - 1; }
+                catch { /* grid too small to scroll - ignore */ }
             }
         }
 
@@ -1006,6 +1168,7 @@ namespace Image_Checker.WinForm
                     "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
+            _checkCuda = new CheckCuda();
 
             lblStatus.Text = "🔍 Scanning folders...";
             Application.DoEvents();
@@ -1157,7 +1320,8 @@ namespace Image_Checker.WinForm
                     r.Subfolder,
                     Prediction = r.PredictedLabel,
                     Confidence = $"{r.Confidence:P2}",
-                    Corrected = r.CorrectedLabel
+                    Corrected = r.CorrectedLabel,
+                    Verdict = r.Verdict ?? ""
                 }).ToList();
         }
 
@@ -2213,29 +2377,19 @@ namespace Image_Checker.WinForm
 
         private void PopulateCorrectionComboBox()
         {
+            var previous = cbCorrection.SelectedItem?.ToString();
             cbCorrection.Items.Clear();
 
-            if (_results == null || !_results.Any())
-                return;
+            // OK and NG are always available, plus any other class the model has predicted
+            var labels = new SortedSet<string>(StringComparer.OrdinalIgnoreCase) { "NG", "OK" };
+            foreach (var l in _results.Select(r => r.PredictedLabel))
+                if (!string.IsNullOrWhiteSpace(l) && l != Predictor.UNKNOWN_LABEL)
+                    labels.Add(l);
 
-            // Get unique prediction labels from results
-            var uniqueLabels = _results
-                .Select(r => r.PredictedLabel)
-                .Where(s => !string.IsNullOrEmpty(s))
-                .Distinct()
-                .OrderBy(s => s)
-                .ToList();
+            foreach (var l in labels) cbCorrection.Items.Add(l);
 
-            foreach (var label in uniqueLabels)
-            {
-                cbCorrection.Items.Add(label);
-            }
-
-            // Set default selection to first item if available
-            if (cbCorrection.Items.Count > 0)
-            {
-                cbCorrection.SelectedIndex = 0;
-            }
+            int idx = previous != null ? cbCorrection.Items.IndexOf(previous) : -1;
+            cbCorrection.SelectedIndex = idx >= 0 ? idx : 0;
         }
 
         private void BtnSelectSingleImage_Click(object sender, EventArgs e)
@@ -2452,7 +2606,8 @@ namespace Image_Checker.WinForm
         //        StopFolderMonitoring();
         //    }
         //}
-
+        private int _checkedCount = 0;
+        private int _correctCount = 0;
         private void StartFolderMonitoring()
         {
             if (_predictor == null)
@@ -2483,40 +2638,56 @@ namespace Image_Checker.WinForm
 
             try
             {
-                _processingTimer = new System.Windows.Forms.Timer();
-                _processingTimer.Interval = 2000;
-                _processingTimer.Tick += ProcessImageQueue;
-                _processingTimer.Start();
+                // Reset session state
+                _criticalMissCount = 0;
+                _falseAlarmCount = 0;
+                _abnormalCount = 0;
+                _checkedCount = 0;
+                _correctCount = 0;
+                _rootIgnoredCount = 0;
+                _rootIgnoredReported = 0;
+                _fileRetryCount.Clear();
+                lock (_newImageQueue) { _newImageQueue.Clear(); }
 
                 _folderWatcher = new FileSystemWatcher(_monitoredFolder)
                 {
                     IncludeSubdirectories = true,
                     NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
-                    Filter = "*.*"
+                    Filter = "*.*",
+                    InternalBufferSize = 65536
                 };
-
                 _folderWatcher.Created += OnNewImageDetected;
+                _folderWatcher.Renamed += OnImageRenamed;
+                _folderWatcher.Deleted += OnImageDeleted;
+                _folderWatcher.Error += OnWatcherError;
+
+                SeedSeenImages();                       // images already there are NOT re-predicted
                 _folderWatcher.EnableRaisingEvents = true;
+
+                _lastScanUtc = DateTime.UtcNow;
+                _processingTimer = new System.Windows.Forms.Timer();
+                _processingTimer.Interval = 2000;
+                _processingTimer.Tick += ProcessImageQueue;
+                _processingTimer.Start();
 
                 btnMonitorFolder.Text = "👁️ Monitor Folder (ON)";
                 btnMonitorFolder.BackColor = Color.FromArgb(76, 175, 80);
 
-                // Reset all counters when starting a fresh monitoring session
-                _criticalMissCount = 0;
-                _falseAlarmCount = 0;
-                _abnormalCount = 0;
-
                 lblStatus.Text = $"✅ Monitoring: {_monitoredFolder}\n" +
-                                      $"   Class folders: {string.Join(", ", classFolders.Select(f => Path.GetFileName(f)))}";
+                                 $"   Class folders: {string.Join(", ", classFolders.Select(f => Path.GetFileName(f)))}\n" +
+                                 $"   Waiting for NEW images (existing ones are ignored)...";
                 lblStatus.BackColor = SystemColors.Control;
                 lblStatus.ForeColor = SystemColors.ControlText;
+
+                LogMonitor($"=== Monitoring started: {_monitoredFolder} ===");
 
                 MessageBox.Show(
                     $"Folder monitoring started!\n\n" +
                     $"Monitoring: {_monitoredFolder}\n" +
                     $"Class folders: {classFolders.Length}\n\n" +
-                    $"New images will be automatically predicted.\n" +
-                    $"🔴 Critical misses (NG→OK) will trigger USB light + red alert.",
+                    $"New images placed inside a class subfolder (OK, NG...) will be predicted.\n" +
+                    $"Only mismatches are listed in the grid.\n" +
+                    $"🔴 Critical misses (NG→OK) trigger the USB light + red alert.",
                     "Monitoring Active", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
@@ -2525,6 +2696,16 @@ namespace Image_Checker.WinForm
                     "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 StopFolderMonitoring();
             }
+        }
+
+        private void ShowMonitorSummary(string lastLine, Color back)
+        {
+            lblStatus.Text =
+                $"👁️ Monitoring: {_checkedCount} checked | ✅ {_correctCount} correct | " +
+                $"🟡 {_falseAlarmCount} false alarms | 🔴 {_criticalMissCount} critical misses\n" +
+                lastLine;
+            lblStatus.BackColor = back;
+            lblStatus.ForeColor = SystemColors.ControlText;
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
@@ -2555,7 +2736,8 @@ namespace Image_Checker.WinForm
                 _processingTimer = null;
             }
 
-            _newImageQueue.Clear();
+            lock (_newImageQueue) { _newImageQueue.Clear(); _seenImages.Clear(); }
+            _fileRetryCount.Clear();
             _monitoredFolder = null;
             _abnormalCount = 0;
 
@@ -2571,30 +2753,29 @@ namespace Image_Checker.WinForm
             lblStatus.Text = "⏹️ Folder monitoring stopped";
         }
 
-        private void OnNewImageDetected(object sender, FileSystemEventArgs e)
-        {
-            var ext = Path.GetExtension(e.FullPath).ToLower();
-            if (ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".bmp")
-                return;
+        //private void OnNewImageDetected(object sender, FileSystemEventArgs e)
+        //{
+        //    var ext = Path.GetExtension(e.FullPath).ToLower();
+        //    if (ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".bmp")
+        //        return;
 
-            // Check if it's in a subfolder (class folder)
-            var parentFolder = Path.GetDirectoryName(e.FullPath);
-            if (parentFolder == _monitoredFolder)
-                return; // Ignore files in root, only process files in subfolders
+        //    var parentFolder = Path.GetDirectoryName(e.FullPath);
+        //    if (parentFolder == _monitoredFolder)
+        //        return; // only process files inside class subfolders
 
-            // Wait a bit for file to be fully written
-            Thread.Sleep(500);
+        //    bool added = false;
+        //    lock (_newImageQueue)
+        //    {
+        //        if (!_newImageQueue.Contains(e.FullPath))
+        //        {
+        //            _newImageQueue.Enqueue(e.FullPath);
+        //            added = true;
+        //        }
+        //    }
 
-            // Add to queue
-            lock (_newImageQueue)
-            {
-                if (!_newImageQueue.Contains(e.FullPath))
-                {
-                    _newImageQueue.Enqueue(e.FullPath);
-                    Console.WriteLine($"📥 New image detected: {Path.GetFileName(e.FullPath)}");
-                }
-            }
-        }
+        //    if (added)
+        //        Console.WriteLine($"📥 New image detected: {Path.GetFileName(e.FullPath)}");
+        //}
 
         // Updated ProcessImageQueue with USB light control
         //private void ProcessImageQueue(object sender, EventArgs e)
@@ -2738,142 +2919,156 @@ namespace Image_Checker.WinForm
         //        _isProcessingQueue = false;
         //    }
         //}
-
+        private readonly Dictionary<string, int> _fileRetryCount = new();
         private void ProcessImageQueue(object sender, EventArgs e)
         {
             if (_isProcessingQueue || _predictor == null) return;
 
+            // Safety net: pick up files the watcher missed
+            if ((DateTime.UtcNow - _lastScanUtc).TotalSeconds >= 5)
+            {
+                _lastScanUtc = DateTime.UtcNow;
+                ScanForNewImages();
+            }
+
             string imagePath = null;
+            bool queueEmpty;
             lock (_newImageQueue)
             {
-                if (_newImageQueue.Count == 0) return;
-                imagePath = _newImageQueue.Dequeue();
+                queueEmpty = _newImageQueue.Count == 0;
+                if (!queueEmpty) imagePath = _newImageQueue.Dequeue();
+            }
+
+            if (queueEmpty)
+            {
+                int ignored = Volatile.Read(ref _rootIgnoredCount);
+                if (ignored > _rootIgnoredReported)
+                {
+                    _rootIgnoredReported = ignored;
+                    lblStatus.Text = $"⚠️ {ignored} image(s) were put directly in the monitored folder and ignored.\n" +
+                                     $"   Put images inside a class subfolder such as OK or NG.";
+                    lblStatus.BackColor = Color.FromArgb(255, 235, 238);
+                    lblStatus.ForeColor = SystemColors.ControlText;
+                }
+                return;
             }
 
             _isProcessingQueue = true;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
 
             try
             {
                 if (!File.Exists(imagePath))
                 {
-                    Console.WriteLine($"⚠️ File no longer exists: {Path.GetFileName(imagePath)}");
+                    _fileRetryCount.Remove(imagePath);
                     return;
                 }
 
-                // Wait for file to finish writing
-                for (int i = 0; i < 3; i++)
+                // Still being written? Put it back and try on a later tick - never block the UI.
+                if (!IsFileReady(imagePath))
                 {
-                    try
+                    _fileRetryCount.TryGetValue(imagePath, out int tries);
+                    if (tries < 15)   // about 30 s at a 2 s tick
                     {
-                        using var fs = File.Open(imagePath, FileMode.Open, FileAccess.Read, FileShare.None);
-                        break;
+                        _fileRetryCount[imagePath] = tries + 1;
+                        lock (_newImageQueue) { _newImageQueue.Enqueue(imagePath); }
+                        lblStatus.Text = $"⏳ Waiting for {Path.GetFileName(imagePath)} to finish writing " +
+                                         $"(attempt {tries + 1}/15)...";
+                        if (tries == 0) LogMonitor($"NOT READY (still being written): {imagePath}");
                     }
-                    catch (IOException)
+                    else
                     {
-                        if (i == 2) throw;
-                        Thread.Sleep(500);
+                        _fileRetryCount.Remove(imagePath);
+                        LogMonitor($"GAVE UP (file stayed locked by a writer): {imagePath}");
+                        lblStatus.Text = $"❌ Gave up on {Path.GetFileName(imagePath)} - file stayed locked.";
                     }
+                    return;
                 }
+                _fileRetryCount.Remove(imagePath);
 
                 // Ground truth = the subfolder the image was placed in BEFORE prediction
                 string groundTruth = new DirectoryInfo(Path.GetDirectoryName(imagePath)).Name;
 
-                // Run prediction
-                var (label, confidence) = PredictAny(imagePath);
-                string cleanLabel = label?.Trim().Trim('"') ?? "Unknown";
+                // Same ROI-cropped input that Select Folder uses
+                string processedPath = PreprocessForPrediction(imagePath);
+                bool isTempFile = processedPath != imagePath;
 
-                // ── Classify the result ───────────────────────────────────────
-                //
-                //  CRITICAL MISS : NG folder → predicted OK
-                //                  A defective product is about to pass as good.
-                //                  This is the dangerous case — escalate immediately.
-                //
-                //  FALSE ALARM   : OK folder → predicted NG
-                //                  A good product was incorrectly flagged.
-                //                  Annoying, but NOT a safety risk.
-                //
-                //  CORRECT       : folder label matches prediction — all good.
-                //
+                (string Label, float Confidence) prediction;
+                try
+                {
+                    prediction = PredictAny(processedPath);
+                }
+                finally
+                {
+                    if (isTempFile && File.Exists(processedPath))
+                        File.Delete(processedPath);
+                }
+                var (label, confidence) = prediction;
+                string cleanLabel = label?.Trim().Trim('"') ?? "Unknown";
+                string fileName = Path.GetFileName(imagePath);
+
+                // CRITICAL MISS: NG folder predicted OK | FALSE ALARM: OK folder predicted NG
                 bool isCriticalMiss = groundTruth.Equals("NG", StringComparison.OrdinalIgnoreCase)
                                    && cleanLabel.Equals("OK", StringComparison.OrdinalIgnoreCase);
-
                 bool isFalseAlarm = groundTruth.Equals("OK", StringComparison.OrdinalIgnoreCase)
                                    && cleanLabel.Equals("NG", StringComparison.OrdinalIgnoreCase);
-
                 bool isCorrect = !isCriticalMiss && !isFalseAlarm;
 
-                Console.WriteLine($"🔍 Auto-predicted: {Path.GetFileName(imagePath)}");
-                Console.WriteLine($"   Folder (truth): {groundTruth}  |  Predicted: {cleanLabel} ({confidence:P2})");
+                string verdict = isCriticalMiss ? "🔴 Critical miss"
+                               : isFalseAlarm ? "🟡 False alarm"
+                               : "✅ Correct";
 
-                // ── React based on result ─────────────────────────────────────
+                _checkedCount++;
+                if (isCorrect) _correctCount++;
+
+                // Only MISMATCHES go into the grid
+                if (!isCorrect)
+                {
+                    Invoke(new Action(() => AddMonitoredRow(new ImageResult
+                    {
+                        FileName = fileName,
+                        ImagePath = imagePath,
+                        Subfolder = groundTruth,
+                        PredictedLabel = cleanLabel,
+                        CorrectedLabel = cleanLabel,
+                        Confidence = confidence,
+                        Verdict = verdict
+                    })));
+                }
+
                 if (isCriticalMiss)
                 {
                     _criticalMissCount++;
                     _abnormalCount++;
-                    Console.WriteLine($"🔴 CRITICAL MISS #{_criticalMissCount} — NG product predicted as OK!");
-
-                    // USB light ON immediately — stays ON until user clears alerts
                     if (_usbLight.IsConnected)
                         _usbLight.TurnOn();
 
-                    // Switch to UI thread for all visual updates
-                    Invoke(new Action(() => FlashCriticalAlert(imagePath, Path.GetFileName(imagePath), confidence)));
+                    Invoke(new Action(() => FlashCriticalAlert(imagePath, fileName, confidence)));
                 }
                 else if (isFalseAlarm)
                 {
                     _falseAlarmCount++;
-                    Console.WriteLine($"🟡 False alarm #{_falseAlarmCount} — OK product flagged as NG");
-
-                    // No USB light for false alarms — not a safety risk
-                    Invoke(new Action(() =>
-                    {
-                        lblStatus.Text = $"🟡 False Alarm #{_falseAlarmCount}: {Path.GetFileName(imagePath)}\n" +
-                                              $"   Folder: OK  →  Predicted: NG ({confidence:P2})\n" +
-                                              $"   Good product incorrectly flagged — not a safety risk.";
-                        lblStatus.BackColor = Color.FromArgb(255, 248, 220); // soft yellow
-                        lblStatus.ForeColor = SystemColors.ControlText;
-                    }));
+                    Invoke(new Action(() => ShowMonitorSummary(
+                        $"   Last: {fileName} is in OK but predicted NG ({confidence:P1}) - see grid",
+                        Color.FromArgb(255, 248, 220))));
                 }
                 else
                 {
-                    Console.WriteLine($"✅ Correct prediction");
-
-                    // Only turn off USB light when no critical misses are still active
                     if (_criticalMissCount == 0 && _usbLight.IsConnected)
                         _usbLight.TurnOff();
 
-                    Invoke(new Action(() =>
-                    {
-                        lblStatus.Text = $"✅ Correct: {groundTruth} → {cleanLabel} ({confidence:P2})\n" +
-                                              $"   Critical misses: {_criticalMissCount}  |  False alarms: {_falseAlarmCount}";
-                        lblStatus.BackColor = Color.FromArgb(232, 245, 233); // soft green
-                        lblStatus.ForeColor = SystemColors.ControlText;
-                    }));
+                    Invoke(new Action(() => ShowMonitorSummary(
+                        $"   Last: {fileName} → {cleanLabel} ({confidence:P1}) matches folder {groundTruth}",
+                        Color.FromArgb(232, 245, 233))));
                 }
 
-                // Add any mismatch to the results grid so the user can review/correct it
-                if (!isCorrect)
-                {
-                    Invoke(new Action(() =>
-                    {
-                        _results.Add(new ImageResult
-                        {
-                            FileName = Path.GetFileName(imagePath),
-                            ImagePath = imagePath,
-                            Subfolder = groundTruth,
-                            PredictedLabel = cleanLabel,
-                            CorrectedLabel = cleanLabel,
-                            Confidence = confidence
-                        });
-
-                        PopulateGrid(_results);
-                        PopulateFilters();
-                    }));
-                }
+                LogMonitor($"{fileName} folder={groundTruth} pred={cleanLabel} " +
+                           $"{confidence:P1} {verdict} | {sw.ElapsedMilliseconds} ms | rows={_results.Count}");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"❌ Failed to process {Path.GetFileName(imagePath)}: {ex.Message}");
+                LogMonitor($"ERROR {Path.GetFileName(imagePath)}: {ex}");
+                lblStatus.Text = $"❌ Error on {Path.GetFileName(imagePath)}: {ex.Message}";
             }
             finally
             {
@@ -2965,6 +3160,7 @@ namespace Image_Checker.WinForm
             public string? PredictedLabel { get; set; }
             public string? CorrectedLabel { get; set; }
             public float Confidence { get; set; }
+            public string? Verdict { get; set; }
         }
     }
 }

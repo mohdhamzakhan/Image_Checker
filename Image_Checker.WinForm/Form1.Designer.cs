@@ -34,8 +34,8 @@
         private void InitializeComponent()
         {
             components = new System.ComponentModel.Container();
-            DataGridViewCellStyle dataGridViewCellStyle1 = new DataGridViewCellStyle();
-            DataGridViewCellStyle dataGridViewCellStyle2 = new DataGridViewCellStyle();
+            DataGridViewCellStyle dataGridViewCellStyle3 = new DataGridViewCellStyle();
+            DataGridViewCellStyle dataGridViewCellStyle4 = new DataGridViewCellStyle();
             menuStrip = new MenuStrip();
             menuFile = new ToolStripMenuItem();
             menuBuildModel = new ToolStripMenuItem();
@@ -89,7 +89,7 @@
             menuStrip.Location = new Point(0, 0);
             menuStrip.Name = "menuStrip";
             menuStrip.Padding = new Padding(3, 1, 0, 1);
-            menuStrip.Size = new Size(1370, 31);
+            menuStrip.Size = new Size(1280, 31);
             menuStrip.TabIndex = 16;
             menuStrip.Text = "menuStrip1";
             // 
@@ -179,7 +179,7 @@
             btnSelectSingleImage.Location = new Point(420, 52);
             btnSelectSingleImage.Margin = new Padding(2);
             btnSelectSingleImage.Name = "btnSelectSingleImage";
-            btnSelectSingleImage.Size = new Size(286, 30);
+            btnSelectSingleImage.Size = new Size(268, 30);
             btnSelectSingleImage.TabIndex = 18;
             btnSelectSingleImage.Text = "🖼️ Predict Single Image";
             tooltip.SetToolTip(btnSelectSingleImage, "Select and predict a single image file");
@@ -252,23 +252,23 @@
             grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             grid.BackgroundColor = Color.White;
             grid.BorderStyle = BorderStyle.Fixed3D;
-            dataGridViewCellStyle1.Alignment = DataGridViewContentAlignment.MiddleLeft;
-            dataGridViewCellStyle1.BackColor = SystemColors.Control;
-            dataGridViewCellStyle1.Font = new Font("Microsoft Sans Serif", 9F);
-            dataGridViewCellStyle1.ForeColor = SystemColors.WindowText;
-            dataGridViewCellStyle1.SelectionBackColor = SystemColors.Highlight;
-            dataGridViewCellStyle1.SelectionForeColor = SystemColors.HighlightText;
-            dataGridViewCellStyle1.WrapMode = DataGridViewTriState.True;
-            grid.ColumnHeadersDefaultCellStyle = dataGridViewCellStyle1;
+            dataGridViewCellStyle3.Alignment = DataGridViewContentAlignment.MiddleLeft;
+            dataGridViewCellStyle3.BackColor = SystemColors.Control;
+            dataGridViewCellStyle3.Font = new Font("Microsoft Sans Serif", 9F);
+            dataGridViewCellStyle3.ForeColor = SystemColors.WindowText;
+            dataGridViewCellStyle3.SelectionBackColor = SystemColors.Highlight;
+            dataGridViewCellStyle3.SelectionForeColor = SystemColors.HighlightText;
+            dataGridViewCellStyle3.WrapMode = DataGridViewTriState.True;
+            grid.ColumnHeadersDefaultCellStyle = dataGridViewCellStyle3;
             grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            dataGridViewCellStyle2.Alignment = DataGridViewContentAlignment.MiddleLeft;
-            dataGridViewCellStyle2.BackColor = SystemColors.Window;
-            dataGridViewCellStyle2.Font = new Font("Microsoft Sans Serif", 9F);
-            dataGridViewCellStyle2.ForeColor = SystemColors.ControlText;
-            dataGridViewCellStyle2.SelectionBackColor = SystemColors.Highlight;
-            dataGridViewCellStyle2.SelectionForeColor = SystemColors.HighlightText;
-            dataGridViewCellStyle2.WrapMode = DataGridViewTriState.False;
-            grid.DefaultCellStyle = dataGridViewCellStyle2;
+            dataGridViewCellStyle4.Alignment = DataGridViewContentAlignment.MiddleLeft;
+            dataGridViewCellStyle4.BackColor = SystemColors.Window;
+            dataGridViewCellStyle4.Font = new Font("Microsoft Sans Serif", 9F);
+            dataGridViewCellStyle4.ForeColor = SystemColors.ControlText;
+            dataGridViewCellStyle4.SelectionBackColor = SystemColors.Highlight;
+            dataGridViewCellStyle4.SelectionForeColor = SystemColors.HighlightText;
+            dataGridViewCellStyle4.WrapMode = DataGridViewTriState.False;
+            grid.DefaultCellStyle = dataGridViewCellStyle4;
             grid.Location = new Point(5, 87);
             grid.Margin = new Padding(2);
             grid.MultiSelect = false;
@@ -288,7 +288,7 @@
             pictureBox.Location = new Point(968, 87);
             pictureBox.Margin = new Padding(2);
             pictureBox.Name = "pictureBox";
-            pictureBox.Size = new Size(398, 512);
+            pictureBox.Size = new Size(312, 350);
             pictureBox.SizeMode = PictureBoxSizeMode.Zoom;
             pictureBox.TabIndex = 6;
             pictureBox.TabStop = false;
@@ -299,10 +299,10 @@
             lblInfo.BackColor = Color.FromArgb(240, 240, 240);
             lblInfo.BorderStyle = BorderStyle.FixedSingle;
             lblInfo.Font = new Font("Microsoft Sans Serif", 9F);
-            lblInfo.Location = new Point(969, 601);
+            lblInfo.Location = new Point(969, 445);
             lblInfo.Margin = new Padding(2, 0, 2, 0);
             lblInfo.Name = "lblInfo";
-            lblInfo.Size = new Size(397, 25);
+            lblInfo.Size = new Size(311, 30);
             lblInfo.TabIndex = 7;
             lblInfo.Text = "Select an image row to preview";
             lblInfo.TextAlign = ContentAlignment.MiddleCenter;
@@ -312,7 +312,7 @@
             lblSelectLabel.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             lblSelectLabel.AutoSize = true;
             lblSelectLabel.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
-            lblSelectLabel.Location = new Point(969, 635);
+            lblSelectLabel.Location = new Point(969, 475);
             lblSelectLabel.Margin = new Padding(2, 0, 2, 0);
             lblSelectLabel.Name = "lblSelectLabel";
             lblSelectLabel.Size = new Size(208, 22);
@@ -325,7 +325,7 @@
             cbCorrection.DropDownStyle = ComboBoxStyle.DropDownList;
             cbCorrection.Font = new Font("Microsoft Sans Serif", 9F);
             cbCorrection.FormattingEnabled = true;
-            cbCorrection.Location = new Point(967, 659);
+            cbCorrection.Location = new Point(967, 499);
             cbCorrection.Margin = new Padding(2);
             cbCorrection.Name = "cbCorrection";
             cbCorrection.Size = new Size(82, 30);
@@ -338,7 +338,7 @@
             btnCorrect.FlatStyle = FlatStyle.Flat;
             btnCorrect.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
             btnCorrect.ForeColor = Color.White;
-            btnCorrect.Location = new Point(1053, 660);
+            btnCorrect.Location = new Point(1068, 502);
             btnCorrect.Margin = new Padding(2);
             btnCorrect.Name = "btnCorrect";
             btnCorrect.Size = new Size(212, 29);
@@ -354,7 +354,7 @@
             btnQuickUpdate.FlatStyle = FlatStyle.Flat;
             btnQuickUpdate.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
             btnQuickUpdate.ForeColor = Color.White;
-            btnQuickUpdate.Location = new Point(967, 693);
+            btnQuickUpdate.Location = new Point(967, 535);
             btnQuickUpdate.Margin = new Padding(2);
             btnQuickUpdate.Name = "btnQuickUpdate";
             btnQuickUpdate.Size = new Size(147, 30);
@@ -371,7 +371,7 @@
             btnRetrain.FlatStyle = FlatStyle.Flat;
             btnRetrain.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
             btnRetrain.ForeColor = Color.White;
-            btnRetrain.Location = new Point(1118, 693);
+            btnRetrain.Location = new Point(1133, 535);
             btnRetrain.Margin = new Padding(2);
             btnRetrain.Name = "btnRetrain";
             btnRetrain.Size = new Size(147, 30);
@@ -387,10 +387,10 @@
             lblCorrectionCount.BackColor = Color.FromArgb(255, 248, 220);
             lblCorrectionCount.BorderStyle = BorderStyle.FixedSingle;
             lblCorrectionCount.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
-            lblCorrectionCount.Location = new Point(1066, 826);
+            lblCorrectionCount.Location = new Point(965, 661);
             lblCorrectionCount.Margin = new Padding(2, 0, 2, 0);
             lblCorrectionCount.Name = "lblCorrectionCount";
-            lblCorrectionCount.Size = new Size(300, 19);
+            lblCorrectionCount.Size = new Size(315, 35);
             lblCorrectionCount.TabIndex = 13;
             lblCorrectionCount.Text = "Corrections pending: 0";
             lblCorrectionCount.TextAlign = ContentAlignment.MiddleCenter;
@@ -402,10 +402,10 @@
             lblStatus.BorderStyle = BorderStyle.FixedSingle;
             lblStatus.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Italic);
             lblStatus.ForeColor = Color.FromArgb(64, 64, 64);
-            lblStatus.Location = new Point(969, 725);
+            lblStatus.Location = new Point(969, 570);
             lblStatus.Margin = new Padding(2, 0, 2, 0);
             lblStatus.Name = "lblStatus";
-            lblStatus.Size = new Size(397, 95);
+            lblStatus.Size = new Size(311, 86);
             lblStatus.TabIndex = 15;
             lblStatus.Text = "Model status will appear here";
             lblStatus.TextAlign = ContentAlignment.MiddleLeft;
@@ -417,7 +417,7 @@
             lblSingleImageResult.BorderStyle = BorderStyle.FixedSingle;
             lblSingleImageResult.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
             lblSingleImageResult.ForeColor = Color.FromArgb(46, 125, 50);
-            lblSingleImageResult.Location = new Point(1019, 56);
+            lblSingleImageResult.Location = new Point(969, 56);
             lblSingleImageResult.Margin = new Padding(2, 0, 2, 0);
             lblSingleImageResult.Name = "lblSingleImageResult";
             lblSingleImageResult.Size = new Size(300, 23);
@@ -432,10 +432,10 @@
             btnMonitorFolder.FlatStyle = FlatStyle.Flat;
             btnMonitorFolder.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
             btnMonitorFolder.ForeColor = Color.White;
-            btnMonitorFolder.Location = new Point(719, 52);
+            btnMonitorFolder.Location = new Point(697, 52);
             btnMonitorFolder.Margin = new Padding(1);
             btnMonitorFolder.Name = "btnMonitorFolder";
-            btnMonitorFolder.Size = new Size(285, 30);
+            btnMonitorFolder.Size = new Size(267, 30);
             btnMonitorFolder.TabIndex = 20;
             btnMonitorFolder.Text = "👁️ Monitor Folder (OFF)";
             tooltip.SetToolTip(btnMonitorFolder, "Auto-detect and predict new images in class folders");
@@ -464,7 +464,7 @@
             groupBoxUsbPortControl.Controls.Add(btnTestConnection);
             groupBoxUsbPortControl.Controls.Add(btnCyclePort);
             groupBoxUsbPortControl.Controls.Add(btnDisconnectUsbHub);
-            groupBoxUsbPortControl.Location = new Point(5, 755);
+            groupBoxUsbPortControl.Location = new Point(5, 630);
             groupBoxUsbPortControl.Margin = new Padding(1);
             groupBoxUsbPortControl.Name = "groupBoxUsbPortControl";
             groupBoxUsbPortControl.Padding = new Padding(1);
@@ -558,7 +558,7 @@
             AutoScaleDimensions = new SizeF(144F, 144F);
             AutoScaleMode = AutoScaleMode.Dpi;
             BackColor = Color.White;
-            ClientSize = new Size(1370, 825);
+            ClientSize = new Size(1280, 700);
             Controls.Add(lblUsbLightStatus);
             Controls.Add(lblSingleImageResult);
             Controls.Add(btnSelectSingleImage);

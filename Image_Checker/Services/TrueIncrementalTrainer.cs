@@ -27,6 +27,71 @@ namespace Image_Checker.Services
             _originalCsvPath = Path.Combine(basePath, "images.csv");
         }
 
+        /// Corrections come from full-size photos, but the model trains on and predicts from
+        /// ROI crops. Crop them exactly the way inference does (Form1.PreprocessForPrediction).
+        private List<(string path, string label)> CropCorrectionsToRoi(
+            List<(string path, string label)> corrections, string modelPath)
+        {
+            var sidecarPath = Path.ChangeExtension(modelPath, ".json");
+            if (!File.Exists(sidecarPath))
+            {
+                Console.WriteLine("   ⚠️ No model .json found - corrections used uncropped");
+                return corrections;
+            }
+
+            IncrementalModelTrainer.RoiConfig? roi;
+            try
+            {
+                roi = System.Text.Json.JsonSerializer.Deserialize<IncrementalModelTrainer.RoiConfig>(
+                    File.ReadAllText(sidecarPath),
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"   ⚠️ Could not read ROI ({ex.Message}) - corrections used uncropped");
+                return corrections;
+            }
+
+            if (roi == null || roi.RoiW <= 0 || roi.RoiH <= 0)
+                return corrections;
+
+            // Temp folder on purpose: a folder inside the dataset would be scanned as a class
+            var outDir = Path.Combine(Path.GetTempPath(), "ImageChecker_corrections_cropped");
+            Directory.CreateDirectory(outDir);
+
+            var result = new List<(string path, string label)>();
+            foreach (var (path, label) in corrections)
+            {
+                try
+                {
+                    using var bmp = new System.Drawing.Bitmap(path);
+                    int x = Math.Max(0, Math.Min(roi.RoiX, bmp.Width - roi.RoiW));
+                    int y = Math.Max(0, Math.Min(roi.RoiY, bmp.Height - roi.RoiH));
+                    var safe = new System.Drawing.Rectangle(x, y,
+                        Math.Min(roi.RoiW, bmp.Width), Math.Min(roi.RoiH, bmp.Height));
+
+                    using var crop = bmp.Clone(safe, bmp.PixelFormat);
+
+                    string tag = Convert.ToHexString(
+                        System.Security.Cryptography.SHA1.HashData(
+                            System.Text.Encoding.UTF8.GetBytes(path)))[..8];
+                    string cropPath = Path.Combine(outDir,
+                        $"{Path.GetFileNameWithoutExtension(path)}_{tag}.png");
+
+                    crop.Save(cropPath, System.Drawing.Imaging.ImageFormat.Png);
+                    result.Add((cropPath, label));
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"   ⚠️ Could not crop {Path.GetFileName(path)}: {ex.Message} - using original");
+                    result.Add((path, label));
+                }
+            }
+
+            Console.WriteLine($"   ✂️ Cropped {result.Count} corrections to ROI");
+            return result;
+        }
+
         /// <summary>
         /// SYNCHRONOUS In-Place Update: Updates existing model file directly
         /// </summary>
@@ -58,6 +123,7 @@ namespace Image_Checker.Services
             // Step 1: Load corrections
             Console.WriteLine("\n📝 Step 1: Processing corrections...");
             var (correctionsList, correctionCount, labelCounts) = LoadCorrections();
+            correctionsList = CropCorrectionsToRoi(correctionsList, modelPath);
 
             if (correctionCount == 0)
             {

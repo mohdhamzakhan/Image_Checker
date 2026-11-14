@@ -82,7 +82,7 @@ namespace Image_Checker.Services
             _imgH = _meta.InputShape.Length >= 4 ? _meta.InputShape[2] : 128;
             _imgW = _meta.InputShape.Length >= 4 ? _meta.InputShape[3] : 128;
 
-            _model = new OneClassTrainer.ConvAutoencoder(_meta.LatentDim);
+            _model = new OneClassTrainer.ConvAutoencoder(_meta.LatentDim, _imgH, _imgW);
             _model.load(binPath);
             _model.to(_device);
             _model.eval();

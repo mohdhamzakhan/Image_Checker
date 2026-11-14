@@ -132,7 +132,10 @@ namespace Image_Checker.Services
             ct.ThrowIfCancellationRequested();
 
             // 3. Build autoencoder
-            using var model = new ConvAutoencoder(_cfg.LatentDim);
+            using var model = new ConvAutoencoder(
+                                                _cfg.LatentDim,
+                                                _cfg.ImageHeight,
+                                                _cfg.ImageWidth);
             model.to(_device);
             Log($"   Parameters: {model.parameters().Sum(p => p.numel()):N0}");
 
@@ -233,7 +236,10 @@ namespace Image_Checker.Services
             //    key difference from Train(): the model already knows what
             //    "normal" looks like, we're just nudging it to also cover
             //    the newly-corrected OK images.
-            using var model = new ConvAutoencoder(_cfg.LatentDim);
+            using var model = new ConvAutoencoder(
+    _cfg.LatentDim,
+    _cfg.ImageHeight,
+    _cfg.ImageWidth);
             model.load(existingModelPath);
             model.to(_device);
             Log($"   Parameters: {model.parameters().Sum(p => p.numel()):N0} (warm-started)");
@@ -296,50 +302,76 @@ namespace Image_Checker.Services
             private readonly Linear _fcEnc;
             private readonly Linear _fcDec;
 
-            // spatial size after 3 × MaxPool2d(2) on a 128×128 input = 16×16
-            private const int SpatialAfterPool = 16;
-            private const int ChannelsAfterPool = 64;
+            private readonly int _latentDim;
+            private readonly int _imageHeight;
+            private readonly int _imageWidth;
 
-            public ConvAutoencoder(int latentDim) : base("ConvAutoencoder")
+            private const int SpatialSize = 16;
+            private const int Channels = 64;
+            private const int FlatSize = Channels * SpatialSize * SpatialSize;
+
+            public ConvAutoencoder(
+                int latentDim,
+                int imageHeight,
+                int imageWidth)
+                : base("ConvAutoencoder")
             {
+                if (latentDim <= 0)
+                    throw new ArgumentOutOfRangeException(nameof(latentDim));
+
+                if (imageHeight < 8 || imageWidth < 8)
+                    throw new ArgumentException(
+                        "Image dimensions must be at least 8x8.");
+
+                _latentDim = latentDim;
+                _imageHeight = imageHeight;
+                _imageWidth = imageWidth;
+
+                // Encoder:
+                // Variable input size -> convolutional features
+                // -> adaptive 16x16 feature map.
                 _encoder = Sequential(
-                    // 3 → 32,  128×128 → 64×64
                     Conv2d(3, 32, kernel_size: 3, padding: 1),
-                    BatchNorm2d(32), ReLU(inplace: true),
+                    BatchNorm2d(32),
+                    ReLU(inplace: true),
                     MaxPool2d(2, 2),
 
-                    // 32 → 64,  64×64 → 32×32
                     Conv2d(32, 64, kernel_size: 3, padding: 1),
-                    BatchNorm2d(64), ReLU(inplace: true),
+                    BatchNorm2d(64),
+                    ReLU(inplace: true),
                     MaxPool2d(2, 2),
 
-                    // 64 → 64,  32×32 → 16×16
                     Conv2d(64, 64, kernel_size: 3, padding: 1),
-                    BatchNorm2d(64), ReLU(inplace: true),
-                    MaxPool2d(2, 2)
+                    BatchNorm2d(64),
+                    ReLU(inplace: true),
+                    MaxPool2d(2, 2),
+
+                    AdaptiveAvgPool2d(
+                        new long[] { SpatialSize, SpatialSize })
                 );
 
-                int flatSize = ChannelsAfterPool *
-                               SpatialAfterPool * SpatialAfterPool; // 64×16×16 = 16384
+                // Encoder bottleneck.
+                _fcEnc = Linear(FlatSize, _latentDim);
 
-                _fcEnc = Linear(flatSize, latentDim);
-                _fcDec = Linear(latentDim, flatSize);
+                // Decoder bottleneck.
+                _fcDec = Linear(_latentDim, FlatSize);
 
+                // Decoder generates a 128x128 reconstruction.
+                // The final output is resized to the configured dimensions.
                 _decoder = Sequential(
-                    // 64×16×16 → 64×32×32
                     Upsample(scale_factor: new double[] { 2, 2 }),
                     Conv2d(64, 64, kernel_size: 3, padding: 1),
-                    BatchNorm2d(64), ReLU(inplace: true),
+                    BatchNorm2d(64),
+                    ReLU(inplace: true),
 
-                    // 64×32×32 → 32×64×64
                     Upsample(scale_factor: new double[] { 2, 2 }),
                     Conv2d(64, 32, kernel_size: 3, padding: 1),
-                    BatchNorm2d(32), ReLU(inplace: true),
+                    BatchNorm2d(32),
+                    ReLU(inplace: true),
 
-                    // 32×64×64 → 3×128×128
                     Upsample(scale_factor: new double[] { 2, 2 }),
                     Conv2d(32, 3, kernel_size: 3, padding: 1),
-                    Sigmoid()   // output in [0,1] to match normalised input
+                    Sigmoid()
                 );
 
                 RegisterComponents();
@@ -347,26 +379,51 @@ namespace Image_Checker.Services
 
             public override Tensor forward(Tensor x)
             {
-                // Encode
-                using var ef = _encoder.forward(x);
-                long batchSize = ef.shape[0];
-                using var flat = ef.reshape(batchSize, -1);
-                using var z = functional.relu(_fcEnc.forward(flat));
+                using var encoded = _encoder.forward(x);
 
-                // Decode
-                using var df = functional.relu(_fcDec.forward(z));
-                int sp = SpatialAfterPool;
-                using var unfl = df.reshape(batchSize, ChannelsAfterPool, sp, sp);
-                return _decoder.forward(unfl);
+                long batchSize = encoded.shape[0];
+
+                using var flattened =
+                    encoded.reshape(batchSize, FlatSize);
+
+                using var latent =
+                    functional.relu(_fcEnc.forward(flattened));
+
+                using var decoded =
+                    functional.relu(_fcDec.forward(latent));
+
+                using var featureMap = decoded.reshape(
+                    batchSize,
+                    Channels,
+                    SpatialSize,
+                    SpatialSize);
+
+                using var reconstruction = _decoder.forward(featureMap);
+
+                // Resize to the original configured image dimensions.
+                if (reconstruction.shape[2] == _imageHeight &&
+                    reconstruction.shape[3] == _imageWidth)
+                {
+                    return reconstruction;
+                }
+
+                return functional.interpolate(
+                     reconstruction,
+                     size: new long[] { _imageHeight, _imageWidth },
+                     mode: TorchSharp.torch.InterpolationMode.Bilinear,
+                     align_corners: false);
             }
 
             protected override void Dispose(bool disposing)
             {
                 if (disposing)
                 {
-                    _encoder.Dispose(); _decoder.Dispose();
-                    _fcEnc.Dispose(); _fcDec.Dispose();
+                    _encoder.Dispose();
+                    _decoder.Dispose();
+                    _fcEnc.Dispose();
+                    _fcDec.Dispose();
                 }
+
                 base.Dispose(disposing);
             }
         }
