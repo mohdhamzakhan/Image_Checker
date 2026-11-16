@@ -17,10 +17,12 @@ namespace Image_Checker.WinForm
         private const string CONFIG_FILE = "app_config.txt";
         private Button btnManageCorrections;
         private SingleImagePredictor _singlePredictor;
-        private FileSystemWatcher _folderWatcher;
+        //Hamza 16-11-26
+        //private FileSystemWatcher _folderWatcher;
         private string _monitoredFolder;
         private System.Windows.Forms.Timer _processingTimer;
-        private Queue<string> _newImageQueue = new Queue<string>();
+        //Hamza 16-11-26
+        //private Queue<string> _newImageQueue = new Queue<string>();
         private bool _isProcessingQueue = false;
         // Add these fields at the top of Form1 class
         private UsbLightController _usbLight;
@@ -144,10 +146,11 @@ namespace Image_Checker.WinForm
         {
             OpenCorrectionsManager();
         }
-        private readonly HashSet<string> _seenImages = new(StringComparer.OrdinalIgnoreCase);
-        private DateTime _lastScanUtc = DateTime.MinValue;
-        private int _rootIgnoredCount = 0;
-        private int _rootIgnoredReported = 0;
+
+        //private readonly HashSet<string> _seenImages = new(StringComparer.OrdinalIgnoreCase);
+        //private DateTime _lastScanUtc = DateTime.MinValue;
+        //private int _rootIgnoredCount = 0;
+        //private int _rootIgnoredReported = 0;
         private void BtnTestUsbPortControl_Click(object sender, EventArgs e)
         {
             Console.WriteLine("\n" + new string('=', 60));
@@ -273,162 +276,166 @@ namespace Image_Checker.WinForm
                     MessageBoxIcon.Error);
             }
         }
-
+        //Hamza 16-11-26
         // Ready = nobody is still WRITING the file. Readers (antivirus, indexer, preview) are fine.
-        private static bool IsFileReady(string path)
-        {
-            try
-            {
-                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-                return fs.Length > 0;
-            }
-            catch (IOException) { return false; }
-            catch (UnauthorizedAccessException) { return false; }
-        }
+        //private static bool IsFileReady(string path)
+        //{
+        //    try
+        //    {
+        //        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        //        return fs.Length > 0;
+        //    }
+        //    catch (IOException) { return false; }
+        //    catch (UnauthorizedAccessException) { return false; }
+        //}
+        //Hamza 16-11-26
+        //private bool TryEnqueueImage(string fullPath, string source)
+        //{
+        //    var ext = Path.GetExtension(fullPath).ToLowerInvariant();
+        //    if (ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".bmp")
+        //    {
+        //        if (source != "scan")
+        //            LogMonitor($"IGNORED (unsupported type '{ext}'): {fullPath}");
+        //        return false;
+        //    }
 
-        private bool TryEnqueueImage(string fullPath, string source)
-        {
-            var ext = Path.GetExtension(fullPath).ToLowerInvariant();
-            if (ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".bmp")
-            {
-                if (source != "scan")
-                    LogMonitor($"IGNORED (unsupported type '{ext}'): {fullPath}");
-                return false;
-            }
+        //    var parent = Path.GetDirectoryName(fullPath);
+        //    var root = _monitoredFolder;
+        //    if (string.IsNullOrEmpty(parent) || string.IsNullOrEmpty(root) ||
+        //        string.Equals(parent.TrimEnd('\\', '/'), root.TrimEnd('\\', '/'),
+        //                      StringComparison.OrdinalIgnoreCase))
+        //    {
+        //        if (source != "scan")
+        //        {
+        //            Interlocked.Increment(ref _rootIgnoredCount);
+        //            LogMonitor($"IGNORED (file is in the monitored root, not in a class subfolder): {fullPath}");
+        //        }
+        //        return false;
+        //    }
 
-            var parent = Path.GetDirectoryName(fullPath);
-            var root = _monitoredFolder;
-            if (string.IsNullOrEmpty(parent) || string.IsNullOrEmpty(root) ||
-                string.Equals(parent.TrimEnd('\\', '/'), root.TrimEnd('\\', '/'),
-                              StringComparison.OrdinalIgnoreCase))
-            {
-                if (source != "scan")
-                {
-                    Interlocked.Increment(ref _rootIgnoredCount);
-                    LogMonitor($"IGNORED (file is in the monitored root, not in a class subfolder): {fullPath}");
-                }
-                return false;
-            }
-
-            lock (_newImageQueue)
-            {
-                if (!_seenImages.Add(fullPath)) return false;   // already queued or processed
-                _newImageQueue.Enqueue(fullPath);
-            }
-            LogMonitor($"QUEUED ({source}): {fullPath}");
-            return true;
-        }
+        //    lock (_newImageQueue)
+        //    {
+        //        if (!_seenImages.Add(fullPath)) return false;   // already queued or processed
+        //        _newImageQueue.Enqueue(fullPath);
+        //    }
+        //    LogMonitor($"QUEUED ({source}): {fullPath}");
+        //    return true;
+        //}
 
         // Remember what is already in the folder so only NEW images are predicted
-        private void SeedSeenImages()
-        {
-            lock (_newImageQueue)
-            {
-                _seenImages.Clear();
-                try
-                {
-                    foreach (var f in Directory.EnumerateFiles(_monitoredFolder!, "*.*", SearchOption.AllDirectories))
-                        _seenImages.Add(f);
-                }
-                catch (Exception ex) { LogMonitor($"SEED ERROR: {ex.Message}"); }
-            }
-        }
+        //Hamza 16-11-26
+        //private void SeedSeenImages()
+        //{
+        //    lock (_newImageQueue)
+        //    {
+        //        _seenImages.Clear();
+        //        try
+        //        {
+        //            foreach (var f in Directory.EnumerateFiles(_monitoredFolder!, "*.*", SearchOption.AllDirectories))
+        //                _seenImages.Add(f);
+        //        }
+        //        catch (Exception ex) { LogMonitor($"SEED ERROR: {ex.Message}"); }
+        //    }
+        //}
 
         // Safety net in case the FileSystemWatcher misses events
-        private void ScanForNewImages()
-        {
-            if (string.IsNullOrEmpty(_monitoredFolder) || !Directory.Exists(_monitoredFolder)) return;
+        //Hamza 16-11-26
+        //private void ScanForNewImages()
+        //{
+        //    if (string.IsNullOrEmpty(_monitoredFolder) || !Directory.Exists(_monitoredFolder)) return;
 
-            var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            try
-            {
-                foreach (var f in Directory.EnumerateFiles(_monitoredFolder, "*.*", SearchOption.AllDirectories))
-                {
-                    present.Add(f);
-                    TryEnqueueImage(f, "scan");
-                }
-            }
-            catch (Exception ex)
-            {
-                LogMonitor($"SCAN ERROR: {ex.Message}");
-                return;
-            }
+        //    var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        //    try
+        //    {
+        //        foreach (var f in Directory.EnumerateFiles(_monitoredFolder, "*.*", SearchOption.AllDirectories))
+        //        {
+        //            present.Add(f);
+        //            TryEnqueueImage(f, "scan");
+        //        }
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        LogMonitor($"SCAN ERROR: {ex.Message}");
+        //        return;
+        //    }
 
-            // forget deleted files so a re-created file with the same name is predicted again
-            lock (_newImageQueue) { _seenImages.RemoveWhere(p => !present.Contains(p)); }
-        }
+        //    // forget deleted files so a re-created file with the same name is predicted again
+        //    lock (_newImageQueue) { _seenImages.RemoveWhere(p => !present.Contains(p)); }
+        //}
+        //Hamza 16-11-26
+        //private void OnNewImageDetected(object sender, FileSystemEventArgs e)
+        //{
+        //    LogMonitor($"EVENT {e.ChangeType}: {e.FullPath}");
+        //    TryEnqueueImage(e.FullPath, "watcher");
+        //}
+        //Hamza 16-11-26
+        //private void OnImageRenamed(object sender, RenamedEventArgs e)
+        //{
+        //    LogMonitor($"EVENT Renamed: {e.OldFullPath} -> {e.FullPath}");
+        //    TryEnqueueImage(e.FullPath, "watcher-rename");
+        //}
+        //Hamza 16-11-26
+        //private void OnImageDeleted(object sender, FileSystemEventArgs e)
+        //{
+        //    lock (_newImageQueue) { _seenImages.Remove(e.FullPath); }
+        //}
+        //Hamza 16-11-26
+        //private void OnWatcherError(object sender, ErrorEventArgs e)
+        //{
+        //    LogMonitor($"WATCHER ERROR: {e.GetException().Message} (the 5 s rescan keeps monitoring working)");
+        //}
 
-        private void OnNewImageDetected(object sender, FileSystemEventArgs e)
-        {
-            LogMonitor($"EVENT {e.ChangeType}: {e.FullPath}");
-            TryEnqueueImage(e.FullPath, "watcher");
-        }
-
-        private void OnImageRenamed(object sender, RenamedEventArgs e)
-        {
-            LogMonitor($"EVENT Renamed: {e.OldFullPath} -> {e.FullPath}");
-            TryEnqueueImage(e.FullPath, "watcher-rename");
-        }
-
-        private void OnImageDeleted(object sender, FileSystemEventArgs e)
-        {
-            lock (_newImageQueue) { _seenImages.Remove(e.FullPath); }
-        }
-
-        private void OnWatcherError(object sender, ErrorEventArgs e)
-        {
-            LogMonitor($"WATCHER ERROR: {e.GetException().Message} (the 5 s rescan keeps monitoring working)");
-        }
-
+        //Hamza 16-11-26
         // TEMP: lets you see timings/errors, since Console output is invisible in a WinExe
-        private static void LogMonitor(string message)
-        {
-            try
-            {
-                File.AppendAllText(Path.Combine(AppContext.BaseDirectory, "monitor.log"),
-                    $"{DateTime.Now:HH:mm:ss.fff} {message}{Environment.NewLine}");
-            }
-            catch { }
-        }
+        //private static void LogMonitor(string message)
+        //{
+        //    try
+        //    {
+        //        File.AppendAllText(Path.Combine(AppContext.BaseDirectory, "monitor.log"),
+        //            $"{DateTime.Now:HH:mm:ss.fff} {message}{Environment.NewLine}");
+        //    }
+        //    catch { }
+        //}
 
+        //Hamza 16-11-26
         /// Adds one monitored image to the grid with ONE grid refresh (not five).
-        private void AddMonitoredRow(ImageResult row)
-        {
-            string? selectedPath = grid.SelectedRows.Count > 0
-                ? grid.SelectedRows[0].Cells["ImagePath"].Value?.ToString()
-                : null;
+        //private void AddMonitoredRow(ImageResult row)
+        //{
+        //    string? selectedPath = grid.SelectedRows.Count > 0
+        //        ? grid.SelectedRows[0].Cells["ImagePath"].Value?.ToString()
+        //        : null;
 
-            _results.Add(row);
+        //    _results.Add(row);
 
-            // Rebuild the filter lists only when a new folder/label appears
-            bool newFolder = !cbFolderFilter.Items.Contains(row.Subfolder ?? "");
-            bool newLabel = !cbPredFilter.Items.Contains(row.PredictedLabel ?? "");
-            if (newFolder || newLabel)
-                PopulateFilters();
-            else
-                ApplyFilters(this, EventArgs.Empty);   // one refresh, honouring current filters
+        //    // Rebuild the filter lists only when a new folder/label appears
+        //    bool newFolder = !cbFolderFilter.Items.Contains(row.Subfolder ?? "");
+        //    bool newLabel = !cbPredFilter.Items.Contains(row.PredictedLabel ?? "");
+        //    if (newFolder || newLabel)
+        //        PopulateFilters();
+        //    else
+        //        ApplyFilters(this, EventArgs.Empty);   // one refresh, honouring current filters
 
-            PopulateCorrectionComboBox();
+        //    PopulateCorrectionComboBox();
 
-            if (selectedPath != null)
-            {
-                // keep the row the operator is working on
-                foreach (DataGridViewRow r in grid.Rows)
-                {
-                    if (r.Cells["ImagePath"].Value?.ToString() == selectedPath)
-                    {
-                        r.Selected = true;
-                        break;
-                    }
-                }
-            }
-            else if (grid.Rows.Count > 0)
-            {
-                grid.ClearSelection();   // binding auto-selects row 0; undo that
-                try { grid.FirstDisplayedScrollingRowIndex = grid.Rows.Count - 1; }
-                catch { /* grid too small to scroll - ignore */ }
-            }
-        }
+        //    if (selectedPath != null)
+        //    {
+        //        // keep the row the operator is working on
+        //        foreach (DataGridViewRow r in grid.Rows)
+        //        {
+        //            if (r.Cells["ImagePath"].Value?.ToString() == selectedPath)
+        //            {
+        //                r.Selected = true;
+        //                break;
+        //            }
+        //        }
+        //    }
+        //    else if (grid.Rows.Count > 0)
+        //    {
+        //        grid.ClearSelection();   // binding auto-selects row 0; undo that
+        //        try { grid.FirstDisplayedScrollingRowIndex = grid.Rows.Count - 1; }
+        //        catch { /* grid too small to scroll - ignore */ }
+        //    }
+        //}
 
         private void BtnCyclePort_Click(object sender, EventArgs e)
         {
@@ -2321,6 +2328,60 @@ namespace Image_Checker.WinForm
         }
 
         // === Full Retrain ===
+        //private async void BtnRetrain_Click(object sender, EventArgs e)
+        //{
+        //    if (string.IsNullOrEmpty(_basePath))
+        //    {
+        //        MessageBox.Show("Base path not configured.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        //        return;
+        //    }
+
+        //    var result = MessageBox.Show(
+        //        "Full retrain will take several minutes and processes the entire dataset.\n\n" +
+        //        "Quick Update is much faster and recommended for small corrections.\n\n" +
+        //        "Continue with full retrain?",
+        //        "Confirm Full Retrain",
+        //        MessageBoxButtons.YesNo,
+        //        MessageBoxIcon.Question);
+
+        //    if (result != DialogResult.Yes)
+        //        return;
+
+        //    lblStatus.Text = "🔄 Full retraining (this may take several minutes)...";
+        //    progressBar.Visible = true;
+        //    progressBar.Style = ProgressBarStyle.Marquee;
+        //    btnQuickUpdate.Enabled = false;
+        //    btnRetrain.Enabled = false;
+        //    btnCorrect.Enabled = false;
+
+        //    await Task.Run(() =>
+        //    {
+        //        try
+        //        {
+        //            var trainer = new ModelTrainer(new Microsoft.ML.MLContext(), _basePath, _roiRect);
+        //            trainer.TrainAndEvaluate();
+        //        }
+        //        catch (Exception ex)
+        //        {
+        //            Invoke(new Action(() =>
+        //            {
+        //                lblStatus.Text = $"❌ Full retrain failed: {ex.Message}";
+        //                MessageBox.Show($"Retrain failed:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        //            }));
+        //        }
+        //    });
+
+        //    progressBar.Visible = false;
+        //    lblStatus.Text = "✅ Full retrain completed! Reloading model...";
+        //    btnQuickUpdate.Enabled = true;
+        //    btnRetrain.Enabled = true;
+        //    btnCorrect.Enabled = true;
+
+        //    LoadModel();
+        //    MessageBox.Show("Full retrain completed successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        //}
+
+        // === Full Retrain (includes saved corrections) ===
         private async void BtnRetrain_Click(object sender, EventArgs e)
         {
             if (string.IsNullOrEmpty(_basePath))
@@ -2329,49 +2390,174 @@ namespace Image_Checker.WinForm
                 return;
             }
 
-            var result = MessageBox.Show(
-                "Full retrain will take several minutes and processes the entire dataset.\n\n" +
-                "Quick Update is much faster and recommended for small corrections.\n\n" +
+            if (_activeModelType != ModelType.MlNet)
+            {
+                MessageBox.Show(
+                    "Full Retrain rebuilds the ML.NET model, but the loaded model is a different type " +
+                    "(TorchSharp / ONNX / One-Class).\n\n" +
+                    "Use Quick Update, or Settings → Build New Model.",
+                    "Not Available for This Model Type",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            // Saved corrections are folded into the training set before training starts
+            var pendingCorrections = new List<CorrectionRecord>();
+            if (_correctionManager != null && _correctionManager.GetCorrectionCount() > 0)
+            {
+                pendingCorrections = _correctionManager.GetAllCorrections(out string readError);
+                if (!string.IsNullOrEmpty(readError))
+                {
+                    MessageBox.Show($"Could not read corrections.csv:\n\n{readError}",
+                        "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+            }
+
+            // Corrections are added as ROI crops (same as predictions). That only makes sense if
+            // the existing training images are ROI crops too - warn if they are not.
+            if (pendingCorrections.Count > 0 &&
+                CorrectionsMerger.DatasetLooksCropped(_basePath, _roiRect) == false)
+            {
+                var warn = MessageBox.Show(
+                    "Your training images do not look ROI-cropped (they are a different size from the " +
+                    $"ROI {_roiRect.Width}x{_roiRect.Height}), but predictions are made on ROI crops.\n\n" +
+                    "The corrections would be added as ROI crops, so the training set would be a mix of " +
+                    "full photos and crops.\n\n" +
+                    "Recommended: Settings → Build New Model → \"Apply ROI and Create Cropped Dataset\", " +
+                    "and train on that dataset.\n\n" +
+                    "Add the corrections anyway?",
+                    "Training Images Are Not Cropped",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+                if (warn != DialogResult.Yes)
+                    return;
+            }
+
+            string correctionLine = pendingCorrections.Count > 0
+                ? $"• {pendingCorrections.Count} saved correction(s) will be cropped to the ROI, added to the " +
+                  "training set and recorded in images.csv first.\n"
+                : "• No saved corrections are pending.\n";
+
+            var confirm = MessageBox.Show(
+                "Full retrain rebuilds the model from the whole dataset and takes several minutes.\n\n" +
+                correctionLine +
+                "• The new model is loaded automatically when it finishes.\n\n" +
+                "Quick Update is much faster for a handful of corrections.\n\n" +
                 "Continue with full retrain?",
                 "Confirm Full Retrain",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question);
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question);
 
-            if (result != DialogResult.Yes)
+            if (confirm != DialogResult.Yes)
                 return;
 
-            lblStatus.Text = "🔄 Full retraining (this may take several minutes)...";
+            // Copy what the background thread needs (never touch UI/fields from Task.Run)
+            string basePath = _basePath;
+            Rectangle roi = _roiRect;
+            Size imageSize = _trainingImageSize;
+            var startedAt = DateTime.Now;
+
+            CorrectionsMerger.MergeResult? merge = null;
+            string? newModelPath = null;
+            string? failure = null;
+
+            lblStatus.Text = pendingCorrections.Count > 0
+                ? $"🔄 Adding {pendingCorrections.Count} correction(s), then full retraining (several minutes)..."
+                : "🔄 Full retraining (this may take several minutes)...";
             progressBar.Visible = true;
             progressBar.Style = ProgressBarStyle.Marquee;
             btnQuickUpdate.Enabled = false;
             btnRetrain.Enabled = false;
             btnCorrect.Enabled = false;
 
-            await Task.Run(() =>
+            try
             {
-                try
+                await Task.Run(() =>
                 {
-                    var trainer = new ModelTrainer(new Microsoft.ML.MLContext(), _basePath, _roiRect);
-                    trainer.TrainAndEvaluate();
-                }
-                catch (Exception ex)
+                    if (pendingCorrections.Count > 0)
+                        merge = CorrectionsMerger.Merge(basePath, pendingCorrections, roi,
+                                                        msg => Console.WriteLine(msg));
+
+                    var trainer = new ModelTrainer(new Microsoft.ML.MLContext(), basePath, roi);
+                    trainer.TrainAndEvaluate(imageWidth: imageSize.Width, imageHeight: imageSize.Height);
+                });
+
+                // TrainAndEvaluate returns quietly when it cannot train, so success means
+                // "a new model file appeared". It always saves a NEW bestModel-*.zip.
+                newModelPath = Directory.GetFiles(basePath, "bestModel-*.zip")
+                    .Select(f => new FileInfo(f))
+                    .Where(f => f.LastWriteTime >= startedAt.AddSeconds(-1))
+                    .OrderByDescending(f => f.LastWriteTime)
+                    .Select(f => f.FullName)
+                    .FirstOrDefault();
+
+                if (newModelPath == null)
+                    failure = "Training finished but no new model file was produced.\n\n" +
+                              "Check that images.csv lists at least two classes and that the image paths exist.";
+            }
+            catch (Exception ex)
+            {
+                failure = ex.Message;
+            }
+            finally
+            {
+                progressBar.Visible = false;
+                btnQuickUpdate.Enabled = true;
+                btnRetrain.Enabled = true;
+                btnCorrect.Enabled = true;
+            }
+
+            if (failure != null)
+            {
+                lblStatus.Text = $"❌ Full retrain failed: {failure}";
+                MessageBox.Show(
+                    $"Full retrain failed:\n\n{failure}" +
+                    (merge != null
+                        ? "\n\nYour corrections were already added to images.csv and are still saved, so retrying is safe."
+                        : ""),
+                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            // Training consumed the corrections: archive them, then clear the pending list
+            string correctionSummary = "";
+            if (merge != null && _correctionManager != null)
+            {
+                var correctionPath = Path.Combine(basePath, "corrections.csv");
+                if (File.Exists(correctionPath))
                 {
-                    Invoke(new Action(() =>
-                    {
-                        lblStatus.Text = $"❌ Full retrain failed: {ex.Message}";
-                        MessageBox.Show($"Retrain failed:\n{ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }));
+                    File.Copy(correctionPath,
+                        Path.Combine(basePath, $"corrections_archive_{DateTime.Now:yyyyMMddHHmmss}.csv"), true);
                 }
-            });
+                _correctionManager.ClearCorrections(createBackup: false, out _);
+                UpdateCorrectionCount();
 
-            progressBar.Visible = false;
-            lblStatus.Text = "✅ Full retrain completed! Reloading model...";
-            btnQuickUpdate.Enabled = true;
-            btnRetrain.Enabled = true;
-            btnCorrect.Enabled = true;
+                correctionSummary =
+                    $"\n\nCorrections added to the training set: {merge.Added} new, " +
+                    $"{merge.Relabeled} relabeled, {merge.Unchanged} already present" +
+                    (merge.Skipped > 0 ? $", {merge.Skipped} skipped" : "") + ".";
+                if (merge.Warnings.Count > 0)
+                    correctionSummary += "\n\nNotes:\n• " + string.Join("\n• ", merge.Warnings.Take(5));
+            }
 
+            // Switch to the NEW model (the old code reloaded the old file, so a retrain never took effect)
+            _predictor?.Dispose();
+            _predictor = null;
+            _modelPath = newModelPath!;
+            SaveConfiguration();
             LoadModel();
-            MessageBox.Show("Full retrain completed successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+            if (_predictor == null)
+            {
+                MessageBox.Show(
+                    "The model was trained but could not be loaded:\n\n" + lblStatus.Text + correctionSummary,
+                    "Model Not Loaded", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            lblStatus.Text = $"✅ Full retrain completed - loaded {Path.GetFileName(_modelPath)}";
+            MessageBox.Show(
+                $"Full retrain completed.\n\nNew model loaded: {Path.GetFileName(_modelPath)}" + correctionSummary,
+                "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
 
@@ -2525,19 +2711,19 @@ namespace Image_Checker.WinForm
 
         // Add after BtnSelectSingleImage_Click method:
 
-        private void BtnMonitorFolder_Click(object sender, EventArgs e)
-        {
-            if (_folderWatcher == null)
-            {
-                // Start monitoring
-                StartFolderMonitoring();
-            }
-            else
-            {
-                // Stop monitoring
-                StopFolderMonitoring();
-            }
-        }
+        //private void BtnMonitorFolder_Click(object sender, EventArgs e)
+        //{
+        //    if (_folderWatcher == null)
+        //    {
+        //        // Start monitoring
+        //        StartFolderMonitoring();
+        //    }
+        //    else
+        //    {
+        //        // Stop monitoring
+        //        StopFolderMonitoring();
+        //    }
+        //}
 
         //private void StartFolderMonitoring()
         //{
@@ -2606,107 +2792,109 @@ namespace Image_Checker.WinForm
         //        StopFolderMonitoring();
         //    }
         //}
-        private int _checkedCount = 0;
-        private int _correctCount = 0;
-        private void StartFolderMonitoring()
-        {
-            if (_predictor == null)
-            {
-                MessageBox.Show("Model not loaded. Please configure a model first.",
-                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
+        //Hamza 16-11-26
+        //private int _checkedCount = 0;
+        //private int _correctCount = 0;
 
-            using var dialog = new FolderBrowserDialog
-            {
-                Description = "Select root folder containing class subfolders (OK, NG, etc.)"
-            };
+        //private void StartFolderMonitoring()
+        //{
+        //    if (_predictor == null)
+        //    {
+        //        MessageBox.Show("Model not loaded. Please configure a model first.",
+        //            "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        //        return;
+        //    }
 
-            if (dialog.ShowDialog() != DialogResult.OK) return;
+        //    using var dialog = new FolderBrowserDialog
+        //    {
+        //        Description = "Select root folder containing class subfolders (OK, NG, etc.)"
+        //    };
 
-            _monitoredFolder = dialog.SelectedPath;
+        //    if (dialog.ShowDialog() != DialogResult.OK) return;
 
-            var classFolders = Directory.GetDirectories(_monitoredFolder);
-            if (classFolders.Length == 0)
-            {
-                MessageBox.Show(
-                    "Selected folder has no subfolders.\n\n" +
-                    "Please select a folder containing class subfolders like 'OK', 'NG', etc.",
-                    "No Class Folders", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
+        //    _monitoredFolder = dialog.SelectedPath;
 
-            try
-            {
-                // Reset session state
-                _criticalMissCount = 0;
-                _falseAlarmCount = 0;
-                _abnormalCount = 0;
-                _checkedCount = 0;
-                _correctCount = 0;
-                _rootIgnoredCount = 0;
-                _rootIgnoredReported = 0;
-                _fileRetryCount.Clear();
-                lock (_newImageQueue) { _newImageQueue.Clear(); }
+        //    var classFolders = Directory.GetDirectories(_monitoredFolder);
+        //    if (classFolders.Length == 0)
+        //    {
+        //        MessageBox.Show(
+        //            "Selected folder has no subfolders.\n\n" +
+        //            "Please select a folder containing class subfolders like 'OK', 'NG', etc.",
+        //            "No Class Folders", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        //        return;
+        //    }
 
-                _folderWatcher = new FileSystemWatcher(_monitoredFolder)
-                {
-                    IncludeSubdirectories = true,
-                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
-                    Filter = "*.*",
-                    InternalBufferSize = 65536
-                };
-                _folderWatcher.Created += OnNewImageDetected;
-                _folderWatcher.Renamed += OnImageRenamed;
-                _folderWatcher.Deleted += OnImageDeleted;
-                _folderWatcher.Error += OnWatcherError;
+        //    try
+        //    {
+        //        // Reset session state
+        //        _criticalMissCount = 0;
+        //        _falseAlarmCount = 0;
+        //        _abnormalCount = 0;
+        //        _checkedCount = 0;
+        //        _correctCount = 0;
+        //        _rootIgnoredCount = 0;
+        //        _rootIgnoredReported = 0;
+        //        _fileRetryCount.Clear();
+        //        lock (_newImageQueue) { _newImageQueue.Clear(); }
 
-                SeedSeenImages();                       // images already there are NOT re-predicted
-                _folderWatcher.EnableRaisingEvents = true;
+        //        _folderWatcher = new FileSystemWatcher(_monitoredFolder)
+        //        {
+        //            IncludeSubdirectories = true,
+        //            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
+        //            Filter = "*.*",
+        //            InternalBufferSize = 65536
+        //        };
+        //        _folderWatcher.Created += OnNewImageDetected;
+        //        _folderWatcher.Renamed += OnImageRenamed;
+        //        _folderWatcher.Deleted += OnImageDeleted;
+        //        _folderWatcher.Error += OnWatcherError;
 
-                _lastScanUtc = DateTime.UtcNow;
-                _processingTimer = new System.Windows.Forms.Timer();
-                _processingTimer.Interval = 2000;
-                _processingTimer.Tick += ProcessImageQueue;
-                _processingTimer.Start();
+        //        SeedSeenImages();                       // images already there are NOT re-predicted
+        //        _folderWatcher.EnableRaisingEvents = true;
 
-                btnMonitorFolder.Text = "👁️ Monitor Folder (ON)";
-                btnMonitorFolder.BackColor = Color.FromArgb(76, 175, 80);
+        //        _lastScanUtc = DateTime.UtcNow;
+        //        _processingTimer = new System.Windows.Forms.Timer();
+        //        _processingTimer.Interval = 2000;
+        //        _processingTimer.Tick += ProcessImageQueue;
+        //        _processingTimer.Start();
 
-                lblStatus.Text = $"✅ Monitoring: {_monitoredFolder}\n" +
-                                 $"   Class folders: {string.Join(", ", classFolders.Select(f => Path.GetFileName(f)))}\n" +
-                                 $"   Waiting for NEW images (existing ones are ignored)...";
-                lblStatus.BackColor = SystemColors.Control;
-                lblStatus.ForeColor = SystemColors.ControlText;
+        //        btnMonitorFolder.Text = "👁️ Monitor Folder (ON)";
+        //        btnMonitorFolder.BackColor = Color.FromArgb(76, 175, 80);
 
-                LogMonitor($"=== Monitoring started: {_monitoredFolder} ===");
+        //        lblStatus.Text = $"✅ Monitoring: {_monitoredFolder}\n" +
+        //                         $"   Class folders: {string.Join(", ", classFolders.Select(f => Path.GetFileName(f)))}\n" +
+        //                         $"   Waiting for NEW images (existing ones are ignored)...";
+        //        lblStatus.BackColor = SystemColors.Control;
+        //        lblStatus.ForeColor = SystemColors.ControlText;
 
-                MessageBox.Show(
-                    $"Folder monitoring started!\n\n" +
-                    $"Monitoring: {_monitoredFolder}\n" +
-                    $"Class folders: {classFolders.Length}\n\n" +
-                    $"New images placed inside a class subfolder (OK, NG...) will be predicted.\n" +
-                    $"Only mismatches are listed in the grid.\n" +
-                    $"🔴 Critical misses (NG→OK) trigger the USB light + red alert.",
-                    "Monitoring Active", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Failed to start monitoring:\n{ex.Message}",
-                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                StopFolderMonitoring();
-            }
-        }
+        //        LogMonitor($"=== Monitoring started: {_monitoredFolder} ===");
 
-        private void ShowMonitorSummary(string lastLine, Color back)
-        {
-            lblStatus.Text =
-                $"👁️ Monitoring: {_checkedCount} checked | ✅ {_correctCount} correct | " +
-                $"🟡 {_falseAlarmCount} false alarms | 🔴 {_criticalMissCount} critical misses\n" +
-                lastLine;
-            lblStatus.BackColor = back;
-            lblStatus.ForeColor = SystemColors.ControlText;
-        }
+        //        MessageBox.Show(
+        //            $"Folder monitoring started!\n\n" +
+        //            $"Monitoring: {_monitoredFolder}\n" +
+        //            $"Class folders: {classFolders.Length}\n\n" +
+        //            $"New images placed inside a class subfolder (OK, NG...) will be predicted.\n" +
+        //            $"Only mismatches are listed in the grid.\n" +
+        //            $"🔴 Critical misses (NG→OK) trigger the USB light + red alert.",
+        //            "Monitoring Active", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        MessageBox.Show($"Failed to start monitoring:\n{ex.Message}",
+        //            "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        //        StopFolderMonitoring();
+        //    }
+        //}
+        //Hamza 16-11-26
+        //private void ShowMonitorSummary(string lastLine, Color back)
+        //{
+        //    lblStatus.Text =
+        //        $"👁️ Monitoring: {_checkedCount} checked | ✅ {_correctCount} correct | " +
+        //        $"🟡 {_falseAlarmCount} false alarms | 🔴 {_criticalMissCount} critical misses\n" +
+        //        lastLine;
+        //    lblStatus.BackColor = back;
+        //    lblStatus.ForeColor = SystemColors.ControlText;
+        //}
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
@@ -2719,39 +2907,40 @@ namespace Image_Checker.WinForm
             base.OnFormClosing(e);
         }
 
+        //Hamza 16-11-26
         // Update StopFolderMonitoring
-        private void StopFolderMonitoring()
-        {
-            if (_folderWatcher != null)
-            {
-                _folderWatcher.EnableRaisingEvents = false;
-                _folderWatcher.Dispose();
-                _folderWatcher = null;
-            }
+        //private void StopFolderMonitoring()
+        //{
+        //    if (_folderWatcher != null)
+        //    {
+        //        _folderWatcher.EnableRaisingEvents = false;
+        //        _folderWatcher.Dispose();
+        //        _folderWatcher = null;
+        //    }
 
-            if (_processingTimer != null)
-            {
-                _processingTimer.Stop();
-                _processingTimer.Dispose();
-                _processingTimer = null;
-            }
+        //    if (_processingTimer != null)
+        //    {
+        //        _processingTimer.Stop();
+        //        _processingTimer.Dispose();
+        //        _processingTimer = null;
+        //    }
 
-            lock (_newImageQueue) { _newImageQueue.Clear(); _seenImages.Clear(); }
-            _fileRetryCount.Clear();
-            _monitoredFolder = null;
-            _abnormalCount = 0;
+        //    lock (_newImageQueue) { _newImageQueue.Clear(); _seenImages.Clear(); }
+        //    _fileRetryCount.Clear();
+        //    _monitoredFolder = null;
+        //    _abnormalCount = 0;
 
-            // Turn off USB light when stopping
-            if (_usbLight.IsConnected)
-            {
-                _usbLight.TurnOff();
-            }
+        //    // Turn off USB light when stopping
+        //    if (_usbLight.IsConnected)
+        //    {
+        //        _usbLight.TurnOff();
+        //    }
 
-            btnMonitorFolder.Text = "👁️ Monitor Folder (OFF)";
-            btnMonitorFolder.BackColor = Color.FromArgb(156, 39, 176); // Purple
+        //    btnMonitorFolder.Text = "👁️ Monitor Folder (OFF)";
+        //    btnMonitorFolder.BackColor = Color.FromArgb(156, 39, 176); // Purple
 
-            lblStatus.Text = "⏹️ Folder monitoring stopped";
-        }
+        //    lblStatus.Text = "⏹️ Folder monitoring stopped";
+        //}
 
         //private void OnNewImageDetected(object sender, FileSystemEventArgs e)
         //{
@@ -2919,162 +3108,163 @@ namespace Image_Checker.WinForm
         //        _isProcessingQueue = false;
         //    }
         //}
-        private readonly Dictionary<string, int> _fileRetryCount = new();
-        private void ProcessImageQueue(object sender, EventArgs e)
-        {
-            if (_isProcessingQueue || _predictor == null) return;
+        //Hamza 16-11-26
+        //private readonly Dictionary<string, int> _fileRetryCount = new();
+        //private void ProcessImageQueue(object sender, EventArgs e)
+        //{
+        //    if (_isProcessingQueue || _predictor == null) return;
 
-            // Safety net: pick up files the watcher missed
-            if ((DateTime.UtcNow - _lastScanUtc).TotalSeconds >= 5)
-            {
-                _lastScanUtc = DateTime.UtcNow;
-                ScanForNewImages();
-            }
+        //    // Safety net: pick up files the watcher missed
+        //    if ((DateTime.UtcNow - _lastScanUtc).TotalSeconds >= 5)
+        //    {
+        //        _lastScanUtc = DateTime.UtcNow;
+        //        ScanForNewImages();
+        //    }
 
-            string imagePath = null;
-            bool queueEmpty;
-            lock (_newImageQueue)
-            {
-                queueEmpty = _newImageQueue.Count == 0;
-                if (!queueEmpty) imagePath = _newImageQueue.Dequeue();
-            }
+        //    string imagePath = null;
+        //    bool queueEmpty;
+        //    lock (_newImageQueue)
+        //    {
+        //        queueEmpty = _newImageQueue.Count == 0;
+        //        if (!queueEmpty) imagePath = _newImageQueue.Dequeue();
+        //    }
 
-            if (queueEmpty)
-            {
-                int ignored = Volatile.Read(ref _rootIgnoredCount);
-                if (ignored > _rootIgnoredReported)
-                {
-                    _rootIgnoredReported = ignored;
-                    lblStatus.Text = $"⚠️ {ignored} image(s) were put directly in the monitored folder and ignored.\n" +
-                                     $"   Put images inside a class subfolder such as OK or NG.";
-                    lblStatus.BackColor = Color.FromArgb(255, 235, 238);
-                    lblStatus.ForeColor = SystemColors.ControlText;
-                }
-                return;
-            }
+        //    if (queueEmpty)
+        //    {
+        //        int ignored = Volatile.Read(ref _rootIgnoredCount);
+        //        if (ignored > _rootIgnoredReported)
+        //        {
+        //            _rootIgnoredReported = ignored;
+        //            lblStatus.Text = $"⚠️ {ignored} image(s) were put directly in the monitored folder and ignored.\n" +
+        //                             $"   Put images inside a class subfolder such as OK or NG.";
+        //            lblStatus.BackColor = Color.FromArgb(255, 235, 238);
+        //            lblStatus.ForeColor = SystemColors.ControlText;
+        //        }
+        //        return;
+        //    }
 
-            _isProcessingQueue = true;
-            var sw = System.Diagnostics.Stopwatch.StartNew();
+        //    _isProcessingQueue = true;
+        //    var sw = System.Diagnostics.Stopwatch.StartNew();
 
-            try
-            {
-                if (!File.Exists(imagePath))
-                {
-                    _fileRetryCount.Remove(imagePath);
-                    return;
-                }
+        //    try
+        //    {
+        //        if (!File.Exists(imagePath))
+        //        {
+        //            _fileRetryCount.Remove(imagePath);
+        //            return;
+        //        }
 
-                // Still being written? Put it back and try on a later tick - never block the UI.
-                if (!IsFileReady(imagePath))
-                {
-                    _fileRetryCount.TryGetValue(imagePath, out int tries);
-                    if (tries < 15)   // about 30 s at a 2 s tick
-                    {
-                        _fileRetryCount[imagePath] = tries + 1;
-                        lock (_newImageQueue) { _newImageQueue.Enqueue(imagePath); }
-                        lblStatus.Text = $"⏳ Waiting for {Path.GetFileName(imagePath)} to finish writing " +
-                                         $"(attempt {tries + 1}/15)...";
-                        if (tries == 0) LogMonitor($"NOT READY (still being written): {imagePath}");
-                    }
-                    else
-                    {
-                        _fileRetryCount.Remove(imagePath);
-                        LogMonitor($"GAVE UP (file stayed locked by a writer): {imagePath}");
-                        lblStatus.Text = $"❌ Gave up on {Path.GetFileName(imagePath)} - file stayed locked.";
-                    }
-                    return;
-                }
-                _fileRetryCount.Remove(imagePath);
+        //        // Still being written? Put it back and try on a later tick - never block the UI.
+        //        if (!IsFileReady(imagePath))
+        //        {
+        //            _fileRetryCount.TryGetValue(imagePath, out int tries);
+        //            if (tries < 15)   // about 30 s at a 2 s tick
+        //            {
+        //                _fileRetryCount[imagePath] = tries + 1;
+        //                lock (_newImageQueue) { _newImageQueue.Enqueue(imagePath); }
+        //                lblStatus.Text = $"⏳ Waiting for {Path.GetFileName(imagePath)} to finish writing " +
+        //                                 $"(attempt {tries + 1}/15)...";
+        //                if (tries == 0) LogMonitor($"NOT READY (still being written): {imagePath}");
+        //            }
+        //            else
+        //            {
+        //                _fileRetryCount.Remove(imagePath);
+        //                LogMonitor($"GAVE UP (file stayed locked by a writer): {imagePath}");
+        //                lblStatus.Text = $"❌ Gave up on {Path.GetFileName(imagePath)} - file stayed locked.";
+        //            }
+        //            return;
+        //        }
+        //        _fileRetryCount.Remove(imagePath);
 
-                // Ground truth = the subfolder the image was placed in BEFORE prediction
-                string groundTruth = new DirectoryInfo(Path.GetDirectoryName(imagePath)).Name;
+        //        // Ground truth = the subfolder the image was placed in BEFORE prediction
+        //        string groundTruth = new DirectoryInfo(Path.GetDirectoryName(imagePath)).Name;
 
-                // Same ROI-cropped input that Select Folder uses
-                string processedPath = PreprocessForPrediction(imagePath);
-                bool isTempFile = processedPath != imagePath;
+        //        // Same ROI-cropped input that Select Folder uses
+        //        string processedPath = PreprocessForPrediction(imagePath);
+        //        bool isTempFile = processedPath != imagePath;
 
-                (string Label, float Confidence) prediction;
-                try
-                {
-                    prediction = PredictAny(processedPath);
-                }
-                finally
-                {
-                    if (isTempFile && File.Exists(processedPath))
-                        File.Delete(processedPath);
-                }
-                var (label, confidence) = prediction;
-                string cleanLabel = label?.Trim().Trim('"') ?? "Unknown";
-                string fileName = Path.GetFileName(imagePath);
+        //        (string Label, float Confidence) prediction;
+        //        try
+        //        {
+        //            prediction = PredictAny(processedPath);
+        //        }
+        //        finally
+        //        {
+        //            if (isTempFile && File.Exists(processedPath))
+        //                File.Delete(processedPath);
+        //        }
+        //        var (label, confidence) = prediction;
+        //        string cleanLabel = label?.Trim().Trim('"') ?? "Unknown";
+        //        string fileName = Path.GetFileName(imagePath);
 
-                // CRITICAL MISS: NG folder predicted OK | FALSE ALARM: OK folder predicted NG
-                bool isCriticalMiss = groundTruth.Equals("NG", StringComparison.OrdinalIgnoreCase)
-                                   && cleanLabel.Equals("OK", StringComparison.OrdinalIgnoreCase);
-                bool isFalseAlarm = groundTruth.Equals("OK", StringComparison.OrdinalIgnoreCase)
-                                   && cleanLabel.Equals("NG", StringComparison.OrdinalIgnoreCase);
-                bool isCorrect = !isCriticalMiss && !isFalseAlarm;
+        //        // CRITICAL MISS: NG folder predicted OK | FALSE ALARM: OK folder predicted NG
+        //        bool isCriticalMiss = groundTruth.Equals("NG", StringComparison.OrdinalIgnoreCase)
+        //                           && cleanLabel.Equals("OK", StringComparison.OrdinalIgnoreCase);
+        //        bool isFalseAlarm = groundTruth.Equals("OK", StringComparison.OrdinalIgnoreCase)
+        //                           && cleanLabel.Equals("NG", StringComparison.OrdinalIgnoreCase);
+        //        bool isCorrect = !isCriticalMiss && !isFalseAlarm;
 
-                string verdict = isCriticalMiss ? "🔴 Critical miss"
-                               : isFalseAlarm ? "🟡 False alarm"
-                               : "✅ Correct";
+        //        string verdict = isCriticalMiss ? "🔴 Critical miss"
+        //                       : isFalseAlarm ? "🟡 False alarm"
+        //                       : "✅ Correct";
 
-                _checkedCount++;
-                if (isCorrect) _correctCount++;
+        //        _checkedCount++;
+        //        if (isCorrect) _correctCount++;
 
-                // Only MISMATCHES go into the grid
-                if (!isCorrect)
-                {
-                    Invoke(new Action(() => AddMonitoredRow(new ImageResult
-                    {
-                        FileName = fileName,
-                        ImagePath = imagePath,
-                        Subfolder = groundTruth,
-                        PredictedLabel = cleanLabel,
-                        CorrectedLabel = cleanLabel,
-                        Confidence = confidence,
-                        Verdict = verdict
-                    })));
-                }
+        //        // Only MISMATCHES go into the grid
+        //        if (!isCorrect)
+        //        {
+        //            Invoke(new Action(() => AddMonitoredRow(new ImageResult
+        //            {
+        //                FileName = fileName,
+        //                ImagePath = imagePath,
+        //                Subfolder = groundTruth,
+        //                PredictedLabel = cleanLabel,
+        //                CorrectedLabel = cleanLabel,
+        //                Confidence = confidence,
+        //                Verdict = verdict
+        //            })));
+        //        }
 
-                if (isCriticalMiss)
-                {
-                    _criticalMissCount++;
-                    _abnormalCount++;
-                    if (_usbLight.IsConnected)
-                        _usbLight.TurnOn();
+        //        if (isCriticalMiss)
+        //        {
+        //            _criticalMissCount++;
+        //            _abnormalCount++;
+        //            if (_usbLight.IsConnected)
+        //                _usbLight.TurnOn();
 
-                    Invoke(new Action(() => FlashCriticalAlert(imagePath, fileName, confidence)));
-                }
-                else if (isFalseAlarm)
-                {
-                    _falseAlarmCount++;
-                    Invoke(new Action(() => ShowMonitorSummary(
-                        $"   Last: {fileName} is in OK but predicted NG ({confidence:P1}) - see grid",
-                        Color.FromArgb(255, 248, 220))));
-                }
-                else
-                {
-                    if (_criticalMissCount == 0 && _usbLight.IsConnected)
-                        _usbLight.TurnOff();
+        //            Invoke(new Action(() => FlashCriticalAlert(imagePath, fileName, confidence)));
+        //        }
+        //        else if (isFalseAlarm)
+        //        {
+        //            _falseAlarmCount++;
+        //            Invoke(new Action(() => ShowMonitorSummary(
+        //                $"   Last: {fileName} is in OK but predicted NG ({confidence:P1}) - see grid",
+        //                Color.FromArgb(255, 248, 220))));
+        //        }
+        //        else
+        //        {
+        //            if (_criticalMissCount == 0 && _usbLight.IsConnected)
+        //                _usbLight.TurnOff();
 
-                    Invoke(new Action(() => ShowMonitorSummary(
-                        $"   Last: {fileName} → {cleanLabel} ({confidence:P1}) matches folder {groundTruth}",
-                        Color.FromArgb(232, 245, 233))));
-                }
+        //            Invoke(new Action(() => ShowMonitorSummary(
+        //                $"   Last: {fileName} → {cleanLabel} ({confidence:P1}) matches folder {groundTruth}",
+        //                Color.FromArgb(232, 245, 233))));
+        //        }
 
-                LogMonitor($"{fileName} folder={groundTruth} pred={cleanLabel} " +
-                           $"{confidence:P1} {verdict} | {sw.ElapsedMilliseconds} ms | rows={_results.Count}");
-            }
-            catch (Exception ex)
-            {
-                LogMonitor($"ERROR {Path.GetFileName(imagePath)}: {ex}");
-                lblStatus.Text = $"❌ Error on {Path.GetFileName(imagePath)}: {ex.Message}";
-            }
-            finally
-            {
-                _isProcessingQueue = false;
-            }
-        }
+        //        LogMonitor($"{fileName} folder={groundTruth} pred={cleanLabel} " +
+        //                   $"{confidence:P1} {verdict} | {sw.ElapsedMilliseconds} ms | rows={_results.Count}");
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        LogMonitor($"ERROR {Path.GetFileName(imagePath)}: {ex}");
+        //        lblStatus.Text = $"❌ Error on {Path.GetFileName(imagePath)}: {ex.Message}";
+        //    }
+        //    finally
+        //    {
+        //        _isProcessingQueue = false;
+        //    }
+        //}
 
         private async void FlashCriticalAlert(string imagePath, string fileName, float confidence)
         {
