@@ -16,6 +16,17 @@ namespace Image_Checker.WinForm
         private string _lastMonitorLine = "";
         private Color _lastMonitorBack = SystemColors.Control;
         private static readonly object _monitorLogLock = new();
+        private DateTime _monitoringDate = DateTime.MinValue;
+        private string? _waitingForDateFolder;
+        private int _dailyFalseAlarmCount = 0;
+        private int _dailyCriticalMissCount = 0;
+        private int _dailyCheckedCount = 0;
+        private int _dailyCorrectCount = 0;
+        private bool _dailySummaryDirty = false;
+
+        //private DateTime? _lastSavedSummaryDate = null;
+
+        private static readonly object _dailyCsvLock = new();
 
         // ─────────────────────────────────────────────────────────────────
         //  Start / stop
@@ -29,32 +40,118 @@ namespace Image_Checker.WinForm
                 StopFolderMonitoring();
         }
 
+        private string GetMonitorBasePath()
+        {
+            string configPath = Path.Combine(
+                AppContext.BaseDirectory,
+                "app_config.txt"
+            );
+
+            if (!File.Exists(configPath))
+            {
+                throw new FileNotFoundException(
+                    "app_config.txt not found.",
+                    configPath
+                );
+            }
+
+            string? configuredPath = File.ReadAllLines(configPath)
+                .FirstOrDefault(x =>
+                    x.TrimStart().StartsWith(
+                        "MonitorBasePath=",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                );
+
+            if (string.IsNullOrWhiteSpace(configuredPath))
+            {
+                throw new InvalidOperationException(
+                    "MonitorBasePath is missing in app_config.txt."
+                );
+            }
+
+            string path = configuredPath.Substring(
+                configuredPath.IndexOf('=') + 1
+            ).Trim();
+
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                throw new InvalidOperationException(
+                    "MonitorBasePath cannot be empty."
+                );
+            }
+
+            return Path.GetFullPath(path);
+        }
+
         private void StartFolderMonitoring()
         {
             if (_predictor == null)
             {
-                MessageBox.Show("Model not loaded. Please configure a model first.",
-                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(
+                    "Model not loaded. Please configure a model first.",
+                    "Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error
+                );
                 return;
             }
 
-            using var dialog = new FolderBrowserDialog
-            {
-                Description = "Select root folder containing class subfolders (OK, NG, etc.)"
-            };
-
-            if (dialog.ShowDialog() != DialogResult.OK) return;
-
-            string root = dialog.SelectedPath;
+            string root;
             string[] classFolders;
+
             try
             {
+                // Read fixed base path from app_config.txt
+                string basePath = GetMonitorBasePath();
+
+                // Dynamic date folder: yy\MM\dd
+                DateTime today = DateTime.Today;
+
+                string dateFolder = Path.Combine(
+                    today.ToString("yy"),
+                    today.ToString("MM"),
+                    today.ToString("dd")
+                );
+
+                // Complete production folder path
+                root = Path.Combine(basePath, dateFolder);
+
+                // Validate today's folder
+                if (!Directory.Exists(root))
+                {
+                    MessageBox.Show(
+                        $"Today's production folder does not exist:\n\n{root}",
+                        "Folder Not Found",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning
+                    );
+                    return;
+                }
+
+                // Read existing class folders (OK, NG, etc.)
                 classFolders = Directory.GetDirectories(root);
+
+                if (classFolders.Length == 0)
+                {
+                    MessageBox.Show(
+                        $"No class subfolders found in:\n\n{root}\n\n" +
+                        "Expected folders such as OK and NG.",
+                        "No Class Folders",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning
+                    );
+                    return;
+                }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Cannot read the selected folder:\n{ex.Message}",
-                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(
+                    $"Cannot initialize monitoring folder:\n\n{ex.Message}",
+                    "Configuration Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error
+                );
                 return;
             }
 
@@ -62,54 +159,98 @@ namespace Image_Checker.WinForm
             {
                 _monitoredFolder = root;
 
-                // Fresh session
+                // Fresh monitoring session
                 _criticalMissCount = 0;
                 _falseAlarmCount = 0;
                 _abnormalCount = 0;
                 _checkedCount = 0;
                 _correctCount = 0;
+                // Restore today's accumulated inspection statistics
+                LoadDailyInspectionSummary(DateTime.Today);
+
                 _fileRetryCount.Clear();
+
                 _lastMonitorLine = "   Waiting for new images...";
                 _lastMonitorBack = SystemColors.Control;
 
-                _monitor = new FolderImageMonitor(root, _monitorScanIntervalMs);
+                // Initialize folder monitor
+                _monitor = new FolderImageMonitor(
+                    root,
+                    _monitorScanIntervalMs
+                );
+
                 _monitor.Log += LogMonitor;
                 _monitor.Start();
 
-                _processingTimer = new System.Windows.Forms.Timer { Interval = 2000 };
+                _monitoringDate = DateTime.Today;
+                _waitingForDateFolder = null;
+
+
+                // Initialize processing timer
+                _processingTimer = new System.Windows.Forms.Timer
+                {
+                    Interval = 2000
+                };
+
                 _processingTimer.Tick += ProcessImageQueue;
                 _processingTimer.Start();
 
+                // Update UI
                 btnMonitorFolder.Text = "👁️ Monitor Folder (ON)";
                 btnMonitorFolder.BackColor = Color.FromArgb(76, 175, 80);
+
                 ApplyMonitorStatus(force: true);
 
-                string noFolders = classFolders.Length == 0
-                    ? "\n\nNo class subfolders exist yet. That is fine - monitoring keeps running; " +
-                      "put new images inside subfolders such as OK or NG."
-                    : "";
-
+                // Show monitoring confirmation
                 MessageBox.Show(
-                    $"Folder monitoring started!\n\n" +
-                    $"Monitoring: {root}\n" +
+                    $"Folder monitoring started successfully!\n\n" +
+                    $"Base Path: {GetMonitorBasePath()}\n" +
+                    $"Date Folder: {DateTime.Now:yy\\MM\\dd}\n" +
+                    $"Monitoring: {root}\n\n" +
                     $"Class folders: {classFolders.Length}\n\n" +
-                    $"New images placed inside a class subfolder (OK, NG...) are predicted.\n" +
-                    $"Only mismatches are listed in the grid.\n" +
-                    $"Monitoring keeps running by itself, even when no images arrive for a long time " +
-                    $"or the folder is temporarily unreachable.\n" +
-                    $"🔴 Critical misses (NG→OK) trigger the USB light + red alert." + noFolders,
-                    "Monitoring Active", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    $"New images placed inside existing class subfolders " +
+                    "(OK, NG, etc.) will be automatically predicted.\n\n" +
+                    $"Only mismatches are listed in the grid.\n\n" +
+                    $"Monitoring continues automatically, even when no images arrive.\n\n" +
+                    $"🔴 Critical misses (NG → OK) trigger the USB light and red alert.",
+                    "Monitoring Active",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information
+                );
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Failed to start monitoring:\n{ex.Message}",
-                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(
+                    $"Failed to start monitoring:\n\n{ex.Message}",
+                    "Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error
+                );
+
                 StopFolderMonitoring();
             }
         }
 
         private void StopFolderMonitoring()
         {
+            // Save current day's inspection summary before stopping
+            if (_monitoringDate != DateTime.MinValue)
+            {
+                bool saved = SaveDailyInspectionSummary(_monitoringDate.Date);
+
+                if (!saved)
+                {
+                    MessageBox.Show(
+                        "Unable to save daily inspection summary.\n" +
+                        "Please check CSV file permissions.",
+                        "CSV Save Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning
+                    );
+                }
+            }
+
+            // Dispose folder monitor
             if (_monitor != null)
             {
                 _monitor.Log -= LogMonitor;
@@ -117,6 +258,7 @@ namespace Image_Checker.WinForm
                 _monitor = null;
             }
 
+            // Stop processing timer
             if (_processingTimer != null)
             {
                 _processingTimer.Stop();
@@ -128,13 +270,129 @@ namespace Image_Checker.WinForm
             _monitoredFolder = null;
             _abnormalCount = 0;
 
-            // Turn off USB light when stopping
+            _monitoringDate = DateTime.MinValue;
+            _waitingForDateFolder = null;
+
+            // Turn off USB light
             if (_usbLight != null && _usbLight.IsConnected)
                 _usbLight.TurnOff();
 
             btnMonitorFolder.Text = "👁️ Monitor Folder (OFF)";
-            btnMonitorFolder.BackColor = Color.FromArgb(156, 39, 176); // Purple
+            btnMonitorFolder.BackColor = Color.FromArgb(156, 39, 176);
+
             lblStatus.Text = "⏹️ Folder monitoring stopped";
+        }
+
+        private bool EnsureCurrentDateMonitor()
+        {
+            DateTime today = DateTime.Today;
+
+            // Detect date change
+            if (_monitoringDate.Date != today)
+            {
+                // Save previous day's inspection statistics
+                if (_monitoringDate != DateTime.MinValue)
+                {
+                    bool saved = SaveDailyInspectionSummary(
+                        _monitoringDate.Date
+                    );
+
+                    // Do not switch dates if CSV saving fails.
+                    // Retry on the next timer tick.
+                    if (!saved)
+                        return false;
+
+                    // Reset daily statistics for the new day
+                    _dailyFalseAlarmCount = 0;
+                    _dailyCriticalMissCount = 0;
+                    _dailyCheckedCount = 0;
+                    _dailyCorrectCount = 0;
+                }
+
+                LogMonitor(
+                    $"DATE CHANGED: {_monitoringDate:yy\\MM\\dd} -> {today:yy\\MM\\dd}"
+                );
+
+                // Dispose previous day's monitor
+                if (_monitor != null)
+                {
+                    _monitor.Log -= LogMonitor;
+                    _monitor.Dispose();
+                    _monitor = null;
+                }
+
+                _fileRetryCount.Clear();
+
+                _monitoringDate = today;
+                _monitoredFolder = null;
+                _waitingForDateFolder = null;
+
+                _lastMonitorLine =
+                    $"   Switching to production folder {today:yy\\MM\\dd}...";
+
+                ApplyMonitorStatus(force: true);
+            }
+
+            // Already monitoring today's folder
+            if (_monitor != null)
+                return true;
+
+            try
+            {
+                // Read configured base path
+                string basePath = GetMonitorBasePath();
+
+                // Build today's folder path
+                string dateFolder = today.ToString(@"yy\MM\dd");
+                string root = Path.Combine(basePath, dateFolder);
+
+                // Wait for production system to create today's folder
+                // Do not create any folders here
+                if (!Directory.Exists(root))
+                {
+                    if (_waitingForDateFolder != root)
+                    {
+                        LogMonitor($"WAITING: Production folder not found: {root}");
+                        _waitingForDateFolder = root;
+                    }
+
+                    _lastMonitorLine = $"   ⏳ Waiting for today's production folder: {dateFolder}";
+
+                    lblStatus.Text = _lastMonitorLine;
+                    lblStatus.BackColor = Color.FromArgb(255, 248, 220);
+                    lblStatus.ForeColor = SystemColors.ControlText;
+
+                    return false;
+                }
+
+                // Start new date's monitor
+                var newMonitor = new FolderImageMonitor(root, _monitorScanIntervalMs);
+
+                newMonitor.Log += LogMonitor;
+                newMonitor.Start();
+
+                _monitor = newMonitor;
+                _monitoredFolder = root;
+                _waitingForDateFolder = null;
+
+                _lastMonitorLine = $"   Monitoring today's production folder: {dateFolder}";
+                _lastMonitorBack = SystemColors.Control;
+
+                LogMonitor($"MONITORING STARTED: {root}");
+
+                ApplyMonitorStatus(force: true);
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogMonitor($"DATE SWITCH ERROR: {ex}");
+
+                _lastMonitorLine = $"   ❌ Cannot initialize today's folder: {ex.Message}";
+                ApplyMonitorStatus(force: false);
+
+                return false;
+            }
         }
 
         // ─────────────────────────────────────────────────────────────────
@@ -144,6 +402,15 @@ namespace Image_Checker.WinForm
         private void ProcessImageQueue(object? sender, EventArgs e)
         {
             if (_isProcessingQueue) return;
+
+            // Automatically detect date changes and switch production folders
+            if (!EnsureCurrentDateMonitor())
+                return;
+
+            if (_dailySummaryDirty)
+            {
+                SaveDailyInspectionSummary(DateTime.Today);
+            }
 
             var monitor = _monitor;
             if (monitor == null) return;
@@ -232,7 +499,25 @@ namespace Image_Checker.WinForm
                                : "✅ Correct";
 
                 _checkedCount++;
-                if (isCorrect) _correctCount++;
+                _dailyCheckedCount++;
+
+                if (isCorrect)
+                {
+                    _correctCount++;
+                    _dailyCorrectCount++;
+                }
+
+                // Count and persist every processed image
+                _dailySummaryDirty = true;
+                SaveDailyInspectionSummary(DateTime.Today);
+
+                if (!isCorrect)
+                {
+                    if (isCriticalMiss)
+                        _dailyCriticalMissCount++;
+                    else if (isFalseAlarm)
+                        _dailyFalseAlarmCount++;
+                }
 
                 // Only MISMATCHES go into the grid
                 if (!isCorrect)
@@ -249,14 +534,23 @@ namespace Image_Checker.WinForm
                     })));
 
                     // Move mismatched images when confidence is above 80%
-                    if (confidence > 0.80f)
+                    if (!isCorrect && confidence > 0.80f)
                     {
-                        MoveHighConfidenceMismatch(
-                            imagePath,
-                            groundTruth,
-                            cleanLabel,
-                            confidence
-                        );
+                        try
+                        {
+                            MoveHighConfidenceMismatch(
+                                imagePath,
+                                groundTruth,
+                                cleanLabel,
+                                confidence
+                            );
+                        }
+                        catch (Exception ex)
+                        {
+                            LogMonitor(
+                                $"IMAGE COPY ERROR: {imagePath} | {ex.Message}"
+                            );
+                        }
                     }
                 }
 
@@ -298,6 +592,148 @@ namespace Image_Checker.WinForm
             finally
             {
                 _isProcessingQueue = false;
+            }
+        }
+
+
+
+        private bool SaveDailyInspectionSummary(DateTime reportDate)
+        {
+            string csvPath = Path.Combine(
+                AppContext.BaseDirectory,
+                "DailyInspectionSummary.csv"
+            );
+
+            string tempPath = csvPath + ".tmp";
+
+            try
+            {
+                lock (_dailyCsvLock)
+                {
+                    var lines = File.Exists(csvPath)
+                        ? File.ReadAllLines(csvPath).ToList()
+                        : new List<string>();
+
+                    if (lines.Count == 0)
+                        lines.Add("Date,FalseAlarms,CriticalMisses,Checked,Correct");
+
+                    string dateKey = reportDate.ToString("yyyy-MM-dd");
+
+                    int existingIndex = lines.FindIndex(line =>
+                    {
+                        string[] columns = line.Split(',');
+
+                        return columns.Length >= 3 &&
+                               columns[0].Trim() == dateKey;
+                    });
+
+                    string row =
+     $"{dateKey}," +
+     $"{_dailyFalseAlarmCount}," +
+     $"{_dailyCriticalMissCount}," +
+     $"{_dailyCheckedCount}," +
+     $"{_dailyCorrectCount}";
+
+                    if (existingIndex >= 0)
+                        lines[existingIndex] = row;
+                    else
+                        lines.Add(row);
+
+                    // Write temporary file and flush to disk
+                    using (var fs = new FileStream(
+                        tempPath,
+                        FileMode.Create,
+                        FileAccess.Write,
+                        FileShare.None,
+                        4096,
+                        FileOptions.WriteThrough))
+                    using (var writer = new StreamWriter(
+                        fs,
+                        new System.Text.UTF8Encoding(true)))
+                    {
+                        foreach (string line in lines)
+                            writer.WriteLine(line);
+
+                        writer.Flush();
+                        fs.Flush(true);
+                    }
+
+                    // Replace existing CSV
+                    File.Move(tempPath, csvPath, true);
+
+                    _dailySummaryDirty = false;
+                }
+
+                LogMonitor(
+                    $"DAILY SUMMARY PERSISTED: {reportDate:yyyy-MM-dd} | " +
+                    $"False Alarms={_dailyFalseAlarmCount} | " +
+                    $"Critical Misses={_dailyCriticalMissCount}"
+                );
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _dailySummaryDirty = true;
+
+                LogMonitor($"DAILY CSV SAVE ERROR: {ex}");
+
+                return false;
+            }
+        }
+
+        private void LoadDailyInspectionSummary(DateTime reportDate)
+        {
+            _dailyFalseAlarmCount = 0;
+            _dailyCriticalMissCount = 0;
+            _dailyCheckedCount = 0;
+            _dailyCorrectCount = 0;
+
+            string csvPath = Path.Combine(
+                AppContext.BaseDirectory,
+                "DailyInspectionSummary.csv"
+            );
+
+            if (!File.Exists(csvPath))
+                return;
+
+            try
+            {
+                lock (_dailyCsvLock)
+                {
+                    foreach (string line in File.ReadAllLines(csvPath))
+                    {
+                        string[] columns = line.Split(',');
+
+                        if (columns.Length < 3)
+                            continue;
+
+                        if (columns[0].Trim() != reportDate.ToString("yyyy-MM-dd"))
+                            continue;
+
+                        int.TryParse(columns[1], out _dailyFalseAlarmCount);
+                        int.TryParse(columns[2], out _dailyCriticalMissCount);
+
+                        // New columns; older CSV rows may not contain them.
+                        if (columns.Length >= 4)
+                            int.TryParse(columns[3], out _dailyCheckedCount);
+
+                        if (columns.Length >= 5)
+                            int.TryParse(columns[4], out _dailyCorrectCount);
+
+                        break;
+                    }
+                }
+
+                LogMonitor(
+                    $"DAILY COUNTS RESTORED: {reportDate:yyyy-MM-dd} | " +
+                    $"False Alarms={_dailyFalseAlarmCount} | " +
+                    $"Critical Misses={_dailyCriticalMissCount}"
+                );
+            }
+            catch (Exception ex)
+            {
+                LogMonitor($"DAILY CSV LOAD ERROR: {ex}");
             }
         }
 

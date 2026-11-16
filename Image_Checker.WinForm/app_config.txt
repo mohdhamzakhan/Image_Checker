@@ -1,2 +1,3 @@
 BasePath=D:\Models
 ModelPath=D:\Models\bestModel-LightGBM.zip
+MonitorBasePath=D:\data
