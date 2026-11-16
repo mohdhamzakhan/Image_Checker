@@ -334,7 +334,7 @@ namespace Image_Checker.WinForm
                 );
             }
 
-            File.Move(imagePath, destinationPath);
+            File.Copy(imagePath, destinationPath);
 
             LogMonitor(
                 $"MOVED HIGH-CONFIDENCE MISMATCH: {imagePath} -> {destinationPath} | " +
