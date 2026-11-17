@@ -67,20 +67,18 @@ namespace Image_Checker.Services
         private readonly Action<string>? _log;
         private readonly Device _device;
 
-        public CnnTrainer(
-            string basePath,
-            CnnConfig config,
-            Rectangle roiRect,
-            Action<string>? log = null)
+        public CnnTrainer(string basePath, CnnConfig config, Rectangle roiRect, Action<string>? log = null)
         {
             _basePath = basePath;
             _cfg = config;
             _roiRect = roiRect;
             _log = log;
 
-            _device = config.UseGpu && cuda.is_available()
-                ? new Device(DeviceType.CUDA)
-                : new Device(DeviceType.CPU);
+            if (config.UseGpu && !cuda.is_available())
+                throw new InvalidOperationException(
+                    "GPU requested but CUDA is not available. Check the TorchSharp-cuda-windows package.");
+
+            _device = config.UseGpu ? new Device(DeviceType.CUDA) : new Device(DeviceType.CPU);
         }
 
         // ══════════════════════════════════════════════════════════════════════
@@ -118,18 +116,28 @@ namespace Image_Checker.Services
             long paramCount = model.parameters().Sum(p => p.numel());
             Log($"   Parameters: {paramCount:N0}");
 
-            // 4. Optimizer + loss
-            var optimizer = optim.Adam(model.parameters(), lr: _cfg.LearningRate);
-            using var lossFn = nn.CrossEntropyLoss();
+            // 4. Class weights (rare class counts more) + optimizer + loss
+            var counts = new int[classNames.Count];
+            foreach (var l in trainLabels) counts[l]++;
+            var wArr = counts.Select(c => trainLabels.Count / (float)(classNames.Count * Math.Max(1, c))).ToArray();
+            using var classWeights = tensor(wArr).to(_device);
+            Log($"   Class weights: {string.Join(", ", classNames.Select((n, i) => $"{n}={wArr[i]:F2}"))}");
 
-            // 5. Training loop
+            var optimizer = optim.Adam(model.parameters(), lr: _cfg.LearningRate);
+            using var lossFn = nn.CrossEntropyLoss(weight: classWeights);
+
+            // 5. Load everything into GPU memory once
             ct.ThrowIfCancellationRequested();
+            Log($"\n📥 Caching images on {_device.type}...");
+            using var trainCache = BuildCache(trainPaths, ct);
+            using var valCache = BuildCache(valPaths, ct);
+            using var trainY = tensor(trainLabels.Select(l => (long)l).ToArray()).to(_device);
+            using var valY = tensor(valLabels.Select(l => (long)l).ToArray()).to(_device);
+            Log("   ✅ Cached");
+
             Log("\n🚀 Training...");
-            var history = RunTrainingLoop(
-                model, optimizer, lossFn,
-                trainPaths, trainLabels,
-                valPaths, valLabels,
-                classNames.Count, ct);
+            var history = RunTrainingLoop(model, optimizer, lossFn,
+                trainCache, trainY, valCache, valY, classNames, ct);
 
             // 6. Trace → TorchScript (.pt)
             // 6. Save model
@@ -196,202 +204,381 @@ namespace Image_Checker.Services
             float FinalTrainAcc, float FinalValAcc,
             float FinalTrainLoss, float FinalValLoss);
 
-        private TrainHistory RunTrainingLoop(
-            Module<Tensor, Tensor> model,
-            optim.Optimizer optimizer,
-            CrossEntropyLoss lossFn,
-            List<string> trainPaths,
-            List<int> trainLabels,
-            List<string> valPaths,
-            List<int> valLabels,
-            int numClasses,
-            CancellationToken ct)
+        // ── Decode once, keep as uint8 on the device ──────────────────────────
+        private Tensor BuildCache(List<string> paths, CancellationToken ct)
         {
-            float bestValAcc = 0f;
-            int patience = 0;
-            float finalTrainAcc = 0f, finalValAcc = 0f;
-            float finalTrainLoss = 0f, finalValLoss = 0f;
-            var rng = new Random(42);
+            int n = paths.Count, h = _cfg.ImageHeight, w = _cfg.ImageWidth, per = 3 * h * w;
+            var cache = empty(new long[] { n, 3, h, w }, ScalarType.Byte, _device);
+            const int chunk = 256;
 
-            for (int epoch = 1; epoch <= _cfg.Epochs; epoch++)
+            for (int s = 0; s < n; s += chunk)
             {
                 ct.ThrowIfCancellationRequested();
+                int cnt = Math.Min(chunk, n - s);
+                var buf = new byte[cnt * per];
+                int start = s;
 
-                // ── train ──────────────────────────────────────────────────
-                model.train();
-                float epochLoss = 0f, epochCorrect = 0f;
-                int epochTotal = 0, batches = 0;
+                Parallel.For(0, cnt,
+                    new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
+                    i => LoadImageBytes(paths[start + i], buf, i, h, w));
 
-                var shuffled = Enumerable.Range(0, trainPaths.Count)
-                    .OrderBy(_ => rng.Next()).ToList();
-
-                for (int b = 0; b < shuffled.Count; b += _cfg.BatchSize)
-                {
-                    ct.ThrowIfCancellationRequested();
-
-                    var batchIdx = shuffled.Skip(b).Take(_cfg.BatchSize).ToList();
-                    var (bx, by) = MakeBatch(
-                        batchIdx.Select(i => trainPaths[i]).ToList(),
-                        batchIdx.Select(i => trainLabels[i]).ToList(),
-                        augment: _cfg.Augment);
-
-                    using (bx) using (by)
-                    {
-                        optimizer.zero_grad();
-
-                        using var logits = model.forward(bx);
-                        using var loss = lossFn.forward(logits, by);
-
-                        loss.backward();
-                        optimizer.step();
-
-                        epochLoss += loss.item<float>();
-                        epochCorrect += logits.argmax(1).eq(by).sum().item<long>();
-                        epochTotal += batchIdx.Count;
-                        batches++;
-                    }
-                }
-
-                finalTrainLoss = epochLoss / batches;
-                finalTrainAcc = epochCorrect / epochTotal;
-
-                // ── validate ───────────────────────────────────────────────
-                model.eval();
-                float valLoss = 0f, valCorrect = 0f;
-                int valTotal = 0, valBatches = 0;
-
-                using (no_grad())
-                {
-                    for (int b = 0; b < valPaths.Count; b += _cfg.BatchSize)
-                    {
-                        ct.ThrowIfCancellationRequested();
-
-                        int take = Math.Min(_cfg.BatchSize, valPaths.Count - b);
-                        var (bx, by) = MakeBatch(
-                            valPaths.GetRange(b, take),
-                            valLabels.GetRange(b, take),
-                            augment: false);
-
-                        using (bx) using (by)
-                        {
-                            using var logits = model.forward(bx);
-                            using var loss = lossFn.forward(logits, by);
-
-                            valLoss += loss.item<float>();
-                            valCorrect += logits.argmax(1).eq(by).sum().item<long>();
-                            valTotal += take;
-                            valBatches++;
-                        }
-                    }
-                }
-
-                finalValLoss = valLoss / valBatches;
-                finalValAcc = valCorrect / valTotal;
-
-                Log($"   Epoch {epoch,3}/{_cfg.Epochs} — " +
-                    $"loss: {finalTrainLoss:F4}  acc: {finalTrainAcc:P1}  |  " +
-                    $"val_loss: {finalValLoss:F4}  val_acc: {finalValAcc:P1}");
-
-                // ── early stopping ─────────────────────────────────────────
-                if (finalValAcc > bestValAcc + 1e-4f)
-                {
-                    bestValAcc = finalValAcc;
-                    patience = 0;
-                }
-                else if (++patience >= _cfg.EarlyStopPatience)
-                {
-                    Log($"   ⏹ Early stop at epoch {epoch} " +
-                        $"(no improvement for {_cfg.EarlyStopPatience} epochs)");
-                    break;
-                }
+                using var cpu = tensor(buf, new long[] { cnt, 3, h, w });
+                using var dev = cpu.to(_device);
+                using var slice = cache.narrow(0, s, cnt);
+                slice.copy_(dev);
             }
-
-            return new TrainHistory(finalTrainAcc, finalValAcc, finalTrainLoss, finalValLoss);
+            return cache;
         }
 
-        // ══════════════════════════════════════════════════════════════════════
-        //  BATCH BUILDING  — channel-first NCHW layout for PyTorch/TorchSharp
-        // ══════════════════════════════════════════════════════════════════════
-
-        private (Tensor X, Tensor Y) MakeBatch(
-            List<string> paths, List<int> labels, bool augment)
-        {
-            int n = paths.Count, h = _cfg.ImageHeight, w = _cfg.ImageWidth;
-            var xData = new float[n * 3 * h * w];
-            var yData = new long[n];
-            var rng = augment ? new Random() : null;
-
-            for (int i = 0; i < n; i++)
-            {
-                LoadImageIntoBuffer(paths[i], xData, i, h, w, rng);
-                yData[i] = labels[i];
-            }
-
-            var X = tensor(xData, new long[] { n, 3, h, w }).to(_device);
-            var Y = tensor(yData).to(_device);
-            return (X, Y);
-        }
-
-        private void LoadImageIntoBuffer(
-            string path, float[] dest, int idx,
-            int h, int w, Random? rng)
+        private void LoadImageBytes(string path, byte[] dest, int idx, int h, int w)
         {
             using var src = new Bitmap(path);
 
-            // ROI crop
             Bitmap working;
             if (_roiRect.Width > 0 && _roiRect.Height > 0)
             {
                 int rx = Math.Max(0, Math.Min(_roiRect.X, src.Width - _roiRect.Width));
                 int ry = Math.Max(0, Math.Min(_roiRect.Y, src.Height - _roiRect.Height));
-                working = src.Clone(
-                    new Rectangle(rx, ry,
-                        Math.Min(_roiRect.Width, src.Width),
-                        Math.Min(_roiRect.Height, src.Height)),
-                    src.PixelFormat);
+                working = src.Clone(new Rectangle(rx, ry,
+                    Math.Min(_roiRect.Width, src.Width),
+                    Math.Min(_roiRect.Height, src.Height)), src.PixelFormat);
             }
-            else
-            {
-                working = (Bitmap)src.Clone();
-            }
+            else working = (Bitmap)src.Clone();
 
             using var resized = new Bitmap(working, new System.Drawing.Size(w, h));
             working.Dispose();
 
-            using var final = rng != null ? AugmentBitmap(resized, rng) : resized;
-
-            var bmpData = final.LockBits(
-                new Rectangle(0, 0, w, h),
-                ImageLockMode.ReadOnly,
-                PixelFormat.Format24bppRgb);
-
+            var bd = resized.LockBits(new Rectangle(0, 0, w, h),
+                ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
             try
             {
-                int stride = bmpData.Stride;
-                var pixBytes = new byte[Math.Abs(stride) * h];
-                Marshal.Copy(bmpData.Scan0, pixBytes, 0, pixBytes.Length);
+                int stride = bd.Stride;
+                var pix = new byte[Math.Abs(stride) * h];
+                Marshal.Copy(bd.Scan0, pix, 0, pix.Length);
 
-                int baseOffset = idx * 3 * h * w;
-
-                // PyTorch NCHW layout — R plane, G plane, B plane
+                int baseOff = idx * 3 * h * w;
                 for (int y = 0; y < h; y++)
-                {
-                    int row = y * stride;
                     for (int x = 0; x < w; x++)
                     {
-                        int off = row + x * 3;
-                        int pixN = y * w + x;
-                        dest[baseOffset + 0 * h * w + pixN] = pixBytes[off + 2] / 255f; // R
-                        dest[baseOffset + 1 * h * w + pixN] = pixBytes[off + 1] / 255f; // G
-                        dest[baseOffset + 2 * h * w + pixN] = pixBytes[off + 0] / 255f; // B
+                        int off = y * stride + x * 3, p = y * w + x;
+                        dest[baseOff + 0 * h * w + p] = pix[off + 2]; // R
+                        dest[baseOff + 1 * h * w + p] = pix[off + 1]; // G
+                        dest[baseOff + 2 * h * w + p] = pix[off + 0]; // B
+                    }
+            }
+            finally { resized.UnlockBits(bd); }
+        }
+
+        // ── Batch + augmentation entirely on the GPU ──────────────────────────
+        private Tensor GpuBatch(Tensor cache, Tensor idx, bool augment)
+        {
+            using var raw = cache.index_select(0, idx);
+            var x = raw.to(ScalarType.Float32).div_(255f);
+            if (!augment) return x;
+
+            long n = x.shape[0];
+            using var flipMask = rand(new long[] { n, 1, 1, 1 }, device: _device).lt(0.5);
+            using var flipped = x.flip(3);
+            using var chosen = where(flipMask, flipped, x);
+            using var gain = rand(new long[] { n, 1, 1, 1 }, device: _device).mul(0.3f).add(0.85f);
+            x.Dispose();
+            return chosen.mul(gain).clamp(0f, 1f);
+        }
+
+        private TrainHistory RunTrainingLoop(
+            Module<Tensor, Tensor> model, optim.Optimizer optimizer, CrossEntropyLoss lossFn,
+            Tensor trainCache, Tensor trainY, Tensor valCache, Tensor valY,
+            List<string> classNames, CancellationToken ct)
+        {
+            int nTrain = (int)trainCache.shape[0], nVal = (int)valCache.shape[0];
+            int numClasses = classNames.Count;
+            float bestBalAcc = 0f; int patience = 0;
+            float fTrainAcc = 0, fValAcc = 0, fTrainLoss = 0, fValLoss = 0;
+            string bestPath = Path.Combine(_basePath, "_cnn_best.tmp");
+
+            for (int epoch = 1; epoch <= _cfg.Epochs; epoch++)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                // ── train ───────────────────────────────────────────────────
+                model.train();
+                float lossSum = 0; long correct = 0; int batches = 0;
+                using (var perm = randperm(nTrain, device: _device))
+                {
+                    for (int b = 0; b < nTrain; b += _cfg.BatchSize)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        int take = Math.Min(_cfg.BatchSize, nTrain - b);
+                        if (take < 2) continue;                       // BatchNorm needs >= 2
+
+                        using var idx = perm.narrow(0, b, take);
+                        using var bx = GpuBatch(trainCache, idx, _cfg.Augment);
+                        using var by = trainY.index_select(0, idx);
+
+                        optimizer.zero_grad();
+                        using var logits = model.forward(bx);
+                        using var loss = lossFn.forward(logits, by);
+                        loss.backward();
+                        optimizer.step();
+
+                        lossSum += loss.item<float>();
+                        correct += logits.argmax(1).eq(by).sum().item<long>();
+                        batches++;
                     }
                 }
+                fTrainLoss = lossSum / Math.Max(1, batches);
+                fTrainAcc = correct / (float)nTrain;
+
+                // ── validate (per-class recall, so NG is not hidden by OK) ──
+                model.eval();
+                float vLoss = 0; int vBatches = 0;
+                var hit = new int[numClasses]; var tot = new int[numClasses];
+                using (no_grad())
+                {
+                    for (int b = 0; b < nVal; b += _cfg.BatchSize)
+                    {
+                        int take = Math.Min(_cfg.BatchSize, nVal - b);
+                        using var idx = arange(b, b + take, device: _device);
+                        using var bx = GpuBatch(valCache, idx, false);
+                        using var by = valY.index_select(0, idx);
+                        using var logits = model.forward(bx);
+                        using var loss = lossFn.forward(logits, by);
+                        vLoss += loss.item<float>(); vBatches++;
+
+                        var p = logits.argmax(1).cpu().data<long>().ToArray();
+                        var t = by.cpu().data<long>().ToArray();
+                        for (int i = 0; i < t.Length; i++)
+                        { tot[t[i]]++; if (p[i] == t[i]) hit[t[i]]++; }
+                    }
+                }
+                fValLoss = vLoss / Math.Max(1, vBatches);
+                fValAcc = hit.Sum() / (float)Math.Max(1, tot.Sum());
+                var recall = Enumerable.Range(0, numClasses)
+                    .Select(c => tot[c] == 0 ? 0f : hit[c] / (float)tot[c]).ToArray();
+                float balAcc = recall.Average();
+
+                Log($"   Epoch {epoch,3}/{_cfg.Epochs} — loss: {fTrainLoss:F4} acc: {fTrainAcc:P1} | " +
+                    $"val_loss: {fValLoss:F4} acc: {fValAcc:P1} balanced: {balAcc:P1} | " +
+                    string.Join(" ", classNames.Select((n, i) => $"{n}:{recall[i]:P0}")));
+
+                // ── early stop on balanced accuracy, keep best weights ──────
+                if (balAcc > bestBalAcc + 1e-4f)
+                {
+                    bestBalAcc = balAcc; patience = 0;
+                    model.save(bestPath);
+                }
+                else if (++patience >= _cfg.EarlyStopPatience)
+                {
+                    Log($"   ⏹ Early stop at epoch {epoch}");
+                    break;
+                }
             }
-            finally
+
+            if (File.Exists(bestPath))
             {
-                final.UnlockBits(bmpData);
+                model.load(bestPath);
+                File.Delete(bestPath);
+                Log($"   ✅ Restored best weights (balanced val acc {bestBalAcc:P1})");
             }
+            return new TrainHistory(fTrainAcc, fValAcc, fTrainLoss, fValLoss);
         }
+
+        //private TrainHistory RunTrainingLoop(
+        //    Module<Tensor, Tensor> model,
+        //    optim.Optimizer optimizer,
+        //    CrossEntropyLoss lossFn,
+        //    List<string> trainPaths,
+        //    List<int> trainLabels,
+        //    List<string> valPaths,
+        //    List<int> valLabels,
+        //    int numClasses,
+        //    CancellationToken ct)
+        //{
+        //    float bestValAcc = 0f;
+        //    int patience = 0;
+        //    float finalTrainAcc = 0f, finalValAcc = 0f;
+        //    float finalTrainLoss = 0f, finalValLoss = 0f;
+        //    var rng = new Random(42);
+
+        //    for (int epoch = 1; epoch <= _cfg.Epochs; epoch++)
+        //    {
+        //        ct.ThrowIfCancellationRequested();
+
+        //        // ── train ──────────────────────────────────────────────────
+        //        model.train();
+        //        float epochLoss = 0f, epochCorrect = 0f;
+        //        int epochTotal = 0, batches = 0;
+
+        //        var shuffled = Enumerable.Range(0, trainPaths.Count)
+        //            .OrderBy(_ => rng.Next()).ToList();
+
+        //        for (int b = 0; b < shuffled.Count; b += _cfg.BatchSize)
+        //        {
+        //            ct.ThrowIfCancellationRequested();
+
+        //            var batchIdx = shuffled.Skip(b).Take(_cfg.BatchSize).ToList();
+        //            var (bx, by) = MakeBatch(
+        //                batchIdx.Select(i => trainPaths[i]).ToList(),
+        //                batchIdx.Select(i => trainLabels[i]).ToList(),
+        //                augment: _cfg.Augment);
+
+        //            using (bx) using (by)
+        //            {
+        //                optimizer.zero_grad();
+
+        //                using var logits = model.forward(bx);
+        //                using var loss = lossFn.forward(logits, by);
+
+        //                loss.backward();
+        //                optimizer.step();
+
+        //                epochLoss += loss.item<float>();
+        //                epochCorrect += logits.argmax(1).eq(by).sum().item<long>();
+        //                epochTotal += batchIdx.Count;
+        //                batches++;
+        //            }
+        //        }
+
+        //        finalTrainLoss = epochLoss / batches;
+        //        finalTrainAcc = epochCorrect / epochTotal;
+
+        //        // ── validate ───────────────────────────────────────────────
+        //        model.eval();
+        //        float valLoss = 0f, valCorrect = 0f;
+        //        int valTotal = 0, valBatches = 0;
+
+        //        using (no_grad())
+        //        {
+        //            for (int b = 0; b < valPaths.Count; b += _cfg.BatchSize)
+        //            {
+        //                ct.ThrowIfCancellationRequested();
+
+        //                int take = Math.Min(_cfg.BatchSize, valPaths.Count - b);
+        //                var (bx, by) = MakeBatch(
+        //                    valPaths.GetRange(b, take),
+        //                    valLabels.GetRange(b, take),
+        //                    augment: false);
+
+        //                using (bx) using (by)
+        //                {
+        //                    using var logits = model.forward(bx);
+        //                    using var loss = lossFn.forward(logits, by);
+
+        //                    valLoss += loss.item<float>();
+        //                    valCorrect += logits.argmax(1).eq(by).sum().item<long>();
+        //                    valTotal += take;
+        //                    valBatches++;
+        //                }
+        //            }
+        //        }
+
+        //        finalValLoss = valLoss / valBatches;
+        //        finalValAcc = valCorrect / valTotal;
+
+        //        Log($"   Epoch {epoch,3}/{_cfg.Epochs} — " +
+        //            $"loss: {finalTrainLoss:F4}  acc: {finalTrainAcc:P1}  |  " +
+        //            $"val_loss: {finalValLoss:F4}  val_acc: {finalValAcc:P1}");
+
+        //        // ── early stopping ─────────────────────────────────────────
+        //        if (finalValAcc > bestValAcc + 1e-4f)
+        //        {
+        //            bestValAcc = finalValAcc;
+        //            patience = 0;
+        //        }
+        //        else if (++patience >= _cfg.EarlyStopPatience)
+        //        {
+        //            Log($"   ⏹ Early stop at epoch {epoch} " +
+        //                $"(no improvement for {_cfg.EarlyStopPatience} epochs)");
+        //            break;
+        //        }
+        //    }
+
+        //    return new TrainHistory(finalTrainAcc, finalValAcc, finalTrainLoss, finalValLoss);
+        //}
+
+        // ══════════════════════════════════════════════════════════════════════
+        //  BATCH BUILDING  — channel-first NCHW layout for PyTorch/TorchSharp
+        // ══════════════════════════════════════════════════════════════════════
+
+        //private (Tensor X, Tensor Y) MakeBatch(
+        //    List<string> paths, List<int> labels, bool augment)
+        //{
+        //    int n = paths.Count, h = _cfg.ImageHeight, w = _cfg.ImageWidth;
+        //    var xData = new float[n * 3 * h * w];
+        //    var yData = new long[n];
+        //    var rng = augment ? new Random() : null;
+
+        //    for (int i = 0; i < n; i++)
+        //    {
+        //        LoadImageIntoBuffer(paths[i], xData, i, h, w, rng);
+        //        yData[i] = labels[i];
+        //    }
+
+        //    var X = tensor(xData, new long[] { n, 3, h, w }).to(_device);
+        //    var Y = tensor(yData).to(_device);
+        //    return (X, Y);
+        //}
+
+        //private void LoadImageIntoBuffer(
+        //    string path, float[] dest, int idx,
+        //    int h, int w, Random? rng)
+        //{
+        //    using var src = new Bitmap(path);
+
+        //    // ROI crop
+        //    Bitmap working;
+        //    if (_roiRect.Width > 0 && _roiRect.Height > 0)
+        //    {
+        //        int rx = Math.Max(0, Math.Min(_roiRect.X, src.Width - _roiRect.Width));
+        //        int ry = Math.Max(0, Math.Min(_roiRect.Y, src.Height - _roiRect.Height));
+        //        working = src.Clone(
+        //            new Rectangle(rx, ry,
+        //                Math.Min(_roiRect.Width, src.Width),
+        //                Math.Min(_roiRect.Height, src.Height)),
+        //            src.PixelFormat);
+        //    }
+        //    else
+        //    {
+        //        working = (Bitmap)src.Clone();
+        //    }
+
+        //    using var resized = new Bitmap(working, new System.Drawing.Size(w, h));
+        //    working.Dispose();
+
+        //    using var final = rng != null ? AugmentBitmap(resized, rng) : resized;
+
+        //    var bmpData = final.LockBits(
+        //        new Rectangle(0, 0, w, h),
+        //        ImageLockMode.ReadOnly,
+        //        PixelFormat.Format24bppRgb);
+
+        //    try
+        //    {
+        //        int stride = bmpData.Stride;
+        //        var pixBytes = new byte[Math.Abs(stride) * h];
+        //        Marshal.Copy(bmpData.Scan0, pixBytes, 0, pixBytes.Length);
+
+        //        int baseOffset = idx * 3 * h * w;
+
+        //        // PyTorch NCHW layout — R plane, G plane, B plane
+        //        for (int y = 0; y < h; y++)
+        //        {
+        //            int row = y * stride;
+        //            for (int x = 0; x < w; x++)
+        //            {
+        //                int off = row + x * 3;
+        //                int pixN = y * w + x;
+        //                dest[baseOffset + 0 * h * w + pixN] = pixBytes[off + 2] / 255f; // R
+        //                dest[baseOffset + 1 * h * w + pixN] = pixBytes[off + 1] / 255f; // G
+        //                dest[baseOffset + 2 * h * w + pixN] = pixBytes[off + 0] / 255f; // B
+        //            }
+        //        }
+        //    }
+        //    finally
+        //    {
+        //        final.UnlockBits(bmpData);
+        //    }
+        //}
 
         /// <summary>
         /// Horizontal flip (50%) + brightness jitter ±15%.

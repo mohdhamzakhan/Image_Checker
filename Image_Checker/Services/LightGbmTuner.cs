@@ -19,6 +19,7 @@ namespace Image_Checker.Services
             int seed = 42,
             string logPath = null,
             double sampleFraction = 0.5,
+            int ngIndex = 0,                       // ← new
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -81,12 +82,12 @@ namespace Image_Checker.Services
                     Console.WriteLine($"   Trial {i + 1}/{nTrials}: Leaves={leaf}, MinData={min}, LR={lr}, Iter={it}");
 
                     var est = mlContext.MulticlassClassification.Trainers.LightGbm(
-                        labelColumnName: labelCol,
-                        featureColumnName: "Features",
-                        numberOfLeaves: leaf,
-                        minimumExampleCountPerLeaf: min,
-                        learningRate: lr,
-                        numberOfIterations: it);
+                        labelColumnName: labelCol, featureColumnName: "Features",
+                        exampleWeightColumnName: "Weight",
+                        numberOfLeaves: leaf, minimumExampleCountPerLeaf: min,
+                        learningRate: lr, numberOfIterations: it);
+
+                   
 
                     try
                     {
@@ -94,7 +95,8 @@ namespace Image_Checker.Services
                         var startTime = DateTime.Now;
 
                         var results = mlContext.MulticlassClassification.CrossValidate(
-                            sampledData, est, cvFolds, seed: seed);
+                       sampledData, est, cvFolds, labelColumnName: labelCol,
+                       samplingKeyColumnName: "Group", seed: seed);
 
                         cancellationToken.ThrowIfCancellationRequested();
 
@@ -110,7 +112,7 @@ namespace Image_Checker.Services
                             continue;
                         }
 
-                        var avg = results.Average(r => r.Metrics.MacroAccuracy);
+                        var avg = NgF2(results, ngIndex);
 
                         Console.WriteLine($"      ✅ Complete in {duration.TotalSeconds:F1}s | Score: {avg:P2}");
 
@@ -170,6 +172,23 @@ namespace Image_Checker.Services
                 Params = bestParams,
                 Score = bestScore
             };
+        }
+        internal static double NgF2(IEnumerable<TrainCatalogBase.CrossValidationResult<MulticlassClassificationMetrics>> cv, int ng)
+        {
+            int tp = 0, fn = 0, fp = 0;
+            foreach (var f in cv)
+            {
+                var c = f.Metrics.ConfusionMatrix.Counts;
+                for (int a = 0; a < c.Count; a++)
+                    for (int p = 0; p < c.Count; p++)
+                    {
+                        if (a == ng && p == ng) tp += (int)c[a][p];
+                        else if (a == ng) fn += (int)c[a][p];
+                        else if (p == ng) fp += (int)c[a][p];
+                    }
+            }
+            double rec = tp / (double)Math.Max(1, tp + fn), prec = tp / (double)Math.Max(1, tp + fp);
+            return 5 * prec * rec / Math.Max(1e-9, 4 * prec + rec);
         }
     }
 }

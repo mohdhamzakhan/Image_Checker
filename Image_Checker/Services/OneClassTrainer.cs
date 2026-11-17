@@ -111,6 +111,14 @@ namespace Image_Checker.Services
                 "(lower = stricter NG detection)");
             Log("═══════════════════════════════════════════════");
 
+            // ▼▼▼ STEP 3: paste here ▼▼▼
+            Log($"CUDA available: {cuda.is_available()}  devices: {(cuda.is_available() ? cuda.device_count() : 0)}");
+            Log($"Training device: {_device.type}");
+            if (_cfg.UseGpu && !cuda.is_available())
+                throw new InvalidOperationException(
+                    "GPU requested but CUDA is not available. Check the libtorch-cuda package.");
+            // ▲▲▲
+
             // 1. Load OK images
             var allPaths = LoadOkImages();
             Log($"✅ {allPaths.Count} OK images found");

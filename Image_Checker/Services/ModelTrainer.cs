@@ -1,11 +1,13 @@
 ﻿using Image_Checker.DataModels;
 using Image_Checker.Utils;
 using Microsoft.ML;
+using Microsoft.ML.Data;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
+using Tensorflow;
 using static SkiaSharp.SKImageFilter;
 
 namespace Image_Checker.Services
@@ -15,7 +17,38 @@ namespace Image_Checker.Services
         private readonly MLContext _mlContext;
         private readonly string _basePath;
         private readonly Rectangle _roiRect;
+        private class ScoreRow
+        {
+            [Microsoft.ML.Data.ColumnName("Label")] public uint Label { get; set; }
+            [Microsoft.ML.Data.ColumnName("Score")] public float[] Score { get; set; } = Array.Empty<float>();
+        }
 
+        private float SweepNgThreshold(IDataView feats, IEstimator<ITransformer> est, int ng, int folds)
+        {
+            var cv = _mlContext.MulticlassClassification.CrossValidate(
+                feats, est, folds, labelColumnName: "Label", samplingKeyColumnName: "Group", seed: 42);
+
+            var all = cv.SelectMany(f =>
+                _mlContext.Data.CreateEnumerable<ScoreRow>(f.ScoredHoldOutSet, false)).ToList();
+
+            uint ngKey = (uint)(ng + 1);          // ML.NET keys are 1-based
+            float bestT = 0.5f; double bestF2 = -1;
+
+            Console.WriteLine("\n🎚️ NG threshold sweep (cross-validated):");
+            foreach (var t in new[] { 0.5f, 0.4f, 0.3f, 0.2f, 0.15f, 0.1f, 0.05f })
+            {
+                int tp = all.Count(r => r.Label == ngKey && r.Score[ng] >= t);
+                int fn = all.Count(r => r.Label == ngKey && r.Score[ng] < t);
+                int fp = all.Count(r => r.Label != ngKey && r.Score[ng] >= t);
+                double rec = tp / (double)Math.Max(1, tp + fn);
+                double prec = tp / (double)Math.Max(1, tp + fp);
+                double f2 = 5 * prec * rec / Math.Max(1e-9, 4 * prec + rec);
+                Console.WriteLine($"   thr {t:F2}: recall {rec:P1} ({fn} missed) | false alarms {fp} | precision {prec:P1} | F2 {f2:F3}");
+                if (f2 > bestF2) { bestF2 = f2; bestT = t; }
+            }
+            Console.WriteLine($"   ➜ suggested threshold by F2: {bestT:F2}");
+            return bestT;
+        }
         public ModelTrainer(MLContext mlContext, string basePath, Rectangle roiRect)
         {
             _mlContext = mlContext;
@@ -90,7 +123,29 @@ namespace Image_Checker.Services
             var path = line.Split(',')[0].Trim('"');
             return Path.IsPathRooted(path);
         }
+        private (double Recall, double Precision, double F2, int Tp, int Fn, int Fp) JudgeCv(
+    IDataView feats, IEstimator<ITransformer> est, int ng, int folds = 5)
+{
+    var cv = _mlContext.MulticlassClassification.CrossValidate(
+        feats, est, folds, labelColumnName: "Label", samplingKeyColumnName: "Group", seed: 42);
 
+    int tp = 0, fn = 0, fp = 0;
+    foreach (var f in cv)
+    {
+        var c = f.Metrics.ConfusionMatrix.Counts;            // [actual][predicted]
+        for (int a = 0; a < c.Count; a++)
+            for (int p = 0; p < c.Count; p++)
+            {
+                if (a == ng && p == ng) tp += (int)c[a][p];
+                else if (a == ng)       fn += (int)c[a][p];
+                else if (p == ng)       fp += (int)c[a][p];
+            }
+    }
+    double rec  = tp / (double)Math.Max(1, tp + fn);
+    double prec = tp / (double)Math.Max(1, tp + fp);
+    double f2   = 5 * prec * rec / Math.Max(1e-9, 4 * prec + rec);   // recall counts 2× precision
+    return (rec, prec, f2, tp, fn, fp);
+}
         private void FixDoubleDrivePaths(string csvPath)
         {
             Console.WriteLine("🔧 Checking for path issues...");
@@ -298,17 +353,30 @@ namespace Image_Checker.Services
 
             // ── Load & split data ─────────────────────────────────────────────
             Console.WriteLine("\n📊 Loading dataset...");
-            var data = _mlContext.Data.LoadFromTextFile<ImageData>(csvPath, separatorChar: ',', hasHeader: false);
+            var rows = File.ReadLines(csvPath)
+                    .Select(l => { int i = l.LastIndexOf(','); return (Path: l[..i].Trim().Trim('"'), Label: l[(i + 1)..].Trim().Trim('"')); })
+                    .Where(r => r.Label.Length > 0).ToList();
+
+            var counts = rows.GroupBy(r => r.Label).ToDictionary(g => g.Key, g => g.Count());
+            double N = rows.Count, K = counts.Count;
+            float WeightFor(string lbl) => (float)Math.Sqrt(N / (K * counts[lbl]));   // NG ≈ 3.2, OK ≈ 0.7
+            var data = _mlContext.Data.LoadFromEnumerable(rows.Select(r => new WeightedImageData
+            {
+                ImagePath = r.Path,
+                Label = r.Label,
+                Weight = WeightFor(r.Label),
+                Group = System.IO.Path.GetFileName(r.Path).Split("___")[0]   // part serial
+            }));
             Console.WriteLine("✅ Dataset loaded");
 
             cancellationToken.ThrowIfCancellationRequested();
 
             Console.WriteLine("\n✂️ Splitting data: 80% train, 20% test...");
-            var split = _mlContext.Data.TrainTestSplit(data, 0.2, seed: 42);
+            var split = _mlContext.Data.TrainTestSplit(data, 0.2, samplingKeyColumnName: "Group", seed: 42);
             Console.WriteLine("✅ Data split complete");
 
             cancellationToken.ThrowIfCancellationRequested();
-
+            int pcaRank = 250;
             // ── Build preprocessing pipeline ──────────────────────────────────
             Console.WriteLine("\n🔧 Building preprocessing pipeline...");
             var preprocess = _mlContext.Transforms.LoadImages(
@@ -330,21 +398,29 @@ namespace Image_Checker.Services
                 .Append(_mlContext.Transforms.ProjectToPrincipalComponents(
                     outputColumnName: "Features",
                     inputColumnName: "RawFeatures",
-                    rank: 100))
-                .Append(_mlContext.Transforms.Conversion.MapValueToKey("Label", nameof(ImageData.Label)));
+                    rank: pcaRank))
+                .Append(_mlContext.Transforms.Conversion.MapValueToKey(
+                    "Label", nameof(ImageData.Label),
+                    keyOrdinality: Microsoft.ML.Transforms.ValueToKeyMappingEstimator.KeyOrdinality.ByValue));
 
             Console.WriteLine("   • Image loading");
             Console.WriteLine($"   • Resize to {imageWidth}x{imageHeight}");
             Console.WriteLine("   • Feature extraction");
-            Console.WriteLine($"   • PCA rank 100");
+            Console.WriteLine($"   • PCA rank {pcaRank}");
             Console.WriteLine($"   • Label encoding ({classLabels.Count} classes)");
 
             cancellationToken.ThrowIfCancellationRequested();
 
             Console.WriteLine("\n⚙️ Fitting preprocessing pipeline...");
-            var preprocessModel = preprocess.Fit(data);
+            var preprocessModel = preprocess.Fit(split.TrainSet);
             Console.WriteLine("✅ Preprocessing complete");
+            var cachedTest = _mlContext.Data.Cache(preprocessModel.Transform(split.TestSet));
+            var allFeats = _mlContext.Data.Cache(preprocessModel.Transform(data));
 
+            // the minority class is the one that must not be missed (NG)
+            var minority = counts.OrderBy(kv => kv.Value).First().Key;
+            int ng = classLabels.IndexOf(minority);      // classLabels is sorted, same as ByValue key order
+            int ngIndex = classLabels.IndexOf(minority);
             cancellationToken.ThrowIfCancellationRequested();
 
             Console.WriteLine("\n💾 Caching training data...");
@@ -361,14 +437,14 @@ namespace Image_Checker.Services
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 trainers.Add(("SDCA_MaxEnt", _mlContext.MulticlassClassification.Trainers.SdcaMaximumEntropy(
-                    labelColumnName: "Label", featureColumnName: "Features"), false));
+                    labelColumnName: "Label", featureColumnName: "Features", exampleWeightColumnName: "Weight"), false));
             }
 
             if (useLBFGS)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 trainers.Add(("LBFGS_MaxEnt", _mlContext.MulticlassClassification.Trainers.LbfgsMaximumEntropy(
-                    labelColumnName: "Label", featureColumnName: "Features"), false));
+                    labelColumnName: "Label", featureColumnName: "Features", exampleWeightColumnName: "Weight"), false));
             }
 
             Console.WriteLine($"\n🎯 Registered {trainers.Count} baseline model(s)");
@@ -388,7 +464,8 @@ namespace Image_Checker.Services
                     var ftResult = FastTreeTuner.Tune(
                         _mlContext, cachedTrain, "Label",
                         nTrials: trials, cvFolds: cvFolds, seed: 42,
-                        logPath: ftLogPath, sampleFraction: 0.5,
+                        logPath: ftLogPath, sampleFraction: 1.0,
+                        ngIndex:ngIndex,
                         cancellationToken: cancellationToken);
 
                     var ftTrials = ReadTrialsFromCsv(ftLogPath, "fasttree");
@@ -414,6 +491,7 @@ namespace Image_Checker.Services
                             _mlContext.MulticlassClassification.Trainers.OneVersusAll(
                                 _mlContext.BinaryClassification.Trainers.FastTree(
                                     "Label", "Features",
+                                    exampleWeightColumnName: "Weight",
                                     numberOfLeaves: 50, numberOfTrees: 100, learningRate: 0.1)),
                             false));
                     }
@@ -461,7 +539,8 @@ namespace Image_Checker.Services
                     var lgbResult = LightGbmTuner.Tune(
                         _mlContext, cachedTrain, "Label",
                         nTrials: trials, cvFolds: cvFolds, seed: 42,
-                        logPath: lgbLogPath, sampleFraction: 0.5,
+                        logPath: lgbLogPath, sampleFraction: 1.0,
+                        ngIndex:ngIndex,
                         cancellationToken: cancellationToken);
 
                     var lgbTrials = ReadTrialsFromCsv(lgbLogPath, "lightgbm");
@@ -486,6 +565,7 @@ namespace Image_Checker.Services
                         trainers.Add(("LightGBM_Default",
                             _mlContext.MulticlassClassification.Trainers.LightGbm(
                                 labelColumnName: "Label", featureColumnName: "Features",
+                                exampleWeightColumnName: "Weight",
                                 numberOfLeaves: 31, learningRate: 0.02f, numberOfIterations: 300),
                             false));
                     }
@@ -559,68 +639,52 @@ namespace Image_Checker.Services
             Console.WriteLine("═══════════════════════════════════════════════");
 
             // Tuple now includes TrainTimeSec for the report
+
+            var map = _mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel", "PredictedLabel");
+
             var results = new List<(string Name, double Macro, double Micro, double LogLoss,
-                                    ITransformer Model, bool Full, double TrainSec)>();
+                                    ITransformer Model, bool Full, double TrainSec,
+                                    double Recall, double Precision, double F2)>();
             int modelNum = 1;
 
             foreach (var (name, est, full) in trainers)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-
-                Console.WriteLine($"\n[{modelNum}/{trainers.Count}] Evaluating: {name}");
-                Console.WriteLine("─────────────────────────────────────────────");
+                Console.WriteLine($"\n[{modelNum++}/{trainers.Count}] Evaluating: {name}");
 
                 try
                 {
+                    var t0 = DateTime.Now;
                     ITransformer model;
-                    double trainSec;
+                    IDataView preds;
+                    double recall = 0, prec = 0, f2 = 0;
 
                     if (full)
                     {
-                        Console.WriteLine("   ⏳ Training full pipeline...");
-                        var t0 = DateTime.Now;
                         model = est.Fit(split.TrainSet);
-                        trainSec = (DateTime.Now - t0).TotalSeconds;
-                        Console.WriteLine($"   ✅ Training complete in {trainSec:F1}s");
+                        preds = model.Transform(split.TestSet);
                     }
                     else
                     {
-                        var pipeline = preprocess
-                            .Append(est)
-                            .Append(_mlContext.Transforms.Conversion.MapKeyToValue("PredictedLabel", "PredictedLabel"));
+                        var clf = est.Append(map).Fit(cachedTrain);                 // seconds, features are cached
+                        model = new TransformerChain<ITransformer>(new ITransformer[] { preprocessModel, clf });
+                        preds = clf.Transform(cachedTest);
 
-                        Console.WriteLine("   ⏳ Training model...");
-                        var t0 = DateTime.Now;
-                        model = pipeline.Fit(split.TrainSet);
-                        trainSec = (DateTime.Now - t0).TotalSeconds;
-                        Console.WriteLine($"   ✅ Training complete in {trainSec:F1}s");
+                        var j = JudgeCv(allFeats, est, ng, cvFolds);                // all 288 NG images, grouped
+                        (recall, prec, f2) = (j.Recall, j.Precision, j.F2);
+                        Console.WriteLine($"   CV  NG recall {j.Recall:P1} ({j.Tp} caught, {j.Fn} missed) | " +
+                                          $"precision {j.Precision:P1} ({j.Fp} false alarms) | F2 {j.F2:F3}");
                     }
+                    double trainSec = (DateTime.Now - t0).TotalSeconds;
 
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    Console.WriteLine("   📊 Evaluating on test set...");
-                    var preds = model.Transform(split.TestSet);
                     var m = _mlContext.MulticlassClassification.Evaluate(preds, "Label");
+                    Console.WriteLine($"   Holdout macro {m.MacroAccuracy:P2} | micro {m.MicroAccuracy:P2} | {trainSec:F0}s");
 
-                    Console.WriteLine($"   Results:");
-                    Console.WriteLine($"   • Macro Accuracy: {m.MacroAccuracy:P2}");
-                    Console.WriteLine($"   • Micro Accuracy: {m.MicroAccuracy:P2}");
-                    Console.WriteLine($"   • Log Loss:       {m.LogLoss:F4}");
-
-                    results.Add((name, m.MacroAccuracy, m.MicroAccuracy, m.LogLoss, model, full, trainSec));
-                    Console.WriteLine($"   ✅ {name} completed successfully");
+                    results.Add((name, m.MacroAccuracy, m.MicroAccuracy, m.LogLoss,
+                                 model, full, trainSec, recall, prec, f2));
                 }
-                catch (OperationCanceledException)
-                {
-                    Console.WriteLine($"   ⚠️ {name} training cancelled");
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"   ❌ {name} failed: {ex.GetBaseException().Message}");
-                }
-
-                modelNum++;
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) { Console.WriteLine($"   ❌ {name} failed: {ex.GetBaseException().Message}"); }
             }
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -643,7 +707,7 @@ namespace Image_Checker.Services
             foreach (var r in results.OrderByDescending(r => r.Macro))
                 Console.WriteLine($"{r.Name,-35} {r.Macro,12:P2} {r.Micro,12:P2} {r.LogLoss,10:F4}");
 
-            var best = results.OrderByDescending(r => r.Macro).First();
+            var best = results.OrderByDescending(r => r.F2).ThenByDescending(r => r.Macro).First();
             Console.WriteLine("\n🏆 BEST MODEL: " + best.Name);
             Console.WriteLine($"   • Macro Accuracy: {best.Macro:P2}");
             Console.WriteLine($"   • Micro Accuracy: {best.Micro:P2}");
@@ -651,13 +715,26 @@ namespace Image_Checker.Services
             Console.WriteLine($"   • Can classify: {string.Join(", ", classLabels)}");
 
             cancellationToken.ThrowIfCancellationRequested();
-
+            float ngThreshold = 0.5f;
+            if (!best.Full)
+            {
+                var estForSweep = trainers.First(t => t.Name == best.Name).Est;
+                ngThreshold = SweepNgThreshold(allFeats, estForSweep, ngIndex, cvFolds);
+            }
             // ── Save best model ───────────────────────────────────────────────
             var modelName = PathUtils.SanitizeFileName(best.Name);
             var modelPath = Path.Combine(_basePath, $"bestModel-{modelName}-{DateTime.Now:yyyyMMddHHmmss}.zip");
 
             Console.WriteLine($"\n💾 Saving best model...");
-            _mlContext.Model.Save(best.Model, split.TrainSet.Schema, modelPath);
+            ITransformer saveModel = best.Model;
+            if (!best.Full)
+            {
+                var estToRefit = trainers.First(t => t.Name == best.Name).Est;
+                var clfAll = estToRefit.Append(map).Fit(allFeats);
+                saveModel = new TransformerChain<ITransformer>(new ITransformer[] { preprocessModel, clfAll });
+                Console.WriteLine("   🔁 Refit best model on all data for production");
+            }
+            _mlContext.Model.Save(saveModel, data.Schema, modelPath);
             Console.WriteLine($"✅ Model saved: {Path.GetFileName(modelPath)}");
             Console.WriteLine($"   Location: {modelPath}");
             Console.WriteLine($"   Classes: {string.Join(", ", classLabels)}");
@@ -670,7 +747,8 @@ namespace Image_Checker.Services
                 RoiW = _roiRect.Width,
                 RoiH = _roiRect.Height,
                 ImageWidth = imageWidth,
-                ImageHeight = imageHeight
+                ImageHeight = imageHeight,
+                NgThreshold = ngThreshold,
             };
 
             var json = System.Text.Json.JsonSerializer.Serialize(
@@ -754,7 +832,7 @@ namespace Image_Checker.Services
                     ImageWidth = imageWidth,
                     ImageHeight = imageHeight,
                     IsGrayscale = isGray,
-                    PcaRank = 100,
+                    PcaRank = pcaRank,
                     AbsolutePaths = absolutePaths,
                     ClassCount = classLabels.Count,
                 },

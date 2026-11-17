@@ -15,4 +15,9 @@ namespace Image_Checker.DataModels
         [LoadColumn(1)]
         public string Label { get; set; } = string.Empty;
     }
+    public class WeightedImageData : ImageData
+    {
+        public float Weight { get; set; } = 1f;
+        public string Group { get; set; } = "";
+    }
 }
