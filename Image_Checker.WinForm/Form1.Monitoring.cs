@@ -1,5 +1,10 @@
 ﻿using Image_Checker.Services;
+using System;
+using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
+using System.Linq;
+using System.Windows.Forms;
 
 namespace Image_Checker.WinForm
 {
@@ -179,8 +184,11 @@ namespace Image_Checker.WinForm
                     _monitorScanIntervalMs
                 );
 
-                _monitor.Log += LogMonitor;
+                _monitor.Log += OnMonitorEngineLog;
                 _monitor.Start();
+
+                // Load training-image comparison statistics before the first prediction.
+                WarmTrainingStats();
 
                 _monitoringDate = DateTime.Today;
                 _waitingForDateFolder = null;
@@ -253,7 +261,7 @@ namespace Image_Checker.WinForm
             // Dispose folder monitor
             if (_monitor != null)
             {
-                _monitor.Log -= LogMonitor;
+                _monitor.Log -= OnMonitorEngineLog;
                 _monitor.Dispose();
                 _monitor = null;
             }
@@ -302,11 +310,8 @@ namespace Image_Checker.WinForm
                     if (!saved)
                         return false;
 
-                    // Reset daily statistics for the new day
-                    _dailyFalseAlarmCount = 0;
-                    _dailyCriticalMissCount = 0;
-                    _dailyCheckedCount = 0;
-                    _dailyCorrectCount = 0;
+                    // Restore any records already saved for the new date (e.g. app restarted).
+                    LoadDailyInspectionSummary(today);
                 }
 
                 LogMonitor(
@@ -316,7 +321,7 @@ namespace Image_Checker.WinForm
                 // Dispose previous day's monitor
                 if (_monitor != null)
                 {
-                    _monitor.Log -= LogMonitor;
+                    _monitor.Log -= OnMonitorEngineLog;
                     _monitor.Dispose();
                     _monitor = null;
                 }
@@ -368,7 +373,7 @@ namespace Image_Checker.WinForm
                 // Start new date's monitor
                 var newMonitor = new FolderImageMonitor(root, _monitorScanIntervalMs);
 
-                newMonitor.Log += LogMonitor;
+                newMonitor.Log += OnMonitorEngineLog;
                 newMonitor.Start();
 
                 _monitor = newMonitor;
@@ -399,18 +404,27 @@ namespace Image_Checker.WinForm
         //  Timer tick: one image per tick, never throws, never stops the loop
         // ─────────────────────────────────────────────────────────────────
 
+        private static bool IsCriticalMissPair(string folder, string label)
+        {
+            return folder.Equals("NG", StringComparison.OrdinalIgnoreCase)
+                && label.Equals("OK", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsFalseAlarmPair(string folder, string label)
+        {
+            return folder.Equals("OK", StringComparison.OrdinalIgnoreCase)
+                && label.Equals("NG", StringComparison.OrdinalIgnoreCase);
+        }
+
         private void ProcessImageQueue(object? sender, EventArgs e)
         {
             if (_isProcessingQueue) return;
 
-            // Automatically detect date changes and switch production folders
-            if (!EnsureCurrentDateMonitor())
-                return;
+            // Automatically detect date changes and switch production folders.
+            if (!EnsureCurrentDateMonitor()) return;
 
             if (_dailySummaryDirty)
-            {
                 SaveDailyInspectionSummary(DateTime.Today);
-            }
 
             var monitor = _monitor;
             if (monitor == null) return;
@@ -421,7 +435,6 @@ namespace Image_Checker.WinForm
 
             try
             {
-                // Say so instead of silently doing nothing
                 if (_predictor == null)
                 {
                     ShowMonitorProblem("⚠️ No model loaded - monitoring is paused until a model is loaded.");
@@ -430,7 +443,6 @@ namespace Image_Checker.WinForm
 
                 if (!monitor.TryDequeue(out imagePath))
                 {
-                    // Idle: nothing to predict, but keep the status alive so you can SEE it is running
                     ApplyMonitorStatus(force: false);
                     return;
                 }
@@ -441,23 +453,23 @@ namespace Image_Checker.WinForm
                     return;
                 }
 
-                // Still being written? Put it back and try on a later tick - never block the UI.
+                // Wait for the production system to finish writing the image.
                 if (!FolderImageMonitor.IsFileReady(imagePath))
                 {
                     _fileRetryCount.TryGetValue(imagePath, out int tries);
-                    if (tries < 15)   // about 30 s at a 2 s tick
+                    if (tries < 15)
                     {
                         _fileRetryCount[imagePath] = tries + 1;
                         monitor.Requeue(imagePath);
                         _lastMonitorLine = $"   ⏳ Waiting for {Path.GetFileName(imagePath)} to finish writing " +
                                            $"(attempt {tries + 1}/15)...";
                         ApplyMonitorStatus(force: false);
-                        if (tries == 0) LogMonitor($"NOT READY (still being written): {imagePath}");
+                        if (tries == 0) LogDiag($"NOT READY (still being written): {imagePath}");
                     }
                     else
                     {
                         _fileRetryCount.Remove(imagePath);
-                        LogMonitor($"GAVE UP (file stayed locked by a writer): {imagePath}");
+                        LogDiag($"GAVE UP (file stayed locked by a writer): {imagePath}");
                         _lastMonitorLine = $"   ❌ Gave up on {Path.GetFileName(imagePath)} - file stayed locked.";
                         ApplyMonitorStatus(force: false);
                     }
@@ -465,61 +477,79 @@ namespace Image_Checker.WinForm
                 }
                 _fileRetryCount.Remove(imagePath);
 
-                // Ground truth = the subfolder the image was placed in BEFORE prediction
+                // Ground truth is the parent class-folder name (OK / NG).
                 string groundTruth = new DirectoryInfo(Path.GetDirectoryName(imagePath)!).Name;
-
-                // Same ROI-cropped input that Select Folder uses
                 string processedPath = PreprocessForPrediction(imagePath);
-                bool isTempFile = processedPath != imagePath;
+                bool isTempFile = !string.Equals(processedPath, imagePath, StringComparison.OrdinalIgnoreCase);
 
                 (string Label, float Confidence) prediction;
+                Explanation? why = null;
                 try
                 {
                     prediction = PredictAny(processedPath);
+                    string predictedForExplain = (prediction.Label ?? "").Trim().Trim('"');
+
+                    // Preserve the first implementation's explanation while the ROI image exists.
+                    if (IsCriticalMissPair(groundTruth, predictedForExplain) ||
+                        IsFalseAlarmPair(groundTruth, predictedForExplain))
+                    {
+                        try
+                        {
+                            why = QuickExplain(processedPath, imagePath, groundTruth);
+                        }
+                        catch (Exception ex)
+                        {
+                            LogDiag($"EXPLAIN ERROR {Path.GetFileName(imagePath)}: {ex.Message}");
+                        }
+                    }
                 }
                 finally
                 {
                     if (isTempFile && File.Exists(processedPath))
                         File.Delete(processedPath);
                 }
+
                 var (label, confidence) = prediction;
                 string cleanLabel = label?.Trim().Trim('"') ?? "Unknown";
                 string fileName = Path.GetFileName(imagePath);
                 string shownPath = imagePath;
 
-                // CRITICAL MISS: NG folder predicted OK | FALSE ALARM: OK folder predicted NG
-                bool isCriticalMiss = groundTruth.Equals("NG", StringComparison.OrdinalIgnoreCase)
-                                   && cleanLabel.Equals("OK", StringComparison.OrdinalIgnoreCase);
-                bool isFalseAlarm = groundTruth.Equals("OK", StringComparison.OrdinalIgnoreCase)
-                                   && cleanLabel.Equals("NG", StringComparison.OrdinalIgnoreCase);
-                bool isCorrect = !isCriticalMiss && !isFalseAlarm;
+                bool isCriticalMiss = IsCriticalMissPair(groundTruth, cleanLabel);
+                bool isFalseAlarm = IsFalseAlarmPair(groundTruth, cleanLabel);
+                bool isKnownClass = groundTruth.Equals("OK", StringComparison.OrdinalIgnoreCase) ||
+                                    groundTruth.Equals("NG", StringComparison.OrdinalIgnoreCase);
+                bool isKnownPrediction = cleanLabel.Equals("OK", StringComparison.OrdinalIgnoreCase) ||
+                                         cleanLabel.Equals("NG", StringComparison.OrdinalIgnoreCase);
+                // Unknown labels/classes must not silently be counted as correct.
+                bool isCorrect = isKnownClass && isKnownPrediction && !isCriticalMiss && !isFalseAlarm &&
+                    groundTruth.Equals(cleanLabel, StringComparison.OrdinalIgnoreCase);
 
                 string verdict = isCriticalMiss ? "🔴 Critical miss"
                                : isFalseAlarm ? "🟡 False alarm"
-                               : "✅ Correct";
+                               : isCorrect ? "✅ Correct"
+                               : "⚠️ Unknown / unsupported label";
+                string whyShort = why?.OneLine ?? "";
 
                 _checkedCount++;
                 _dailyCheckedCount++;
-
                 if (isCorrect)
                 {
                     _correctCount++;
                     _dailyCorrectCount++;
                 }
+                else if (isCriticalMiss)
+                {
+                    _dailyCriticalMissCount++;
+                }
+                else if (isFalseAlarm)
+                {
+                    _dailyFalseAlarmCount++;
+                }
 
-                // Count and persist every processed image
+                // Persist AFTER all daily counters have been updated.
                 _dailySummaryDirty = true;
                 SaveDailyInspectionSummary(DateTime.Today);
 
-                if (!isCorrect)
-                {
-                    if (isCriticalMiss)
-                        _dailyCriticalMissCount++;
-                    else if (isFalseAlarm)
-                        _dailyFalseAlarmCount++;
-                }
-
-                // Only MISMATCHES go into the grid
                 if (!isCorrect)
                 {
                     Invoke(new Action(() => AddMonitoredRow(new ImageResult
@@ -530,27 +560,28 @@ namespace Image_Checker.WinForm
                         PredictedLabel = cleanLabel,
                         CorrectedLabel = cleanLabel,
                         Confidence = confidence,
-                        Verdict = verdict
+                        Verdict = verdict,
+                        Why = whyShort
                     })));
 
-                    // Move mismatched images when confidence is above 80%
-                    if (!isCorrect && confidence > 0.80f)
+                    if (isCriticalMiss || isFalseAlarm)
+                        LogMismatch(isCriticalMiss, fileName, shownPath, groundTruth, cleanLabel, confidence, why);
+
+                    // Keep the second implementation's high-confidence mismatch archive.
+                    if ((isCriticalMiss || isFalseAlarm) && confidence > 0.80f)
                     {
                         try
                         {
-                            MoveHighConfidenceMismatch(
-                                imagePath,
-                                groundTruth,
-                                cleanLabel,
-                                confidence
-                            );
+                            MoveHighConfidenceMismatch(imagePath, groundTruth, cleanLabel, confidence);
                         }
                         catch (Exception ex)
                         {
-                            LogMonitor(
-                                $"IMAGE COPY ERROR: {imagePath} | {ex.Message}"
-                            );
+                            LogDiag($"IMAGE COPY ERROR: {imagePath} | {ex.Message}");
                         }
+                    }
+                    else if (!isCriticalMiss && !isFalseAlarm)
+                    {
+                        LogDiag($"UNSUPPORTED LABEL: {fileName} folder={groundTruth} prediction={cleanLabel}");
                     }
                 }
 
@@ -560,33 +591,37 @@ namespace Image_Checker.WinForm
                     _abnormalCount++;
                     if (_usbLight != null && _usbLight.IsConnected)
                         _usbLight.TurnOn();
-
                     Invoke(new Action(() => FlashCriticalAlert(shownPath, fileName, confidence)));
                 }
                 else if (isFalseAlarm)
                 {
                     _falseAlarmCount++;
+                    string reason = whyShort.Length > 0 ? " Why: " + whyShort + "." : "";
                     Invoke(new Action(() => ShowMonitorSummary(
-                        $"   Last: {fileName} is in OK but predicted NG ({confidence:P1}) - see grid",
+                        $"   Last: {fileName} is in OK but predicted NG ({MismatchExplainer.Pct(confidence)}).{reason} Double-click its row for details.",
                         Color.FromArgb(255, 248, 220))));
                 }
-                else
+                else if (isCorrect)
                 {
                     if (_criticalMissCount == 0 && _usbLight != null && _usbLight.IsConnected)
                         _usbLight.TurnOff();
-
                     Invoke(new Action(() => ShowMonitorSummary(
-                        $"   Last: {fileName} → {cleanLabel} ({confidence:P1}) matches folder {groundTruth}",
+                        $"   Last: {fileName} → {cleanLabel} ({MismatchExplainer.Pct(confidence)}) matches folder {groundTruth}",
                         Color.FromArgb(232, 245, 233))));
                 }
+                else
+                {
+                    Invoke(new Action(() => ShowMonitorSummary(
+                        $"   Last: {fileName} has unsupported folder/prediction: {groundTruth} → {cleanLabel}",
+                        Color.FromArgb(255, 235, 238))));
+                }
 
-                LogMonitor($"{fileName} folder={groundTruth} pred={cleanLabel} " +
-                           $"{confidence:P1} {verdict} | {sw.ElapsedMilliseconds} ms | rows={_results.Count}");
+                LogDiag($"PROCESSED {fileName} folder={groundTruth} pred={cleanLabel} " +
+                        $"{confidence:P1} {verdict} | {sw.ElapsedMilliseconds} ms | rows={_results.Count}");
             }
             catch (Exception ex)
             {
-                // One bad image must never stop monitoring
-                LogMonitor($"ERROR {Path.GetFileName(imagePath)}: {ex}");
+                LogDiag($"ERROR {Path.GetFileName(imagePath)}: {ex}");
                 try { ShowMonitorProblem($"❌ Error on {Path.GetFileName(imagePath)}: {ex.Message}"); } catch { }
             }
             finally
@@ -594,8 +629,6 @@ namespace Image_Checker.WinForm
                 _isProcessingQueue = false;
             }
         }
-
-
 
         private bool SaveDailyInspectionSummary(DateTime reportDate)
         {
@@ -779,6 +812,63 @@ namespace Image_Checker.WinForm
         }
 
         // ─────────────────────────────────────────────────────────────────
+        //  Mismatch and diagnostic logs
+        // ─────────────────────────────────────────────────────────────────
+
+        // Ignore high-volume queue chatter; retain watcher and health events in the diagnostic log.
+        private void OnMonitorEngineLog(string message)
+        {
+            if (message.StartsWith("EVENT", StringComparison.OrdinalIgnoreCase) ||
+                message.StartsWith("QUEUED", StringComparison.OrdinalIgnoreCase))
+                return;
+            LogDiag(message);
+        }
+
+        private void LogMismatch(bool criticalMiss, string fileName, string path, string folder,
+                                 string predicted, float confidence, Explanation? why)
+        {
+            string kind = criticalMiss
+                ? "CRITICAL MISS (folder NG, model OK)"
+                : "FALSE ALARM (folder OK, model NG)";
+            string detail = why != null
+                ? why.LogText
+                : "scores: " + predicted + " " + MismatchExplainer.Pct(confidence) + " | why: not available";
+
+            WriteLog("monitor.log",
+                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | {kind} | {fileName} | " +
+                $"folder={folder} model={predicted} {MismatchExplainer.Pct(confidence)} | {detail} | " +
+                $"roi={_roiRect.X},{_roiRect.Y},{_roiRect.Width},{_roiRect.Height} | {path}");
+        }
+
+        private static void LogDiag(string message)
+        {
+            WriteLog("monitor.diag.log", $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {message}");
+        }
+
+        private static void WriteLog(string fileName, string line)
+        {
+            try
+            {
+                lock (_monitorLogLock)
+                {
+                    string path = Path.Combine(AppContext.BaseDirectory, fileName);
+                    var fi = new FileInfo(path);
+                    if (fi.Exists && fi.Length > 5_000_000)
+                    {
+                        string old = Path.ChangeExtension(path, ".old.log");
+                        if (File.Exists(old)) File.Delete(old);
+                        File.Move(path, old);
+                    }
+                    File.AppendAllText(path, line + Environment.NewLine);
+                }
+            }
+            catch
+            {
+                // Logging must never interrupt image monitoring.
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
         //  Status line
         // ─────────────────────────────────────────────────────────────────
 
@@ -879,24 +969,7 @@ namespace Image_Checker.WinForm
             }
         }
 
-        // Console output is invisible in a WinExe, so monitoring writes monitor.log next to the exe.
-        // Called from background threads too, hence the lock. Rotates at 5 MB.
-        private static void LogMonitor(string message)
-        {
-            try
-            {
-                lock (_monitorLogLock)
-                {
-                    string path = Path.Combine(AppContext.BaseDirectory, "monitor.log");
-                    var fi = new FileInfo(path);
-                    if (fi.Exists && fi.Length > 5_000_000)
-                        File.Move(path, Path.Combine(AppContext.BaseDirectory, "monitor.old.log"), true);
-
-                    File.AppendAllText(path,
-                        $"{DateTime.Now:HH:mm:ss.fff} {message}{Environment.NewLine}");
-                }
-            }
-            catch { }
-        }
+        // Existing date/CSV/health messages are diagnostic events, not inspection mismatches.
+        private static void LogMonitor(string message) => LogDiag(message);
     }
 }

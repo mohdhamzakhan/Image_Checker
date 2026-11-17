@@ -10,6 +10,7 @@ namespace Image_Checker.Services
         private PredictionEngine<ImageData, ImagePrediction> _predictionEngine;
         private readonly string _modelPath;
         private bool _disposed = false;
+        private string[]? _classNames;
 
         // ── OOD thresholds (tunable) ───────────────────────────────────────────
         // These three checks together catch images that look nothing like a weld.
@@ -38,6 +39,7 @@ namespace Image_Checker.Services
             _modelPath = modelPath;
             _mlContext = new MLContext(seed: 42);
             LoadModel();
+
         }
 
         // ── Model loading ──────────────────────────────────────────────────────
@@ -47,6 +49,7 @@ namespace Image_Checker.Services
             _predictionEngine?.Dispose();
             _model = _mlContext.Model.Load(_modelPath, out _);
             _predictionEngine = _mlContext.Model.CreatePredictionEngine<ImageData, ImagePrediction>(_model);
+            _classNames = ReadClassNames();
         }
 
         public void ReloadModel()
@@ -249,6 +252,38 @@ namespace Image_Checker.Services
             if (!File.Exists(path))
                 throw new FileNotFoundException($"Image not found: {path}");
         }
+
+        // ---Explain------------------------------------------------------------
+
+        private string[]? ReadClassNames()
+        {
+            try
+            {
+                var slotNames = default(Microsoft.ML.Data.VBuffer<ReadOnlyMemory<char>>);
+                _predictionEngine.OutputSchema["Score"].Annotations.GetValue("SlotNames", ref slotNames);
+                var names = slotNames.DenseValues().Select(n => n.ToString().Trim().Trim('"')).ToArray();
+                return names.Length > 0 ? names : null;
+            }
+            catch { return null; }
+        }
+
+        public ScoreResult PredictScores(string imagePath)
+        {
+            if (_disposed) throw new ObjectDisposedException(nameof(Predictor));
+            EnsureFileExists(imagePath);
+            var prediction = _predictionEngine.Predict(new ImageData { ImagePath = imagePath });
+            float[] scores = prediction.Score == null ? Array.Empty<float>() : (float[])prediction.Score.Clone();
+            bool ood = IsOutOfDistribution(scores, out string reason);
+            return new ScoreResult
+            {
+                PredictedLabel = prediction.PredictedLabel?.Trim().Trim('"') ?? UNKNOWN_LABEL,
+                Scores = scores,
+                ClassNames = _classNames,
+                IsOutOfDistribution = ood,
+                OodReason = ood ? reason : null
+            };
+        }
+
     }
 
     // ── Output types ───────────────────────────────────────────────────────────

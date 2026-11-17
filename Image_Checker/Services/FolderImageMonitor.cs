@@ -47,7 +47,7 @@ namespace Image_Checker.Services
             if (string.IsNullOrWhiteSpace(root))
                 throw new ArgumentException("Folder is required.", nameof(root));
 
-            _root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+            _root = TrimSep(Path.GetFullPath(root));
             _scanIntervalMs = Math.Max(200, scanIntervalMs);
         }
 
@@ -328,10 +328,18 @@ namespace Image_Checker.Services
             return true;
         }
 
-        private static bool PathsEqual(string a, string b) =>
-            string.Equals(Path.TrimEndingDirectorySeparator(a),
-                          Path.TrimEndingDirectorySeparator(b),
-                          StringComparison.OrdinalIgnoreCase);
+        private static bool PathsEqual(string a, string b)
+        {
+            return string.Equals(TrimSep(a), TrimSep(b), StringComparison.OrdinalIgnoreCase);
+        }
+
+        // keeps a bare root such as "D:\\" or "/" intact
+        private static string TrimSep(string p)
+        {
+            string root = Path.GetPathRoot(p) ?? "";
+            if (p.Length <= root.Length) return p;
+            return p.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
 
         private void Emit(string message)
         {

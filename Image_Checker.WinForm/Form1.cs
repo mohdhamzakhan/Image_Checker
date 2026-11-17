@@ -1328,8 +1328,11 @@ namespace Image_Checker.WinForm
                     Prediction = r.PredictedLabel,
                     Confidence = $"{r.Confidence:P2}",
                     Corrected = r.CorrectedLabel,
-                    Verdict = r.Verdict ?? ""
+                    Verdict = r.Verdict ?? "",
+                    Why = r.Why ?? ""
                 }).ToList();
+            var whyCol = grid.Columns["Why"]; if (whyCol != null) whyCol.FillWeight = 450;
+            var pathCol = grid.Columns["ImagePath"]; if (pathCol != null) pathCol.FillWeight = 120;
         }
 
         private void PopulateFilters()
@@ -3351,6 +3354,7 @@ namespace Image_Checker.WinForm
             public string? CorrectedLabel { get; set; }
             public float Confidence { get; set; }
             public string? Verdict { get; set; }
+            public string? Why { get; set; }
         }
     }
 }

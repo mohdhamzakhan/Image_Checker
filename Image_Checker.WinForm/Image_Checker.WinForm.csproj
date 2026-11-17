@@ -10,10 +10,17 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+	  <Compile Remove="Form1.Explain.cs" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<ProjectReference Include="..\Image_Checker\Image_Checker.csproj" />
 	</ItemGroup>
 	<ItemGroup>
 		<EmbeddedResource Remove="ModelBuilder.cnn.resx" />
+	</ItemGroup>
+	<ItemGroup>
+		<Compile Include="Form1.Explain.cs" />
 	</ItemGroup>
 
 </Project>
