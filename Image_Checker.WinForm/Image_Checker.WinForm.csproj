@@ -12,6 +12,7 @@
 
 	<ItemGroup>
 	  <Compile Remove="Form1.Explain.cs" />
+	  <Compile Remove="Form1.Roi.cs" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -22,6 +23,9 @@
 	</ItemGroup>
 	<ItemGroup>
 		<Compile Include="Form1.Explain.cs" />
+	</ItemGroup>
+	<ItemGroup>
+	  <None Include="Form1.Roi.cs" />
 	</ItemGroup>
 
 </Project>

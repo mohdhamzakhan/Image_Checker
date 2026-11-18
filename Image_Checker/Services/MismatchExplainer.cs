@@ -109,6 +109,17 @@ namespace Image_Checker.Services
 
             ex.AddReason("Model scores: " + scoreList + ". It chose " + predicted + "; the folder says " + folder + ".");
 
+            // No ROI = the model got the WHOLE photo. That alone can make good images look wrong, so it comes first.
+            bool noRoi = input.RoiWidth <= 0 || input.RoiHeight <= 0;
+            if (noRoi)
+            {
+                string whole = input.OriginalWidth > 0 ? " (" + input.OriginalWidth + "x" + input.OriginalHeight + ")" : "";
+                ex.AddReason("No ROI is configured, so the WHOLE photo" + whole + " was given to the model. If the model was " +
+                    "trained on a cropped dataset (Apply ROI), this alone can make good images look wrong - fix it first. " +
+                    "The ROI is stored in the model's .json file next to the .zip; if that file is missing or has no ROI, restore it.",
+                    "no ROI configured: whole photo used (check the model's .json)");
+            }
+
             // How sure is it?
             string reasonConfidence;
             string shortConfidence;
@@ -148,13 +159,7 @@ namespace Image_Checker.Services
             foreach (var h in hints.Take(MaxStatHints)) ex.AddReason(h.Text, h.Short);
 
             // Framing
-            if (input.RoiWidth <= 0 || input.RoiHeight <= 0)
-            {
-                ex.AddReason("No ROI is configured, so the whole photo was given to the model. If the model was trained " +
-                    "on ROI crops, predictions on whole photos can be wrong.",
-                    "no ROI configured (whole photo used)");
-            }
-            else if (input.OriginalWidth > 0 && input.OriginalHeight > 0 &&
+            if (!noRoi && input.OriginalWidth > 0 && input.OriginalHeight > 0 &&
                      (input.OriginalWidth < input.RoiWidth || input.OriginalHeight < input.RoiHeight))
             {
                 ex.AddReason("The photo is only " + input.OriginalWidth + "x" + input.OriginalHeight +
@@ -167,6 +172,7 @@ namespace Image_Checker.Services
             var sb = new StringBuilder();
             sb.Append(predicted).Append(' ').Append(Pct(pTop)).Append(" vs ").Append(secondName).Append(' ').Append(Pct(pSecond));
             sb.Append(" - ").Append(band);
+            if (noRoi) sb.Append("; NO ROI (whole photo)");
             if (hints.Count > 0) sb.Append("; ").Append(hints[0].Short);
             ex.OneLine = sb.ToString();
             return ex;

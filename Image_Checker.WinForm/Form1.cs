@@ -12,6 +12,7 @@ namespace Image_Checker.WinForm
         private List<ImageResult> _results = new();
         private string _basePath;
         private string _modelPath;
+        private string _monitorBasePath;
         private IncrementalModelTrainer _incrementalTrainer;
         private CorrectionManager _correctionManager;
         private const string CONFIG_FILE = "app_config.txt";
@@ -712,6 +713,8 @@ namespace Image_Checker.WinForm
                                 _basePath = parts[1].Trim();
                             else if (parts[0].Trim() == "ModelPath")
                                 _modelPath = parts[1].Trim();
+                            else if(parts[0].Trim() == "ModelBasePath")
+                                _monitorBasePath = parts[1].Trim();
                         }
                     }
                 }
@@ -1023,7 +1026,8 @@ namespace Image_Checker.WinForm
             File.WriteAllLines(CONFIG_FILE, new[]
             {
                 $"BasePath={_basePath}",
-                $"ModelPath={_modelPath}"
+                $"ModelPath={_modelPath}",
+                $"MonitorBasePath={_monitorBasePath}"
             });
         }
 
@@ -1130,6 +1134,7 @@ namespace Image_Checker.WinForm
 
         private void MenuSelectModel_Click(object sender, EventArgs e)
         {
+            LoadConfiguration();
             SelectExistingModel();
         }
 

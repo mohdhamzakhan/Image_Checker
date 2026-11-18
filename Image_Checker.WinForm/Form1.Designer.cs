@@ -22,20 +22,21 @@
 
         #region Windows Form Designer generated code
 
-        /// <summary>
-        /// Required method for Designer support - do not modify
-        /// the contents of this method with the code editor.
-        /// </summary>
-        /// 
         private void InitializeUsbPortControlButtons()
         {
 
         }
+
+        /// <summary>
+        /// Layout: nothing is positioned by absolute coordinates any more. TableLayoutPanels size and
+        /// stack everything (toolbar / grid + side panel / status bar), so controls cannot overlap and
+        /// the window can be resized or maximised. Fonts are normal 9pt Segoe UI.
+        /// </summary>
         private void InitializeComponent()
         {
             components = new System.ComponentModel.Container();
-            DataGridViewCellStyle dataGridViewCellStyle3 = new DataGridViewCellStyle();
-            DataGridViewCellStyle dataGridViewCellStyle4 = new DataGridViewCellStyle();
+            DataGridViewCellStyle dataGridViewCellStyle1 = new DataGridViewCellStyle();
+            DataGridViewCellStyle dataGridViewCellStyle2 = new DataGridViewCellStyle();
             menuStrip = new MenuStrip();
             menuFile = new ToolStripMenuItem();
             menuBuildModel = new ToolStripMenuItem();
@@ -46,28 +47,25 @@
             manageCorrectionsToolStripMenuItem = new ToolStripMenuItem();
             menuEvaluateModel = new ToolStripMenuItem();
             MenuConnectUsbLight = new ToolStripMenuItem();
+            tlpRoot = new TableLayoutPanel();
+            flowToolbar = new FlowLayoutPanel();
             btnSelectFolder = new Button();
-            btnSelectSingleImage = new Button();
+            pnlFolderFilter = new TableLayoutPanel();
             lblFolderFilter = new Label();
             cbFolderFilter = new ComboBox();
+            pnlPredFilter = new TableLayoutPanel();
             lblPredFilter = new Label();
             cbPredFilter = new ComboBox();
-            lblModelInfo = new Label();
-            grid = new DataGridView();
-            pictureBox = new PictureBox();
-            lblInfo = new Label();
-            lblSelectLabel = new Label();
-            cbCorrection = new ComboBox();
-            btnCorrect = new Button();
-            btnQuickUpdate = new Button();
-            btnRetrain = new Button();
-            lblCorrectionCount = new Label();
-            lblStatus = new Label();
-            lblSingleImageResult = new Label();
-            btnMonitorFolder = new Button();
-            tooltip = new ToolTip(components);
+            pnlHeaderLabels = new TableLayoutPanel();
             lblUsbLightStatus = new Label();
+            lblModelInfo = new Label();
+            btnSelectSingleImage = new Button();
+            btnMonitorFolder = new Button();
+            tlpContent = new TableLayoutPanel();
+            tlpLeft = new TableLayoutPanel();
+            grid = new DataGridView();
             groupBoxUsbPortControl = new GroupBox();
+            tlpUsb = new TableLayoutPanel();
             lblUsbPortStatus = new Label();
             btnCheckUsbSupport = new Button();
             btnTestUsbPortControl = new Button();
@@ -75,21 +73,43 @@
             btnTestConnection = new Button();
             btnCyclePort = new Button();
             btnDisconnectUsbHub = new Button();
+            tlpRight = new TableLayoutPanel();
+            lblSingleImageResult = new Label();
+            pictureBox = new PictureBox();
+            lblInfo = new Label();
+            lblSelectLabel = new Label();
+            tlpCorrect = new TableLayoutPanel();
+            cbCorrection = new ComboBox();
+            btnCorrect = new Button();
+            tlpUpdate = new TableLayoutPanel();
+            btnQuickUpdate = new Button();
+            btnRetrain = new Button();
+            lblCorrectionCount = new Label();
+            progressBar = new ProgressBar();
+            lblStatus = new Label();
+            tooltip = new ToolTip(components);
             menuStrip.SuspendLayout();
+            tlpRoot.SuspendLayout();
+            flowToolbar.SuspendLayout();
+            pnlFolderFilter.SuspendLayout();
+            pnlPredFilter.SuspendLayout();
+            pnlHeaderLabels.SuspendLayout();
+            tlpContent.SuspendLayout();
+            tlpLeft.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)grid).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)pictureBox).BeginInit();
             groupBoxUsbPortControl.SuspendLayout();
+            tlpUsb.SuspendLayout();
+            tlpRight.SuspendLayout();
+            ((System.ComponentModel.ISupportInitialize)pictureBox).BeginInit();
+            tlpCorrect.SuspendLayout();
+            tlpUpdate.SuspendLayout();
             SuspendLayout();
             // 
             // menuStrip
             // 
-            menuStrip.GripMargin = new Padding(2);
-            menuStrip.ImageScalingSize = new Size(24, 24);
+            menuStrip.Dock = DockStyle.Top;
             menuStrip.Items.AddRange(new ToolStripItem[] { menuFile });
-            menuStrip.Location = new Point(0, 0);
             menuStrip.Name = "menuStrip";
-            menuStrip.Padding = new Padding(3, 1, 0, 1);
-            menuStrip.Size = new Size(1280, 31);
             menuStrip.TabIndex = 16;
             menuStrip.Text = "menuStrip1";
             // 
@@ -97,400 +117,345 @@
             // 
             menuFile.DropDownItems.AddRange(new ToolStripItem[] { menuBuildModel, menuSelectModel, menuSeparator, menuChangeBasePath, verifyAllSettingToolStripMenuItem, manageCorrectionsToolStripMenuItem, menuEvaluateModel, MenuConnectUsbLight });
             menuFile.Name = "menuFile";
-            menuFile.Size = new Size(92, 29);
             menuFile.Text = "Settings";
             // 
             // menuBuildModel
             // 
             menuBuildModel.Name = "menuBuildModel";
-            menuBuildModel.Size = new Size(348, 34);
             menuBuildModel.Text = "🤖 Build New Model...";
             menuBuildModel.Click += MenuBuildModel_Click;
             // 
             // menuSelectModel
             // 
             menuSelectModel.Name = "menuSelectModel";
-            menuSelectModel.Size = new Size(348, 34);
             menuSelectModel.Text = "📂 Select Base Folder...";
             menuSelectModel.Click += MenuSelectModel_Click;
             // 
             // menuSeparator
             // 
             menuSeparator.Name = "menuSeparator";
-            menuSeparator.Size = new Size(345, 6);
             // 
             // menuChangeBasePath
             // 
             menuChangeBasePath.Name = "menuChangeBasePath";
-            menuChangeBasePath.Size = new Size(348, 34);
             menuChangeBasePath.Text = "📁 Change Base Path...";
             menuChangeBasePath.Click += MenuChangeBasePath_Click;
             // 
             // verifyAllSettingToolStripMenuItem
             // 
             verifyAllSettingToolStripMenuItem.Name = "verifyAllSettingToolStripMenuItem";
-            verifyAllSettingToolStripMenuItem.Size = new Size(348, 34);
             verifyAllSettingToolStripMenuItem.Text = "⚙️ Verify All Settings";
             verifyAllSettingToolStripMenuItem.Click += MenuVerifySetup_Click;
             // 
             // manageCorrectionsToolStripMenuItem
             // 
             manageCorrectionsToolStripMenuItem.Name = "manageCorrectionsToolStripMenuItem";
-            manageCorrectionsToolStripMenuItem.Size = new Size(348, 34);
             manageCorrectionsToolStripMenuItem.Text = "📝 Manage Corrections";
             manageCorrectionsToolStripMenuItem.Click += MenuManageCorrections_Click;
             // 
             // menuEvaluateModel
             // 
             menuEvaluateModel.Name = "menuEvaluateModel";
-            menuEvaluateModel.Size = new Size(348, 34);
             menuEvaluateModel.Text = "📊 Evaluate Model (OK/NG)...";
             menuEvaluateModel.Click += MenuEvaluateModel_Click;
             // 
             // MenuConnectUsbLight
             // 
             MenuConnectUsbLight.Name = "MenuConnectUsbLight";
-            MenuConnectUsbLight.Size = new Size(348, 34);
             MenuConnectUsbLight.Text = "🔌 Connect USB Light";
             MenuConnectUsbLight.Click += MenuConnectUsbLight_Click;
+            // 
+            // tlpRoot  (3 rows: toolbar | content | status bar)
+            // 
+            tlpRoot.ColumnCount = 1;
+            tlpRoot.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            tlpRoot.Controls.Add(flowToolbar, 0, 0);
+            tlpRoot.Controls.Add(tlpContent, 0, 1);
+            tlpRoot.Controls.Add(lblStatus, 0, 2);
+            tlpRoot.Dock = DockStyle.Fill;
+            tlpRoot.Name = "tlpRoot";
+            tlpRoot.Padding = new Padding(8);
+            tlpRoot.RowCount = 3;
+            tlpRoot.RowStyles.Add(new RowStyle());
+            tlpRoot.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            tlpRoot.RowStyles.Add(new RowStyle());
+            tlpRoot.TabIndex = 0;
+            // 
+            // flowToolbar  (wraps onto a second line on a narrow window instead of overlapping)
+            // 
+            flowToolbar.AutoSize = true;
+            flowToolbar.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            flowToolbar.Controls.Add(btnSelectFolder);
+            flowToolbar.Controls.Add(pnlFolderFilter);
+            flowToolbar.Controls.Add(pnlPredFilter);
+            flowToolbar.Controls.Add(pnlHeaderLabels);
+            flowToolbar.Controls.Add(btnSelectSingleImage);
+            flowToolbar.Controls.Add(btnMonitorFolder);
+            flowToolbar.Dock = DockStyle.Fill;
+            flowToolbar.Margin = new Padding(0, 0, 0, 6);
+            flowToolbar.Name = "flowToolbar";
+            flowToolbar.TabIndex = 1;
             // 
             // btnSelectFolder
             // 
             btnSelectFolder.BackColor = Color.FromArgb(0, 120, 215);
             btnSelectFolder.FlatStyle = FlatStyle.Flat;
-            btnSelectFolder.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
+            btnSelectFolder.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
             btnSelectFolder.ForeColor = Color.White;
-            btnSelectFolder.Location = new Point(5, 52);
-            btnSelectFolder.Margin = new Padding(2);
+            btnSelectFolder.Margin = new Padding(0, 0, 12, 0);
             btnSelectFolder.Name = "btnSelectFolder";
-            btnSelectFolder.Size = new Size(102, 30);
+            btnSelectFolder.Size = new Size(140, 38);
             btnSelectFolder.TabIndex = 0;
             btnSelectFolder.Text = "📁 Select Folder";
             tooltip.SetToolTip(btnSelectFolder, "Process multiple images from folder structure");
             btnSelectFolder.UseVisualStyleBackColor = false;
             btnSelectFolder.Click += BtnSelectFolder_Click;
             // 
-            // btnSelectSingleImage
+            // pnlFolderFilter
             // 
-            btnSelectSingleImage.BackColor = Color.FromArgb(46, 125, 50);
-            btnSelectSingleImage.FlatStyle = FlatStyle.Flat;
-            btnSelectSingleImage.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
-            btnSelectSingleImage.ForeColor = Color.White;
-            btnSelectSingleImage.Location = new Point(420, 52);
-            btnSelectSingleImage.Margin = new Padding(2);
-            btnSelectSingleImage.Name = "btnSelectSingleImage";
-            btnSelectSingleImage.Size = new Size(268, 30);
-            btnSelectSingleImage.TabIndex = 18;
-            btnSelectSingleImage.Text = "🖼️ Predict Single Image";
-            tooltip.SetToolTip(btnSelectSingleImage, "Select and predict a single image file");
-            btnSelectSingleImage.UseVisualStyleBackColor = false;
-            btnSelectSingleImage.Click += BtnSelectSingleImage_Click;
+            pnlFolderFilter.AutoSize = true;
+            pnlFolderFilter.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            pnlFolderFilter.ColumnCount = 1;
+            pnlFolderFilter.ColumnStyles.Add(new ColumnStyle());
+            pnlFolderFilter.Controls.Add(lblFolderFilter, 0, 0);
+            pnlFolderFilter.Controls.Add(cbFolderFilter, 0, 1);
+            pnlFolderFilter.Margin = new Padding(0, 0, 12, 0);
+            pnlFolderFilter.Name = "pnlFolderFilter";
+            pnlFolderFilter.RowCount = 2;
+            pnlFolderFilter.RowStyles.Add(new RowStyle());
+            pnlFolderFilter.RowStyles.Add(new RowStyle());
+            pnlFolderFilter.TabIndex = 1;
             // 
             // lblFolderFilter
             // 
             lblFolderFilter.AutoSize = true;
-            lblFolderFilter.Font = new Font("Microsoft Sans Serif", 9F);
-            lblFolderFilter.Location = new Point(127, 21);
-            lblFolderFilter.Margin = new Padding(2, 0, 2, 0);
+            lblFolderFilter.Margin = new Padding(0, 0, 0, 2);
             lblFolderFilter.Name = "lblFolderFilter";
-            lblFolderFilter.Size = new Size(135, 22);
             lblFolderFilter.TabIndex = 1;
             lblFolderFilter.Text = "Filter by Folder:";
             // 
             // cbFolderFilter
             // 
             cbFolderFilter.DropDownStyle = ComboBoxStyle.DropDownList;
-            cbFolderFilter.Font = new Font("Microsoft Sans Serif", 9F);
             cbFolderFilter.FormattingEnabled = true;
-            cbFolderFilter.Location = new Point(127, 53);
-            cbFolderFilter.Margin = new Padding(2);
+            cbFolderFilter.Margin = new Padding(0);
             cbFolderFilter.Name = "cbFolderFilter";
-            cbFolderFilter.Size = new Size(129, 30);
+            cbFolderFilter.Size = new Size(170, 25);
             cbFolderFilter.TabIndex = 2;
             cbFolderFilter.SelectedIndexChanged += ApplyFilters;
+            // 
+            // pnlPredFilter
+            // 
+            pnlPredFilter.AutoSize = true;
+            pnlPredFilter.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            pnlPredFilter.ColumnCount = 1;
+            pnlPredFilter.ColumnStyles.Add(new ColumnStyle());
+            pnlPredFilter.Controls.Add(lblPredFilter, 0, 0);
+            pnlPredFilter.Controls.Add(cbPredFilter, 0, 1);
+            pnlPredFilter.Margin = new Padding(0, 0, 12, 0);
+            pnlPredFilter.Name = "pnlPredFilter";
+            pnlPredFilter.RowCount = 2;
+            pnlPredFilter.RowStyles.Add(new RowStyle());
+            pnlPredFilter.RowStyles.Add(new RowStyle());
+            pnlPredFilter.TabIndex = 2;
             // 
             // lblPredFilter
             // 
             lblPredFilter.AutoSize = true;
-            lblPredFilter.Font = new Font("Microsoft Sans Serif", 9F);
-            lblPredFilter.Location = new Point(267, 21);
-            lblPredFilter.Margin = new Padding(2, 0, 2, 0);
+            lblPredFilter.Margin = new Padding(0, 0, 0, 2);
             lblPredFilter.Name = "lblPredFilter";
-            lblPredFilter.Size = new Size(164, 22);
             lblPredFilter.TabIndex = 3;
             lblPredFilter.Text = "Filter by Prediction:";
             // 
             // cbPredFilter
             // 
             cbPredFilter.DropDownStyle = ComboBoxStyle.DropDownList;
-            cbPredFilter.Font = new Font("Microsoft Sans Serif", 9F);
             cbPredFilter.FormattingEnabled = true;
-            cbPredFilter.Location = new Point(260, 53);
-            cbPredFilter.Margin = new Padding(2);
+            cbPredFilter.Margin = new Padding(0);
             cbPredFilter.Name = "cbPredFilter";
-            cbPredFilter.Size = new Size(129, 30);
+            cbPredFilter.Size = new Size(170, 25);
             cbPredFilter.TabIndex = 4;
             cbPredFilter.SelectedIndexChanged += ApplyFilters;
+            // 
+            // pnlHeaderLabels  (light + model status, stacked)
+            // 
+            pnlHeaderLabels.AutoSize = true;
+            pnlHeaderLabels.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            pnlHeaderLabels.ColumnCount = 1;
+            pnlHeaderLabels.ColumnStyles.Add(new ColumnStyle());
+            pnlHeaderLabels.Controls.Add(lblUsbLightStatus, 0, 0);
+            pnlHeaderLabels.Controls.Add(lblModelInfo, 0, 1);
+            pnlHeaderLabels.Margin = new Padding(0, 0, 12, 0);
+            pnlHeaderLabels.Name = "pnlHeaderLabels";
+            pnlHeaderLabels.RowCount = 2;
+            pnlHeaderLabels.RowStyles.Add(new RowStyle());
+            pnlHeaderLabels.RowStyles.Add(new RowStyle());
+            pnlHeaderLabels.TabIndex = 3;
+            // 
+            // lblUsbLightStatus
+            // 
+            lblUsbLightStatus.AutoSize = true;
+            lblUsbLightStatus.Font = new Font("Segoe UI", 9F, FontStyle.Italic);
+            lblUsbLightStatus.ForeColor = Color.Sienna;
+            lblUsbLightStatus.Margin = new Padding(0, 0, 0, 4);
+            lblUsbLightStatus.Name = "lblUsbLightStatus";
+            lblUsbLightStatus.TabIndex = 21;
+            lblUsbLightStatus.Text = "Light Status";
             // 
             // lblModelInfo
             // 
             lblModelInfo.AutoSize = true;
-            lblModelInfo.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Italic);
+            lblModelInfo.Font = new Font("Segoe UI", 9F, FontStyle.Italic);
             lblModelInfo.ForeColor = Color.FromArgb(0, 120, 215);
-            lblModelInfo.Location = new Point(611, 26);
-            lblModelInfo.Margin = new Padding(1, 0, 1, 0);
+            lblModelInfo.Margin = new Padding(0);
             lblModelInfo.Name = "lblModelInfo";
-            lblModelInfo.Size = new Size(145, 22);
             lblModelInfo.TabIndex = 17;
             lblModelInfo.Text = "No model loaded";
             // 
-            // grid
+            // btnSelectSingleImage
             // 
-            grid.AllowUserToAddRows = false;
-            grid.AllowUserToDeleteRows = false;
-            grid.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-            grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
-            grid.BackgroundColor = Color.White;
-            grid.BorderStyle = BorderStyle.Fixed3D;
-            dataGridViewCellStyle3.Alignment = DataGridViewContentAlignment.MiddleLeft;
-            dataGridViewCellStyle3.BackColor = SystemColors.Control;
-            dataGridViewCellStyle3.Font = new Font("Microsoft Sans Serif", 9F);
-            dataGridViewCellStyle3.ForeColor = SystemColors.WindowText;
-            dataGridViewCellStyle3.SelectionBackColor = SystemColors.Highlight;
-            dataGridViewCellStyle3.SelectionForeColor = SystemColors.HighlightText;
-            dataGridViewCellStyle3.WrapMode = DataGridViewTriState.True;
-            grid.ColumnHeadersDefaultCellStyle = dataGridViewCellStyle3;
-            grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            dataGridViewCellStyle4.Alignment = DataGridViewContentAlignment.MiddleLeft;
-            dataGridViewCellStyle4.BackColor = SystemColors.Window;
-            dataGridViewCellStyle4.Font = new Font("Microsoft Sans Serif", 9F);
-            dataGridViewCellStyle4.ForeColor = SystemColors.ControlText;
-            dataGridViewCellStyle4.SelectionBackColor = SystemColors.Highlight;
-            dataGridViewCellStyle4.SelectionForeColor = SystemColors.HighlightText;
-            dataGridViewCellStyle4.WrapMode = DataGridViewTriState.False;
-            grid.DefaultCellStyle = dataGridViewCellStyle4;
-            grid.Location = new Point(5, 87);
-            grid.Margin = new Padding(2);
-            grid.MultiSelect = false;
-            grid.Name = "grid";
-            grid.ReadOnly = true;
-            grid.RowHeadersWidth = 51;
-            grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            grid.Size = new Size(959, 733);
-            grid.TabIndex = 5;
-            grid.CellFormatting += Grid_CellFormatting;
-            grid.SelectionChanged += Grid_SelectionChanged;
-            // 
-            // pictureBox
-            // 
-            pictureBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Right;
-            pictureBox.BorderStyle = BorderStyle.FixedSingle;
-            pictureBox.Location = new Point(968, 87);
-            pictureBox.Margin = new Padding(2);
-            pictureBox.Name = "pictureBox";
-            pictureBox.Size = new Size(312, 350);
-            pictureBox.SizeMode = PictureBoxSizeMode.Zoom;
-            pictureBox.TabIndex = 6;
-            pictureBox.TabStop = false;
-            // 
-            // lblInfo
-            // 
-            lblInfo.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            lblInfo.BackColor = Color.FromArgb(240, 240, 240);
-            lblInfo.BorderStyle = BorderStyle.FixedSingle;
-            lblInfo.Font = new Font("Microsoft Sans Serif", 9F);
-            lblInfo.Location = new Point(969, 445);
-            lblInfo.Margin = new Padding(2, 0, 2, 0);
-            lblInfo.Name = "lblInfo";
-            lblInfo.Size = new Size(311, 30);
-            lblInfo.TabIndex = 7;
-            lblInfo.Text = "Select an image row to preview";
-            lblInfo.TextAlign = ContentAlignment.MiddleCenter;
-            // 
-            // lblSelectLabel
-            // 
-            lblSelectLabel.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            lblSelectLabel.AutoSize = true;
-            lblSelectLabel.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
-            lblSelectLabel.Location = new Point(969, 475);
-            lblSelectLabel.Margin = new Padding(2, 0, 2, 0);
-            lblSelectLabel.Name = "lblSelectLabel";
-            lblSelectLabel.Size = new Size(208, 22);
-            lblSelectLabel.TabIndex = 8;
-            lblSelectLabel.Text = "Correct Classification:";
-            // 
-            // cbCorrection
-            // 
-            cbCorrection.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            cbCorrection.DropDownStyle = ComboBoxStyle.DropDownList;
-            cbCorrection.Font = new Font("Microsoft Sans Serif", 9F);
-            cbCorrection.FormattingEnabled = true;
-            cbCorrection.Location = new Point(967, 499);
-            cbCorrection.Margin = new Padding(2);
-            cbCorrection.Name = "cbCorrection";
-            cbCorrection.Size = new Size(82, 30);
-            cbCorrection.TabIndex = 9;
-            // 
-            // btnCorrect
-            // 
-            btnCorrect.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            btnCorrect.BackColor = Color.FromArgb(255, 140, 0);
-            btnCorrect.FlatStyle = FlatStyle.Flat;
-            btnCorrect.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
-            btnCorrect.ForeColor = Color.White;
-            btnCorrect.Location = new Point(1068, 502);
-            btnCorrect.Margin = new Padding(2);
-            btnCorrect.Name = "btnCorrect";
-            btnCorrect.Size = new Size(212, 29);
-            btnCorrect.TabIndex = 10;
-            btnCorrect.Text = "✏️ Save Correction";
-            btnCorrect.UseVisualStyleBackColor = false;
-            btnCorrect.Click += BtnCorrect_Click;
-            // 
-            // btnQuickUpdate
-            // 
-            btnQuickUpdate.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            btnQuickUpdate.BackColor = Color.FromArgb(76, 175, 80);
-            btnQuickUpdate.FlatStyle = FlatStyle.Flat;
-            btnQuickUpdate.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
-            btnQuickUpdate.ForeColor = Color.White;
-            btnQuickUpdate.Location = new Point(967, 535);
-            btnQuickUpdate.Margin = new Padding(2);
-            btnQuickUpdate.Name = "btnQuickUpdate";
-            btnQuickUpdate.Size = new Size(147, 30);
-            btnQuickUpdate.TabIndex = 11;
-            btnQuickUpdate.Text = "⚡ Quick Update (Fast)";
-            tooltip.SetToolTip(btnQuickUpdate, "True Incremental Learning:\n• Preserves original model knowledge\n• Learns from corrections\n• Fast (1-3 minutes)\n• Requires images.csv in base folder");
-            btnQuickUpdate.UseVisualStyleBackColor = false;
-            btnQuickUpdate.Click += BtnQuickUpdate_Click;
-            // 
-            // btnRetrain
-            // 
-            btnRetrain.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            btnRetrain.BackColor = Color.FromArgb(156, 39, 176);
-            btnRetrain.FlatStyle = FlatStyle.Flat;
-            btnRetrain.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
-            btnRetrain.ForeColor = Color.White;
-            btnRetrain.Location = new Point(1133, 535);
-            btnRetrain.Margin = new Padding(2);
-            btnRetrain.Name = "btnRetrain";
-            btnRetrain.Size = new Size(147, 30);
-            btnRetrain.TabIndex = 12;
-            btnRetrain.Text = "🔄 Full Retrain (Slow)";
-            tooltip.SetToolTip(btnRetrain, "Full Retrain:\n• Rebuilds model from scratch\n• Most accurate\n• Slow (5-15 minutes)\n• Use when accumulated many corrections");
-            btnRetrain.UseVisualStyleBackColor = false;
-            btnRetrain.Click += BtnRetrain_Click;
-            // 
-            // lblCorrectionCount
-            // 
-            lblCorrectionCount.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            lblCorrectionCount.BackColor = Color.FromArgb(255, 248, 220);
-            lblCorrectionCount.BorderStyle = BorderStyle.FixedSingle;
-            lblCorrectionCount.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
-            lblCorrectionCount.Location = new Point(965, 661);
-            lblCorrectionCount.Margin = new Padding(2, 0, 2, 0);
-            lblCorrectionCount.Name = "lblCorrectionCount";
-            lblCorrectionCount.Size = new Size(315, 35);
-            lblCorrectionCount.TabIndex = 13;
-            lblCorrectionCount.Text = "Corrections pending: 0";
-            lblCorrectionCount.TextAlign = ContentAlignment.MiddleCenter;
-            // 
-            // lblStatus
-            // 
-            lblStatus.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            lblStatus.BackColor = Color.FromArgb(245, 245, 245);
-            lblStatus.BorderStyle = BorderStyle.FixedSingle;
-            lblStatus.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Italic);
-            lblStatus.ForeColor = Color.FromArgb(64, 64, 64);
-            lblStatus.Location = new Point(969, 570);
-            lblStatus.Margin = new Padding(2, 0, 2, 0);
-            lblStatus.Name = "lblStatus";
-            lblStatus.Size = new Size(311, 86);
-            lblStatus.TabIndex = 15;
-            lblStatus.Text = "Model status will appear here";
-            lblStatus.TextAlign = ContentAlignment.MiddleLeft;
-            // 
-            // lblSingleImageResult
-            // 
-            lblSingleImageResult.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            lblSingleImageResult.BackColor = Color.FromArgb(232, 245, 233);
-            lblSingleImageResult.BorderStyle = BorderStyle.FixedSingle;
-            lblSingleImageResult.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
-            lblSingleImageResult.ForeColor = Color.FromArgb(46, 125, 50);
-            lblSingleImageResult.Location = new Point(969, 56);
-            lblSingleImageResult.Margin = new Padding(2, 0, 2, 0);
-            lblSingleImageResult.Name = "lblSingleImageResult";
-            lblSingleImageResult.Size = new Size(300, 23);
-            lblSingleImageResult.TabIndex = 19;
-            lblSingleImageResult.Text = "Click 'Predict Single Image' to start";
-            lblSingleImageResult.TextAlign = ContentAlignment.MiddleCenter;
-            lblSingleImageResult.Visible = false;
+            btnSelectSingleImage.BackColor = Color.FromArgb(46, 125, 50);
+            btnSelectSingleImage.FlatStyle = FlatStyle.Flat;
+            btnSelectSingleImage.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            btnSelectSingleImage.ForeColor = Color.White;
+            btnSelectSingleImage.Margin = new Padding(0, 0, 12, 0);
+            btnSelectSingleImage.Name = "btnSelectSingleImage";
+            btnSelectSingleImage.Size = new Size(190, 38);
+            btnSelectSingleImage.TabIndex = 18;
+            btnSelectSingleImage.Text = "🖼️ Predict Single Image";
+            tooltip.SetToolTip(btnSelectSingleImage, "Select and predict a single image file");
+            btnSelectSingleImage.UseVisualStyleBackColor = false;
+            btnSelectSingleImage.Click += BtnSelectSingleImage_Click;
             // 
             // btnMonitorFolder
             // 
             btnMonitorFolder.BackColor = Color.FromArgb(156, 39, 176);
             btnMonitorFolder.FlatStyle = FlatStyle.Flat;
-            btnMonitorFolder.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Bold);
+            btnMonitorFolder.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
             btnMonitorFolder.ForeColor = Color.White;
-            btnMonitorFolder.Location = new Point(697, 52);
-            btnMonitorFolder.Margin = new Padding(1);
+            btnMonitorFolder.Margin = new Padding(0);
             btnMonitorFolder.Name = "btnMonitorFolder";
-            btnMonitorFolder.Size = new Size(267, 30);
+            btnMonitorFolder.Size = new Size(210, 38);
             btnMonitorFolder.TabIndex = 20;
             btnMonitorFolder.Text = "👁️ Monitor Folder (OFF)";
             tooltip.SetToolTip(btnMonitorFolder, "Auto-detect and predict new images in class folders");
             btnMonitorFolder.UseVisualStyleBackColor = false;
             btnMonitorFolder.Click += BtnMonitorFolder_Click;
             // 
-            // lblUsbLightStatus
+            // tlpContent  (left: results grid | right: preview + corrections)
             // 
-            lblUsbLightStatus.AutoSize = true;
-            lblUsbLightStatus.Font = new Font("Microsoft Sans Serif", 9F, FontStyle.Italic);
-            lblUsbLightStatus.ForeColor = Color.Sienna;
-            lblUsbLightStatus.Location = new Point(434, 21);
-            lblUsbLightStatus.Margin = new Padding(1, 0, 1, 0);
-            lblUsbLightStatus.Name = "lblUsbLightStatus";
-            lblUsbLightStatus.Size = new Size(105, 22);
-            lblUsbLightStatus.TabIndex = 21;
-            lblUsbLightStatus.Text = "Light Status";
+            tlpContent.ColumnCount = 2;
+            tlpContent.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            tlpContent.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 400F));
+            tlpContent.Controls.Add(tlpLeft, 0, 0);
+            tlpContent.Controls.Add(tlpRight, 1, 0);
+            tlpContent.Dock = DockStyle.Fill;
+            tlpContent.Margin = new Padding(0);
+            tlpContent.Name = "tlpContent";
+            tlpContent.RowCount = 1;
+            tlpContent.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            tlpContent.TabIndex = 2;
             // 
-            // groupBoxUsbPortControl
+            // tlpLeft
             // 
-            groupBoxUsbPortControl.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
-            groupBoxUsbPortControl.Controls.Add(lblUsbPortStatus);
-            groupBoxUsbPortControl.Controls.Add(btnCheckUsbSupport);
-            groupBoxUsbPortControl.Controls.Add(btnTestUsbPortControl);
-            groupBoxUsbPortControl.Controls.Add(btnConnectUsbHub);
-            groupBoxUsbPortControl.Controls.Add(btnTestConnection);
-            groupBoxUsbPortControl.Controls.Add(btnCyclePort);
-            groupBoxUsbPortControl.Controls.Add(btnDisconnectUsbHub);
-            groupBoxUsbPortControl.Location = new Point(5, 630);
-            groupBoxUsbPortControl.Margin = new Padding(1);
+            tlpLeft.ColumnCount = 1;
+            tlpLeft.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            tlpLeft.Controls.Add(grid, 0, 0);
+            tlpLeft.Controls.Add(groupBoxUsbPortControl, 0, 1);
+            tlpLeft.Dock = DockStyle.Fill;
+            tlpLeft.Margin = new Padding(0);
+            tlpLeft.Name = "tlpLeft";
+            tlpLeft.RowCount = 2;
+            tlpLeft.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            tlpLeft.RowStyles.Add(new RowStyle());
+            tlpLeft.TabIndex = 0;
+            // 
+            // grid
+            // 
+            grid.AllowUserToAddRows = false;
+            grid.AllowUserToDeleteRows = false;
+            grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+            grid.BackgroundColor = Color.White;
+            grid.BorderStyle = BorderStyle.Fixed3D;
+            dataGridViewCellStyle1.Alignment = DataGridViewContentAlignment.MiddleLeft;
+            dataGridViewCellStyle1.BackColor = SystemColors.Control;
+            dataGridViewCellStyle1.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            dataGridViewCellStyle1.ForeColor = SystemColors.WindowText;
+            dataGridViewCellStyle1.SelectionBackColor = SystemColors.Highlight;
+            dataGridViewCellStyle1.SelectionForeColor = SystemColors.HighlightText;
+            dataGridViewCellStyle1.WrapMode = DataGridViewTriState.True;
+            grid.ColumnHeadersDefaultCellStyle = dataGridViewCellStyle1;
+            grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            dataGridViewCellStyle2.Alignment = DataGridViewContentAlignment.MiddleLeft;
+            dataGridViewCellStyle2.BackColor = SystemColors.Window;
+            dataGridViewCellStyle2.Font = new Font("Segoe UI", 9F);
+            dataGridViewCellStyle2.ForeColor = SystemColors.ControlText;
+            dataGridViewCellStyle2.SelectionBackColor = SystemColors.Highlight;
+            dataGridViewCellStyle2.SelectionForeColor = SystemColors.HighlightText;
+            dataGridViewCellStyle2.WrapMode = DataGridViewTriState.False;
+            grid.DefaultCellStyle = dataGridViewCellStyle2;
+            grid.Dock = DockStyle.Fill;
+            grid.Margin = new Padding(0);
+            grid.MultiSelect = false;
+            grid.Name = "grid";
+            grid.ReadOnly = true;
+            grid.RowHeadersVisible = false;
+            grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            grid.TabIndex = 5;
+            grid.CellFormatting += Grid_CellFormatting;
+            grid.SelectionChanged += Grid_SelectionChanged;
+            // 
+            // groupBoxUsbPortControl  (hidden by default; takes its own row, so it never covers the grid)
+            // 
+            groupBoxUsbPortControl.AutoSize = true;
+            groupBoxUsbPortControl.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            groupBoxUsbPortControl.Controls.Add(tlpUsb);
+            groupBoxUsbPortControl.Dock = DockStyle.Fill;
+            groupBoxUsbPortControl.Margin = new Padding(0, 8, 0, 0);
             groupBoxUsbPortControl.Name = "groupBoxUsbPortControl";
-            groupBoxUsbPortControl.Padding = new Padding(1);
-            groupBoxUsbPortControl.Size = new Size(285, 65);
+            groupBoxUsbPortControl.Padding = new Padding(8, 4, 8, 8);
             groupBoxUsbPortControl.TabIndex = 200;
             groupBoxUsbPortControl.TabStop = false;
             groupBoxUsbPortControl.Text = "USB Port Power Control (Advanced)";
             groupBoxUsbPortControl.Visible = false;
             // 
+            // tlpUsb
+            // 
+            tlpUsb.AutoSize = true;
+            tlpUsb.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            tlpUsb.ColumnCount = 3;
+            tlpUsb.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
+            tlpUsb.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
+            tlpUsb.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.34F));
+            tlpUsb.Controls.Add(lblUsbPortStatus, 0, 0);
+            tlpUsb.Controls.Add(btnCheckUsbSupport, 0, 1);
+            tlpUsb.Controls.Add(btnTestUsbPortControl, 1, 1);
+            tlpUsb.Controls.Add(btnConnectUsbHub, 2, 1);
+            tlpUsb.Controls.Add(btnTestConnection, 0, 2);
+            tlpUsb.Controls.Add(btnCyclePort, 1, 2);
+            tlpUsb.Controls.Add(btnDisconnectUsbHub, 2, 2);
+            tlpUsb.Dock = DockStyle.Top;
+            tlpUsb.Name = "tlpUsb";
+            tlpUsb.RowCount = 3;
+            tlpUsb.RowStyles.Add(new RowStyle());
+            tlpUsb.RowStyles.Add(new RowStyle());
+            tlpUsb.RowStyles.Add(new RowStyle());
+            tlpUsb.TabIndex = 0;
+            // 
             // lblUsbPortStatus
             // 
-            lblUsbPortStatus.BackColor = Color.FromArgb(240, 240, 240);
-            lblUsbPortStatus.Location = new Point(7, 9);
-            lblUsbPortStatus.Margin = new Padding(1, 0, 1, 0);
+            lblUsbPortStatus.AutoSize = true;
+            lblUsbPortStatus.Margin = new Padding(3, 3, 3, 6);
             lblUsbPortStatus.Name = "lblUsbPortStatus";
-            lblUsbPortStatus.Size = new Size(245, 17);
             lblUsbPortStatus.TabIndex = 0;
             lblUsbPortStatus.Text = "Status: Not connected";
-            lblUsbPortStatus.TextAlign = ContentAlignment.MiddleLeft;
+            tlpUsb.SetColumnSpan(lblUsbPortStatus, 3);
             // 
             // btnCheckUsbSupport
             // 
-            btnCheckUsbSupport.Location = new Point(7, 31);
-            btnCheckUsbSupport.Margin = new Padding(1);
+            btnCheckUsbSupport.Dock = DockStyle.Fill;
+            btnCheckUsbSupport.MinimumSize = new Size(0, 32);
             btnCheckUsbSupport.Name = "btnCheckUsbSupport";
-            btnCheckUsbSupport.Size = new Size(78, 13);
             btnCheckUsbSupport.TabIndex = 1;
             btnCheckUsbSupport.Text = "✓ Check Support";
             btnCheckUsbSupport.UseVisualStyleBackColor = true;
@@ -498,10 +463,9 @@
             // 
             // btnTestUsbPortControl
             // 
-            btnTestUsbPortControl.Location = new Point(89, 31);
-            btnTestUsbPortControl.Margin = new Padding(1);
+            btnTestUsbPortControl.Dock = DockStyle.Fill;
+            btnTestUsbPortControl.MinimumSize = new Size(0, 32);
             btnTestUsbPortControl.Name = "btnTestUsbPortControl";
-            btnTestUsbPortControl.Size = new Size(78, 13);
             btnTestUsbPortControl.TabIndex = 2;
             btnTestUsbPortControl.Text = "🔍 Run Diagnostics";
             btnTestUsbPortControl.UseVisualStyleBackColor = true;
@@ -510,10 +474,9 @@
             // btnConnectUsbHub
             // 
             btnConnectUsbHub.BackColor = Color.FromArgb(220, 255, 220);
-            btnConnectUsbHub.Location = new Point(171, 31);
-            btnConnectUsbHub.Margin = new Padding(1);
+            btnConnectUsbHub.Dock = DockStyle.Fill;
+            btnConnectUsbHub.MinimumSize = new Size(0, 32);
             btnConnectUsbHub.Name = "btnConnectUsbHub";
-            btnConnectUsbHub.Size = new Size(78, 13);
             btnConnectUsbHub.TabIndex = 3;
             btnConnectUsbHub.Text = "🔌 Connect Hub";
             btnConnectUsbHub.UseVisualStyleBackColor = false;
@@ -521,10 +484,9 @@
             // 
             // btnTestConnection
             // 
-            btnTestConnection.Location = new Point(7, 47);
-            btnTestConnection.Margin = new Padding(1);
+            btnTestConnection.Dock = DockStyle.Fill;
+            btnTestConnection.MinimumSize = new Size(0, 32);
             btnTestConnection.Name = "btnTestConnection";
-            btnTestConnection.Size = new Size(78, 13);
             btnTestConnection.TabIndex = 4;
             btnTestConnection.Text = "🔧 Test Connection";
             btnTestConnection.UseVisualStyleBackColor = true;
@@ -533,10 +495,9 @@
             // btnCyclePort
             // 
             btnCyclePort.BackColor = Color.FromArgb(255, 248, 220);
-            btnCyclePort.Location = new Point(89, 47);
-            btnCyclePort.Margin = new Padding(1);
+            btnCyclePort.Dock = DockStyle.Fill;
+            btnCyclePort.MinimumSize = new Size(0, 32);
             btnCyclePort.Name = "btnCyclePort";
-            btnCyclePort.Size = new Size(78, 13);
             btnCyclePort.TabIndex = 5;
             btnCyclePort.Text = "⚡ Cycle Port";
             btnCyclePort.UseVisualStyleBackColor = false;
@@ -544,55 +505,254 @@
             // 
             // btnDisconnectUsbHub
             // 
-            btnDisconnectUsbHub.Location = new Point(171, 47);
-            btnDisconnectUsbHub.Margin = new Padding(1);
+            btnDisconnectUsbHub.Dock = DockStyle.Fill;
+            btnDisconnectUsbHub.MinimumSize = new Size(0, 32);
             btnDisconnectUsbHub.Name = "btnDisconnectUsbHub";
-            btnDisconnectUsbHub.Size = new Size(78, 13);
             btnDisconnectUsbHub.TabIndex = 6;
             btnDisconnectUsbHub.Text = "⏹️ Disconnect";
             btnDisconnectUsbHub.UseVisualStyleBackColor = true;
             btnDisconnectUsbHub.Click += BtnDisconnectUsbHub_Click;
             // 
+            // tlpRight  (single-image result | preview | info | correction | update buttons | count | progress)
+            // 
+            tlpRight.ColumnCount = 1;
+            tlpRight.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            tlpRight.Controls.Add(lblSingleImageResult, 0, 0);
+            tlpRight.Controls.Add(pictureBox, 0, 1);
+            tlpRight.Controls.Add(lblInfo, 0, 2);
+            tlpRight.Controls.Add(lblSelectLabel, 0, 3);
+            tlpRight.Controls.Add(tlpCorrect, 0, 4);
+            tlpRight.Controls.Add(tlpUpdate, 0, 5);
+            tlpRight.Controls.Add(lblCorrectionCount, 0, 6);
+            tlpRight.Controls.Add(progressBar, 0, 7);
+            tlpRight.Dock = DockStyle.Fill;
+            tlpRight.Margin = new Padding(0);
+            tlpRight.Name = "tlpRight";
+            tlpRight.Padding = new Padding(10, 0, 0, 0);
+            tlpRight.RowCount = 8;
+            tlpRight.RowStyles.Add(new RowStyle());
+            tlpRight.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            tlpRight.RowStyles.Add(new RowStyle());
+            tlpRight.RowStyles.Add(new RowStyle());
+            tlpRight.RowStyles.Add(new RowStyle());
+            tlpRight.RowStyles.Add(new RowStyle());
+            tlpRight.RowStyles.Add(new RowStyle());
+            tlpRight.RowStyles.Add(new RowStyle());
+            tlpRight.TabIndex = 1;
+            // 
+            // lblSingleImageResult  (hidden until a single image is predicted; a hidden row takes no space)
+            // 
+            lblSingleImageResult.BackColor = Color.FromArgb(232, 245, 233);
+            lblSingleImageResult.BorderStyle = BorderStyle.FixedSingle;
+            lblSingleImageResult.Dock = DockStyle.Fill;
+            lblSingleImageResult.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            lblSingleImageResult.ForeColor = Color.FromArgb(46, 125, 50);
+            lblSingleImageResult.Margin = new Padding(0, 0, 0, 6);
+            lblSingleImageResult.MinimumSize = new Size(0, 52);
+            lblSingleImageResult.Name = "lblSingleImageResult";
+            lblSingleImageResult.TabIndex = 19;
+            lblSingleImageResult.Text = "Click 'Predict Single Image' to start";
+            lblSingleImageResult.TextAlign = ContentAlignment.MiddleCenter;
+            lblSingleImageResult.Visible = false;
+            // 
+            // pictureBox
+            // 
+            pictureBox.BorderStyle = BorderStyle.FixedSingle;
+            pictureBox.Dock = DockStyle.Fill;
+            pictureBox.Margin = new Padding(0);
+            pictureBox.MinimumSize = new Size(0, 120);
+            pictureBox.Name = "pictureBox";
+            pictureBox.SizeMode = PictureBoxSizeMode.Zoom;
+            pictureBox.TabIndex = 6;
+            pictureBox.TabStop = false;
+            // 
+            // lblInfo
+            // 
+            lblInfo.BackColor = Color.FromArgb(240, 240, 240);
+            lblInfo.BorderStyle = BorderStyle.FixedSingle;
+            lblInfo.Dock = DockStyle.Fill;
+            lblInfo.Margin = new Padding(0, 6, 0, 0);
+            lblInfo.MinimumSize = new Size(0, 36);
+            lblInfo.Name = "lblInfo";
+            lblInfo.TabIndex = 7;
+            lblInfo.Text = "Select an image row to preview";
+            lblInfo.TextAlign = ContentAlignment.MiddleCenter;
+            // 
+            // lblSelectLabel
+            // 
+            lblSelectLabel.AutoSize = true;
+            lblSelectLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            lblSelectLabel.Margin = new Padding(0, 10, 0, 3);
+            lblSelectLabel.Name = "lblSelectLabel";
+            lblSelectLabel.TabIndex = 8;
+            lblSelectLabel.Text = "Correct Classification:";
+            // 
+            // tlpCorrect
+            // 
+            tlpCorrect.AutoSize = true;
+            tlpCorrect.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            tlpCorrect.ColumnCount = 2;
+            tlpCorrect.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38F));
+            tlpCorrect.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62F));
+            tlpCorrect.Controls.Add(cbCorrection, 0, 0);
+            tlpCorrect.Controls.Add(btnCorrect, 1, 0);
+            tlpCorrect.Dock = DockStyle.Fill;
+            tlpCorrect.Margin = new Padding(0);
+            tlpCorrect.Name = "tlpCorrect";
+            tlpCorrect.RowCount = 1;
+            tlpCorrect.RowStyles.Add(new RowStyle());
+            tlpCorrect.TabIndex = 9;
+            // 
+            // cbCorrection
+            // 
+            cbCorrection.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+            cbCorrection.DropDownStyle = ComboBoxStyle.DropDownList;
+            cbCorrection.FormattingEnabled = true;
+            cbCorrection.Margin = new Padding(0, 0, 6, 0);
+            cbCorrection.Name = "cbCorrection";
+            cbCorrection.TabIndex = 9;
+            // 
+            // btnCorrect
+            // 
+            btnCorrect.BackColor = Color.FromArgb(255, 140, 0);
+            btnCorrect.Dock = DockStyle.Fill;
+            btnCorrect.FlatStyle = FlatStyle.Flat;
+            btnCorrect.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            btnCorrect.ForeColor = Color.White;
+            btnCorrect.Margin = new Padding(0);
+            btnCorrect.MinimumSize = new Size(0, 34);
+            btnCorrect.Name = "btnCorrect";
+            btnCorrect.TabIndex = 10;
+            btnCorrect.Text = "✏️ Save Correction";
+            btnCorrect.UseVisualStyleBackColor = false;
+            btnCorrect.Click += BtnCorrect_Click;
+            // 
+            // tlpUpdate  (the two update buttons share one row)
+            // 
+            tlpUpdate.AutoSize = true;
+            tlpUpdate.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            tlpUpdate.ColumnCount = 2;
+            tlpUpdate.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            tlpUpdate.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            tlpUpdate.Controls.Add(btnQuickUpdate, 0, 0);
+            tlpUpdate.Controls.Add(btnRetrain, 1, 0);
+            tlpUpdate.Dock = DockStyle.Fill;
+            tlpUpdate.Margin = new Padding(0, 8, 0, 0);
+            tlpUpdate.Name = "tlpUpdate";
+            tlpUpdate.RowCount = 1;
+            tlpUpdate.RowStyles.Add(new RowStyle());
+            tlpUpdate.TabIndex = 11;
+            // 
+            // btnQuickUpdate
+            // 
+            btnQuickUpdate.BackColor = Color.FromArgb(76, 175, 80);
+            btnQuickUpdate.Dock = DockStyle.Fill;
+            btnQuickUpdate.FlatStyle = FlatStyle.Flat;
+            btnQuickUpdate.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            btnQuickUpdate.ForeColor = Color.White;
+            btnQuickUpdate.Margin = new Padding(0, 0, 4, 0);
+            btnQuickUpdate.MinimumSize = new Size(0, 38);
+            btnQuickUpdate.Name = "btnQuickUpdate";
+            btnQuickUpdate.TabIndex = 11;
+            btnQuickUpdate.Text = "⚡ Quick Update (Fast)";
+            tooltip.SetToolTip(btnQuickUpdate, "True Incremental Learning:\n• Preserves original model knowledge\n• Learns from corrections\n• Fast (1-3 minutes)\n• Requires images.csv in base folder");
+            btnQuickUpdate.UseVisualStyleBackColor = false;
+            btnQuickUpdate.Click += BtnQuickUpdate_Click;
+            // 
+            // btnRetrain
+            // 
+            btnRetrain.BackColor = Color.FromArgb(156, 39, 176);
+            btnRetrain.Dock = DockStyle.Fill;
+            btnRetrain.FlatStyle = FlatStyle.Flat;
+            btnRetrain.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            btnRetrain.ForeColor = Color.White;
+            btnRetrain.Margin = new Padding(4, 0, 0, 0);
+            btnRetrain.MinimumSize = new Size(0, 38);
+            btnRetrain.Name = "btnRetrain";
+            btnRetrain.TabIndex = 12;
+            btnRetrain.Text = "🔄 Full Retrain (Slow)";
+            tooltip.SetToolTip(btnRetrain, "Full Retrain:\n• Rebuilds model from scratch\n• Most accurate\n• Slow (5-15 minutes)\n• Use when accumulated many corrections");
+            btnRetrain.UseVisualStyleBackColor = false;
+            btnRetrain.Click += BtnRetrain_Click;
+            // 
+            // lblCorrectionCount
+            // 
+            lblCorrectionCount.BackColor = Color.FromArgb(255, 248, 220);
+            lblCorrectionCount.BorderStyle = BorderStyle.FixedSingle;
+            lblCorrectionCount.Dock = DockStyle.Fill;
+            lblCorrectionCount.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+            lblCorrectionCount.Margin = new Padding(0, 8, 0, 0);
+            lblCorrectionCount.MinimumSize = new Size(0, 30);
+            lblCorrectionCount.Name = "lblCorrectionCount";
+            lblCorrectionCount.TabIndex = 13;
+            lblCorrectionCount.Text = "Corrections pending: 0";
+            lblCorrectionCount.TextAlign = ContentAlignment.MiddleCenter;
+            // 
+            // progressBar  (hidden until a long operation runs; a hidden row takes no space)
+            // 
+            progressBar.Dock = DockStyle.Fill;
+            progressBar.Margin = new Padding(0, 8, 0, 0);
+            progressBar.MinimumSize = new Size(0, 18);
+            progressBar.Name = "progressBar";
+            progressBar.Style = ProgressBarStyle.Marquee;
+            progressBar.TabIndex = 14;
+            progressBar.Visible = false;
+            // 
+            // lblStatus  (full-width status bar: long messages and alerts have room)
+            // 
+            lblStatus.BackColor = Color.FromArgb(245, 245, 245);
+            lblStatus.BorderStyle = BorderStyle.FixedSingle;
+            lblStatus.Dock = DockStyle.Fill;
+            lblStatus.ForeColor = Color.FromArgb(64, 64, 64);
+            lblStatus.Margin = new Padding(0, 8, 0, 0);
+            lblStatus.MinimumSize = new Size(0, 100);
+            lblStatus.Name = "lblStatus";
+            lblStatus.Padding = new Padding(6, 4, 6, 4);
+            lblStatus.TabIndex = 15;
+            lblStatus.Text = "Model status will appear here";
+            lblStatus.TextAlign = ContentAlignment.TopLeft;
+            // 
             // Form1
             // 
-            AutoScaleDimensions = new SizeF(144F, 144F);
+            AutoScaleDimensions = new SizeF(96F, 96F);
             AutoScaleMode = AutoScaleMode.Dpi;
             BackColor = Color.White;
-            ClientSize = new Size(1280, 700);
-            Controls.Add(lblUsbLightStatus);
-            Controls.Add(lblSingleImageResult);
-            Controls.Add(btnSelectSingleImage);
-            Controls.Add(lblModelInfo);
-            Controls.Add(lblStatus);
-            Controls.Add(lblCorrectionCount);
-            Controls.Add(btnRetrain);
-            Controls.Add(btnQuickUpdate);
-            Controls.Add(btnCorrect);
-            Controls.Add(cbCorrection);
-            Controls.Add(lblSelectLabel);
-            Controls.Add(lblInfo);
-            Controls.Add(pictureBox);
-            Controls.Add(grid);
-            Controls.Add(cbPredFilter);
-            Controls.Add(lblPredFilter);
-            Controls.Add(cbFolderFilter);
-            Controls.Add(lblFolderFilter);
-            Controls.Add(btnSelectFolder);
+            ClientSize = new Size(1200, 740);
+            Controls.Add(tlpRoot);
             Controls.Add(menuStrip);
-            Controls.Add(groupBoxUsbPortControl);
-            Controls.Add(btnMonitorFolder);
-            Font = new Font("Microsoft Sans Serif", 9F);
+            Font = new Font("Segoe UI", 9F);
             MainMenuStrip = menuStrip;
-            Margin = new Padding(2);
-            MinimumSize = new Size(861, 502);
+            MinimumSize = new Size(1000, 680);
             Name = "Form1";
             StartPosition = FormStartPosition.CenterScreen;
             Text = "MEAI Image Checking System";
             menuStrip.ResumeLayout(false);
             menuStrip.PerformLayout();
+            tlpRoot.ResumeLayout(false);
+            tlpRoot.PerformLayout();
+            flowToolbar.ResumeLayout(false);
+            flowToolbar.PerformLayout();
+            pnlFolderFilter.ResumeLayout(false);
+            pnlFolderFilter.PerformLayout();
+            pnlPredFilter.ResumeLayout(false);
+            pnlPredFilter.PerformLayout();
+            pnlHeaderLabels.ResumeLayout(false);
+            pnlHeaderLabels.PerformLayout();
+            tlpContent.ResumeLayout(false);
+            tlpLeft.ResumeLayout(false);
+            tlpLeft.PerformLayout();
             ((System.ComponentModel.ISupportInitialize)grid).EndInit();
-            ((System.ComponentModel.ISupportInitialize)pictureBox).EndInit();
             groupBoxUsbPortControl.ResumeLayout(false);
+            groupBoxUsbPortControl.PerformLayout();
+            tlpUsb.ResumeLayout(false);
+            tlpUsb.PerformLayout();
+            tlpRight.ResumeLayout(false);
+            tlpRight.PerformLayout();
+            ((System.ComponentModel.ISupportInitialize)pictureBox).EndInit();
+            tlpCorrect.ResumeLayout(false);
+            tlpCorrect.PerformLayout();
+            tlpUpdate.ResumeLayout(false);
+            tlpUpdate.PerformLayout();
             ResumeLayout(false);
             PerformLayout();
         }
@@ -641,5 +801,18 @@
         private System.Windows.Forms.Button btnDisconnectUsbHub;
         private System.Windows.Forms.GroupBox groupBoxUsbPortControl;
         private System.Windows.Forms.Label lblUsbPortStatus;
+
+        // layout containers
+        private System.Windows.Forms.TableLayoutPanel tlpRoot;
+        private System.Windows.Forms.FlowLayoutPanel flowToolbar;
+        private System.Windows.Forms.TableLayoutPanel pnlFolderFilter;
+        private System.Windows.Forms.TableLayoutPanel pnlPredFilter;
+        private System.Windows.Forms.TableLayoutPanel pnlHeaderLabels;
+        private System.Windows.Forms.TableLayoutPanel tlpContent;
+        private System.Windows.Forms.TableLayoutPanel tlpLeft;
+        private System.Windows.Forms.TableLayoutPanel tlpUsb;
+        private System.Windows.Forms.TableLayoutPanel tlpRight;
+        private System.Windows.Forms.TableLayoutPanel tlpCorrect;
+        private System.Windows.Forms.TableLayoutPanel tlpUpdate;
     }
 }
