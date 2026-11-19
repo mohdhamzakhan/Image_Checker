@@ -27,6 +27,7 @@ namespace Image_Checker.Services
         public MonitorProfile Clone() => (MonitorProfile)MemberwiseClone();
 
         public override string ToString() => string.IsNullOrWhiteSpace(Name) ? FolderPath : Name;
+        public string Id { get; set; } = Guid.NewGuid().ToString("N");
     }
 
     public static class DateFolderFormat

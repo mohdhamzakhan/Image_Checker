@@ -1,7 +1,9 @@
 ﻿using Image_Checker.Services;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Windows.Forms;
@@ -39,6 +41,12 @@ namespace Image_Checker.WinForm
             public OnnxImageChecker? Onnx;
             public OneClassChecker? OneClass;
             public Size TrainingSize = new Size(224, 224);
+            public string Signature = "";
+            public CancellationTokenSource? Cts;
+            public Task? Worker;
+            public TrainingStats? Training;
+            public string BasePath => Path.GetDirectoryName(Profile.ModelPath) ?? "";
+            public List<ScrewPosition> Positions = new();
 
             public void DisposeModel()
             {
@@ -112,6 +120,8 @@ namespace Image_Checker.WinForm
                     s.TrainingSize = new Size(
                         cfg.ImageWidth > 0 ? cfg.ImageWidth : 224,
                         cfg.ImageHeight > 0 ? cfg.ImageHeight : 224);
+                    s.Positions = cfg.Positions ?? new();
+                    if (s.Positions.Count > 0) s.Roi = Rectangle.Empty;   // positions replace the single ROI
                 }
             }
 
@@ -144,7 +154,42 @@ namespace Image_Checker.WinForm
             }
         }
 
+        private Button? btnMonitorSources;
 
+        private void EnsureMonitorSourcesButton()
+        {
+            if (btnMonitorSources != null) return;
+
+            btnMonitorSources = new Button
+            {
+                Name = "btnMonitorSources",
+                Text = "📁 Monitor Folders…",
+                Size = new Size(Math.Max(150, btnMonitorFolder.Width), btnMonitorFolder.Height),
+                Margin = btnMonitorFolder.Margin,
+                Font = btnMonitorFolder.Font
+            };
+            btnMonitorSources.Click += BtnMonitorSources_Click;
+
+            var parent = btnMonitorFolder.Parent!;
+            if (parent is FlowLayoutPanel)
+            {
+                parent.Controls.Add(btnMonitorSources);
+                parent.Controls.SetChildIndex(btnMonitorSources,
+                    parent.Controls.GetChildIndex(btnMonitorFolder));   // directly after the Monitor button
+            }
+            else
+            {
+                // absolute layout: place it to the right of the Monitor button
+                btnMonitorSources.Location = new Point(btnMonitorFolder.Right + 8, btnMonitorFolder.Top);
+                parent.Controls.Add(btnMonitorSources);
+                btnMonitorSources.BringToFront();
+            }
+
+            // Fallback that always works: right-click the Monitor button
+            var menu = new ContextMenuStrip();
+            menu.Items.Add("Monitor Folders…", null, BtnMonitorSources_Click);
+            btnMonitorFolder.ContextMenuStrip = menu;
+        }
         private sealed class ModelJson
         {
             public int RoiX { get; set; }
@@ -218,10 +263,229 @@ namespace Image_Checker.WinForm
         //  Start / stop
         // ─────────────────────────────────────────────────────────────────
 
+        //private void BtnMonitorFolder_Click(object sender, EventArgs e)
+        //{
+        //    if (_sources.Count == 0) StartFolderMonitoring();
+        //    else StopFolderMonitoring();
+        //}
+
+        //  private void StartFolderMonitoring()
+        //  {
+        //      LoadProfiles();
+        //      if (_profiles.Count == 0)
+        //      {
+        //          BtnMonitorSources_Click(this, EventArgs.Empty);
+        //          if (_profiles.Count == 0) return;
+        //      }
+
+        //      var failed = new List<string>();
+        //      _criticalMissCount = _falseAlarmCount = _abnormalCount = _checkedCount = _correctCount = 0;
+        //      _lastMonitorLine = "   Waiting for new images...";
+        //      _lastMonitorBack = SystemColors.Control;
+
+        //      _mainType = _activeModelType; _mainPredictor = _predictor; _mainTorch = _torchChecker;
+        //      _mainOnnx = _onnxChecker; _mainOneClass = _oneClassChecker;
+        //      _mainRoi = _roiRect; _mainSize = _trainingImageSize; _mainFolder = _monitoredFolder;
+        //      _hasMainSnapshot = true;
+
+        //      foreach (var p in _profiles.Where(p => p.Enabled))
+        //      {
+        //          // Base folder or model missing -> the user is asked to select it
+        //          if (!MonitorPathResolver.EnsureAvailable(this, p))
+        //          {
+        //              failed.Add($"{p.Name}: cancelled");
+        //              continue;
+        //          }
+
+        //          var s = new SourceRuntime { Profile = p };
+        //          try
+        //          {
+        //              if (!LoadModelForSource(s)) { failed.Add($"{p.Name}: model failed to load"); continue; }
+        //              _sources.Add(s);
+        //          }
+        //          catch (Exception ex)
+        //          {
+        //              failed.Add($"{p.Name}: {ex.Message}");
+        //          }
+        //      }
+
+        //      MonitorProfileStore.Save(AppContext.BaseDirectory, _profiles);   // keep corrected paths
+
+        //      if (_sources.Count == 0)
+        //      {
+        //          MessageBox.Show("No folder could be started.\n\n" + string.Join("\n", failed),
+        //              "Monitoring", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        //          return;
+        //      }
+
+        //      try
+        //      {
+        //          _processingTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+        //          _processingTimer.Tick += ProcessImageQueue;
+        //          _processingTimer.Start();
+
+        //          WarmTrainingStats();
+
+        //          btnMonitorFolder.Text = "👁️ Monitor Folder (ON)";
+        //          btnMonitorFolder.BackColor = Color.FromArgb(76, 175, 80);
+        //          ApplyMonitorStatus(force: true);
+
+        //          MessageBox.Show(
+        //$"Monitoring {_sources.Count} source(s):\n\n" +
+        //string.Join("\n", _sources.Select(s =>
+        //    $"• {s.Name}: {s.Profile.ResolveRoot(DateTime.Today)}" +
+        //    (s.Profile.UseDateFolders ? $"  (format {s.Profile.DateFormat})" : "  (scanned directly)"))) +
+        //(failed.Count > 0 ? "\n\nSkipped:\n" + string.Join("\n", failed) : "") +
+        //"\n\nDate-folder sources switch automatically at 00:00, even if the new folder appears later.\n" +
+        //"Only mismatches are listed in the grid.\n\n" +
+        //"🔴 Critical misses (NG → OK) trigger the USB light and red alert.",
+        //"Monitoring Active", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        //      }
+        //      catch (Exception ex)
+        //      {
+        //          MessageBox.Show($"Failed to start monitoring:\n\n{ex.Message}", "Error",
+        //              MessageBoxButtons.OK, MessageBoxIcon.Error);
+        //          StopFolderMonitoring();
+        //      }
+        //  }
+
+        //  private void StopFolderMonitoring()
+        //  {
+        //      foreach (var s in _sources)
+        //      {
+        //          if (s.Date != DateTime.MinValue && !SaveDailyInspectionSummary(s, s.Date.Date))
+        //              MessageBox.Show($"Unable to save the daily summary for '{s.Name}'.\nPlease check CSV file permissions.",
+        //                  "CSV Save Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
+        //          if (s.Monitor != null)
+        //          {
+        //              s.Monitor.Log -= OnMonitorEngineLog;
+        //              s.Monitor.Dispose();
+        //              s.Monitor = null;
+        //          }
+        //          s.DisposeModel();
+        //          // If your Predictor is IDisposable: s.Predictor?.Dispose();
+        //      }
+        //      _sources.Clear();
+        //      if (_hasMainSnapshot)
+        //      {
+        //          _activeModelType = _mainType; _predictor = _mainPredictor; _torchChecker = _mainTorch;
+        //          _onnxChecker = _mainOnnx; _oneClassChecker = _mainOneClass;
+        //          _roiRect = _mainRoi; _trainingImageSize = _mainSize;
+        //          _hasMainSnapshot = false;
+        //      }
+        //      if (_processingTimer != null)
+        //      {
+        //          _processingTimer.Stop();
+        //          _processingTimer.Dispose();
+        //          _processingTimer = null;
+        //      }
+
+        //      _monitoredFolder = null;
+        //      _abnormalCount = 0;
+
+        //      if (_usbLight != null && _usbLight.IsConnected) _usbLight.TurnOff();
+
+        //      btnMonitorFolder.Text = "👁️ Monitor Folder (OFF)";
+        //      btnMonitorFolder.BackColor = Color.FromArgb(156, 39, 176);
+        //      lblStatus.Text = "⏹️ Folder monitoring stopped";
+        //  }
+
+        // ─────────────────────────────────────────────────────────────────
+        //  Date rollover per source
+        // ─────────────────────────────────────────────────────────────────
+
+
+        private static string Sig(MonitorProfile p) =>
+    $"{p.FolderPath}|{p.ModelPath}|{p.UseDateFolders}|{p.DateFormat}";
+
         private void BtnMonitorFolder_Click(object sender, EventArgs e)
         {
-            if (_sources.Count == 0) StartFolderMonitoring();
+            if (_processingTimer == null) StartFolderMonitoring();
             else StopFolderMonitoring();
+        }
+
+        //private void BtnMonitorSources_Click(object? sender, EventArgs e)
+        //{
+        //    bool running = _processingTimer != null;
+        //    if (!running) LoadProfiles();          // while running, keep the in-memory list
+
+        //    using var dlg = new MonitorProfilesForm(_profiles.Select(p => p.Clone()));
+        //    if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+        //    _profiles = dlg.Profiles.ToList();
+        //    MonitorProfileStore.Save(AppContext.BaseDirectory, _profiles);
+        //    if (running) ApplyProfilesLive();
+        //}
+
+        private void ApplyProfilesLive()
+        {
+            var failed = new List<string>();
+
+            // stop sources that were removed, disabled or changed
+            foreach (var s in _sources.ToList())
+            {
+                var np = _profiles.FirstOrDefault(x => x.Id == s.Profile.Id);
+                if (np == null || !np.Enabled || Sig(np) != s.Signature) StopSource(s);
+                else s.Profile = np;               // picks up a renamed source
+            }
+
+            // start new / changed ones
+            foreach (var p in _profiles.Where(p => p.Enabled && !_sources.Any(s => s.Profile.Id == p.Id)))
+                TryStartSource(p, failed);
+
+            MonitorProfileStore.Save(AppContext.BaseDirectory, _profiles);   // keeps corrected paths
+            ApplyMonitorStatus(force: true);
+
+            if (failed.Count > 0)
+                MessageBox.Show("Could not start:\n\n" + string.Join("\n", failed),
+                    "Monitor Folders", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        private bool TryStartSource(MonitorProfile p, List<string> failed)
+        {
+            if (!MonitorPathResolver.EnsureAvailable(this, p)) { failed.Add($"{p.Name}: cancelled"); return false; }
+
+            var s = new SourceRuntime { Profile = p, Signature = Sig(p) };
+            try
+            {
+                if (!LoadModelForSource(s)) { s.DisposeModel(); failed.Add($"{p.Name}: model failed to load"); return false; }
+            }
+            catch (Exception ex) { s.DisposeModel(); failed.Add($"{p.Name}: {ex.Message}"); return false; }
+
+            _sources.Add(s);
+            WarmTrainingStats(s);
+            EnsureCurrentDateMonitor(s);           // start watching right away
+            s.Cts = new CancellationTokenSource();
+            s.Worker = Task.Factory.StartNew(() => RunWorker(s, s.Cts.Token),
+                s.Cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            return true;
+        }
+
+        private void StopSource(SourceRuntime s)
+        {
+            s.Cts?.Cancel();
+
+            // wait for the worker; DoEvents lets its UI calls finish so we cannot deadlock
+            var w = s.Worker;
+            var until = DateTime.UtcNow.AddSeconds(5);
+            while (w != null && !w.IsCompleted && DateTime.UtcNow < until)
+            {
+                Application.DoEvents();
+                Thread.Sleep(20);
+            }
+
+            if (s.Date != DateTime.MinValue) SaveDailyInspectionSummary(s, s.Date.Date);
+
+            if (s.Monitor != null)
+            {
+                s.Monitor.Log -= OnMonitorEngineLog;
+                s.Monitor.Dispose();
+                s.Monitor = null;
+            }
+            if (w == null || w.IsCompleted) s.DisposeModel();   // never dispose a model that is mid-prediction
+            s.Cts?.Dispose();
+            _sources.Remove(s);
         }
 
         private void StartFolderMonitoring()
@@ -238,33 +502,10 @@ namespace Image_Checker.WinForm
             _lastMonitorLine = "   Waiting for new images...";
             _lastMonitorBack = SystemColors.Control;
 
-            _mainType = _activeModelType; _mainPredictor = _predictor; _mainTorch = _torchChecker;
-            _mainOnnx = _onnxChecker; _mainOneClass = _oneClassChecker;
-            _mainRoi = _roiRect; _mainSize = _trainingImageSize; _mainFolder = _monitoredFolder;
-            _hasMainSnapshot = true;
-
             foreach (var p in _profiles.Where(p => p.Enabled))
-            {
-                // Base folder or model missing -> the user is asked to select it
-                if (!MonitorPathResolver.EnsureAvailable(this, p))
-                {
-                    failed.Add($"{p.Name}: cancelled");
-                    continue;
-                }
+                TryStartSource(p, failed);
 
-                var s = new SourceRuntime { Profile = p };
-                try
-                {
-                    if (!LoadModelForSource(s)) { failed.Add($"{p.Name}: model failed to load"); continue; }
-                    _sources.Add(s);
-                }
-                catch (Exception ex)
-                {
-                    failed.Add($"{p.Name}: {ex.Message}");
-                }
-            }
-
-            MonitorProfileStore.Save(AppContext.BaseDirectory, _profiles);   // keep corrected paths
+            MonitorProfileStore.Save(AppContext.BaseDirectory, _profiles);
 
             if (_sources.Count == 0)
             {
@@ -273,62 +514,29 @@ namespace Image_Checker.WinForm
                 return;
             }
 
-            try
-            {
-                _processingTimer = new System.Windows.Forms.Timer { Interval = 1000 };
-                _processingTimer.Tick += ProcessImageQueue;
-                _processingTimer.Start();
+            _processingTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+            _processingTimer.Tick += ProcessImageQueue;     // now only housekeeping, see section 5
+            _processingTimer.Start();
+            //WarmTrainingStats();
 
-                WarmTrainingStats();
+            btnMonitorFolder.Text = "👁️ Monitor Folder (ON)";
+            btnMonitorFolder.BackColor = Color.FromArgb(76, 175, 80);
+            ApplyMonitorStatus(force: true);
 
-                btnMonitorFolder.Text = "👁️ Monitor Folder (ON)";
-                btnMonitorFolder.BackColor = Color.FromArgb(76, 175, 80);
-                ApplyMonitorStatus(force: true);
-
-                MessageBox.Show(
-      $"Monitoring {_sources.Count} source(s):\n\n" +
-      string.Join("\n", _sources.Select(s =>
-          $"• {s.Name}: {s.Profile.ResolveRoot(DateTime.Today)}" +
-          (s.Profile.UseDateFolders ? $"  (format {s.Profile.DateFormat})" : "  (scanned directly)"))) +
-      (failed.Count > 0 ? "\n\nSkipped:\n" + string.Join("\n", failed) : "") +
-      "\n\nDate-folder sources switch automatically at 00:00, even if the new folder appears later.\n" +
-      "Only mismatches are listed in the grid.\n\n" +
-      "🔴 Critical misses (NG → OK) trigger the USB light and red alert.",
-      "Monitoring Active", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Failed to start monitoring:\n\n{ex.Message}", "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-                StopFolderMonitoring();
-            }
+            MessageBox.Show(
+                $"Monitoring {_sources.Count} source(s):\n\n" +
+                string.Join("\n", _sources.Select(s =>
+                    $"• {s.Name}: {s.Profile.ResolveRoot(DateTime.Today)}" +
+                    (s.Profile.UseDateFolders ? $"  (format {s.Profile.DateFormat})" : "  (scanned directly)"))) +
+                (failed.Count > 0 ? "\n\nSkipped:\n" + string.Join("\n", failed) : "") +
+                "\n\nYou can add or remove folders at any time with 'Monitor Folders…'.\n" +
+                "Only mismatches are listed in the grid.\n\n" +
+                "🔴 Critical misses (NG → OK) trigger the USB light and red alert.",
+                "Monitoring Active", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void StopFolderMonitoring()
         {
-            foreach (var s in _sources)
-            {
-                if (s.Date != DateTime.MinValue && !SaveDailyInspectionSummary(s, s.Date.Date))
-                    MessageBox.Show($"Unable to save the daily summary for '{s.Name}'.\nPlease check CSV file permissions.",
-                        "CSV Save Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-
-                if (s.Monitor != null)
-                {
-                    s.Monitor.Log -= OnMonitorEngineLog;
-                    s.Monitor.Dispose();
-                    s.Monitor = null;
-                }
-                s.DisposeModel();
-                // If your Predictor is IDisposable: s.Predictor?.Dispose();
-            }
-            _sources.Clear();
-            if (_hasMainSnapshot)
-            {
-                _activeModelType = _mainType; _predictor = _mainPredictor; _torchChecker = _mainTorch;
-                _onnxChecker = _mainOnnx; _oneClassChecker = _mainOneClass;
-                _roiRect = _mainRoi; _trainingImageSize = _mainSize;
-                _hasMainSnapshot = false;
-            }
             if (_processingTimer != null)
             {
                 _processingTimer.Stop();
@@ -336,19 +544,16 @@ namespace Image_Checker.WinForm
                 _processingTimer = null;
             }
 
+            foreach (var s in _sources.ToList()) StopSource(s);
+
             _monitoredFolder = null;
             _abnormalCount = 0;
-
             if (_usbLight != null && _usbLight.IsConnected) _usbLight.TurnOff();
 
             btnMonitorFolder.Text = "👁️ Monitor Folder (OFF)";
             btnMonitorFolder.BackColor = Color.FromArgb(156, 39, 176);
             lblStatus.Text = "⏹️ Folder monitoring stopped";
         }
-
-        // ─────────────────────────────────────────────────────────────────
-        //  Date rollover per source
-        // ─────────────────────────────────────────────────────────────────
 
         private bool EnsureCurrentDateMonitor(SourceRuntime s)
         {
@@ -427,210 +632,473 @@ namespace Image_Checker.WinForm
             folder.Equals("OK", StringComparison.OrdinalIgnoreCase) &&
             label.Equals("NG", StringComparison.OrdinalIgnoreCase);
 
+        //private void ProcessImageQueue(object? sender, EventArgs e)
+        //{
+        //    if (_isProcessingQueue) return;
+        //    if (_sources.Count == 0) return;
+
+        //    foreach (var c in _sources)
+        //        EnsureCurrentDateMonitor(c);
+
+        //    // Pick the next source that has a queued image
+        //    SourceRuntime? s = null;
+        //    for (int i = 0; i < _sources.Count; i++)
+        //    {
+        //        var c = _sources[(_rrIndex + i) % _sources.Count];
+        //        if (c.Dirty) SaveDailyInspectionSummary(c, c.Date);
+        //        if (c.Monitor != null && c.Monitor.QueueCount > 0)
+        //        {
+        //            s = c;
+        //            _rrIndex = (_rrIndex + i + 1) % _sources.Count;
+        //            break;
+        //        }
+        //    }
+
+        //    if (s == null) { ApplyMonitorStatus(force: false); return; }
+
+        //    ActivateSource(s);
+        //    var monitor = s.Monitor!;
+
+        //    _isProcessingQueue = true;
+        //    string imagePath = "";
+        //    var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        //    try
+        //    {
+        //        bool hasModel = s.Type switch
+        //        {
+        //            ModelType.MlNet => s.Predictor != null,
+        //            ModelType.TorchSharp => s.Torch != null,
+        //            ModelType.OneClass => s.OneClass != null,
+        //            _ => s.Onnx != null
+        //        };
+        //        if (!hasModel)
+        //        {
+        //            ShowMonitorProblem($"⚠️ [{s.Name}] No model loaded.");
+        //            return;
+        //        }
+
+        //        if (!monitor.TryDequeue(out imagePath)) return;
+
+        //        if (!File.Exists(imagePath))
+        //        {
+        //            s.Retries.Remove(imagePath);
+        //            return;
+        //        }
+
+        //        // Wait for the production system to finish writing the image
+        //        if (!FolderImageMonitor.IsFileReady(imagePath))
+        //        {
+        //            s.Retries.TryGetValue(imagePath, out int tries);
+        //            if (tries < 15)
+        //            {
+        //                s.Retries[imagePath] = tries + 1;
+        //                monitor.Requeue(imagePath);
+        //                _lastMonitorLine = $"   ⏳ [{s.Name}] Waiting for {Path.GetFileName(imagePath)} to finish writing (attempt {tries + 1}/15)...";
+        //                ApplyMonitorStatus(force: false);
+        //                if (tries == 0) LogDiag($"[{s.Name}] NOT READY (still being written): {imagePath}");
+        //            }
+        //            else
+        //            {
+        //                s.Retries.Remove(imagePath);
+        //                LogDiag($"[{s.Name}] GAVE UP (file stayed locked by a writer): {imagePath}");
+        //                _lastMonitorLine = $"   ❌ [{s.Name}] Gave up on {Path.GetFileName(imagePath)} - file stayed locked.";
+        //                ApplyMonitorStatus(force: false);
+        //            }
+        //            return;
+        //        }
+        //        s.Retries.Remove(imagePath);
+
+        //        // Ground truth is the parent class-folder name (OK / NG)
+        //        string groundTruth = new DirectoryInfo(Path.GetDirectoryName(imagePath)!).Name;
+        //        string processedPath = PreprocessForPrediction(imagePath);
+        //        bool isTempFile = !string.Equals(processedPath, imagePath, StringComparison.OrdinalIgnoreCase);
+
+        //        (string Label, float Confidence) prediction;
+        //        Explanation? why = null;
+        //        try
+        //        {
+        //            prediction = PredictAny(processedPath);
+        //            string predictedForExplain = (prediction.Label ?? "").Trim().Trim('"');
+
+        //            if (IsCriticalMissPair(groundTruth, predictedForExplain) ||
+        //                IsFalseAlarmPair(groundTruth, predictedForExplain))
+        //            {
+        //                try { why = QuickExplain(processedPath, imagePath, groundTruth); }
+        //                catch (Exception ex) { LogDiag($"[{s.Name}] EXPLAIN ERROR {Path.GetFileName(imagePath)}: {ex.Message}"); }
+        //            }
+        //        }
+        //        finally
+        //        {
+        //            if (isTempFile && File.Exists(processedPath))
+        //                File.Delete(processedPath);
+        //        }
+
+        //        var (label, confidence) = prediction;
+        //        string cleanLabel = label?.Trim().Trim('"') ?? "Unknown";
+        //        string fileName = Path.GetFileName(imagePath);
+        //        string shownPath = imagePath;
+
+        //        bool isCriticalMiss = IsCriticalMissPair(groundTruth, cleanLabel);
+        //        bool isFalseAlarm = IsFalseAlarmPair(groundTruth, cleanLabel);
+        //        bool isKnownClass = groundTruth.Equals("OK", StringComparison.OrdinalIgnoreCase) ||
+        //                            groundTruth.Equals("NG", StringComparison.OrdinalIgnoreCase);
+        //        bool isKnownPrediction = cleanLabel.Equals("OK", StringComparison.OrdinalIgnoreCase) ||
+        //                                 cleanLabel.Equals("NG", StringComparison.OrdinalIgnoreCase);
+        //        bool isCorrect = isKnownClass && isKnownPrediction && !isCriticalMiss && !isFalseAlarm &&
+        //                         groundTruth.Equals(cleanLabel, StringComparison.OrdinalIgnoreCase);
+
+        //        string verdict = isCriticalMiss ? "🔴 Critical miss"
+        //                       : isFalseAlarm ? "🟡 False alarm"
+        //                       : isCorrect ? "✅ Correct"
+        //                       : "⚠️ Unknown / unsupported label";
+        //        string whyShort = why?.OneLine ?? "";
+
+        //        _checkedCount++;
+        //        s.Checked++;
+        //        if (isCorrect) { _correctCount++; s.Correct++; }
+        //        else if (isCriticalMiss) s.CriticalMisses++;
+        //        else if (isFalseAlarm) s.FalseAlarms++;
+
+        //        s.Dirty = true;
+        //        SaveDailyInspectionSummary(s, DateTime.Today);
+
+        //        if (!isCorrect)
+        //        {
+        //            string sourceName = s.Name;
+        //            Invoke(new Action(() => AddMonitoredRow(new ImageResult
+        //            {
+        //                FileName = fileName,
+        //                ImagePath = shownPath,
+        //                Subfolder = groundTruth,
+        //                PredictedLabel = cleanLabel,
+        //                CorrectedLabel = cleanLabel,
+        //                Confidence = confidence,
+        //                Verdict = verdict,
+        //                Why = $"[{sourceName}] {whyShort}"
+        //            })));
+
+        //            if (isCriticalMiss || isFalseAlarm)
+        //                LogMismatch(s, isCriticalMiss, fileName, shownPath, groundTruth, cleanLabel, confidence, why);
+
+        //            if ((isCriticalMiss || isFalseAlarm) && confidence > 0.80f)
+        //            {
+        //                try { MoveHighConfidenceMismatch(s, imagePath, groundTruth, cleanLabel, confidence); }
+        //                catch (Exception ex) { LogDiag($"[{s.Name}] IMAGE COPY ERROR: {imagePath} | {ex.Message}"); }
+        //            }
+        //            else if (!isCriticalMiss && !isFalseAlarm)
+        //            {
+        //                LogDiag($"[{s.Name}] UNSUPPORTED LABEL: {fileName} folder={groundTruth} prediction={cleanLabel}");
+        //            }
+        //        }
+
+        //        string tag = $"[{s.Name}] ";
+        //        if (isCriticalMiss)
+        //        {
+        //            _criticalMissCount++;
+        //            _abnormalCount++;
+        //            if (_usbLight != null && _usbLight.IsConnected) _usbLight.TurnOn();
+        //            Invoke(new Action(() => FlashCriticalAlert(shownPath, fileName, confidence)));
+        //        }
+        //        else if (isFalseAlarm)
+        //        {
+        //            _falseAlarmCount++;
+        //            string reason = whyShort.Length > 0 ? " Why: " + whyShort + "." : "";
+        //            Invoke(new Action(() => ShowMonitorSummary(
+        //                $"   Last: {tag}{fileName} is in OK but predicted NG ({MismatchExplainer.Pct(confidence)}).{reason} Double-click its row for details.",
+        //                Color.FromArgb(255, 248, 220))));
+        //        }
+        //        else if (isCorrect)
+        //        {
+        //            if (_criticalMissCount == 0 && _usbLight != null && _usbLight.IsConnected)
+        //                _usbLight.TurnOff();
+        //            Invoke(new Action(() => ShowMonitorSummary(
+        //                $"   Last: {tag}{fileName} → {cleanLabel} ({MismatchExplainer.Pct(confidence)}) matches folder {groundTruth}",
+        //                Color.FromArgb(232, 245, 233))));
+        //        }
+        //        else
+        //        {
+        //            Invoke(new Action(() => ShowMonitorSummary(
+        //                $"   Last: {tag}{fileName} has unsupported folder/prediction: {groundTruth} → {cleanLabel}",
+        //                Color.FromArgb(255, 235, 238))));
+        //        }
+
+        //        LogDiag($"[{s.Name}] PROCESSED {fileName} folder={groundTruth} pred={cleanLabel} " +
+        //                $"{confidence:P1} {verdict} | {sw.ElapsedMilliseconds} ms | rows={_results.Count}");
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        LogDiag($"[{s.Name}] ERROR {Path.GetFileName(imagePath)}: {ex}");
+        //        try { ShowMonitorProblem($"❌ [{s.Name}] Error on {Path.GetFileName(imagePath)}: {ex.Message}"); } catch { }
+        //    }
+        //    finally
+        //    {
+        //        _isProcessingQueue = false;
+        //    }
+        //}
+
+        private DateTime _lastSummarySave = DateTime.MinValue;
+
         private void ProcessImageQueue(object? sender, EventArgs e)
         {
-            if (_isProcessingQueue) return;
-            if (_sources.Count == 0) return;
+            foreach (var c in _sources.ToList()) EnsureCurrentDateMonitor(c);
 
-            foreach (var c in _sources)
-                EnsureCurrentDateMonitor(c);
-
-            // Pick the next source that has a queued image
-            SourceRuntime? s = null;
-            for (int i = 0; i < _sources.Count; i++)
+            if ((DateTime.Now - _lastSummarySave).TotalSeconds >= 5)
             {
-                var c = _sources[(_rrIndex + i) % _sources.Count];
-                if (c.Dirty) SaveDailyInspectionSummary(c, c.Date);
-                if (c.Monitor != null && c.Monitor.QueueCount > 0)
-                {
-                    s = c;
-                    _rrIndex = (_rrIndex + i + 1) % _sources.Count;
-                    break;
-                }
+                _lastSummarySave = DateTime.Now;
+                foreach (var c in _sources)
+                    if (c.Dirty) SaveDailyInspectionSummary(c, c.Date);
             }
 
-            if (s == null) { ApplyMonitorStatus(force: false); return; }
+            ApplyMonitorStatus(force: false);
+        }
 
-            ActivateSource(s);
-            var monitor = s.Monitor!;
+        private void Post(Action a)
+        {
+            try { if (IsHandleCreated && !IsDisposed) BeginInvoke(a); } catch { }
+        }
 
-            _isProcessingQueue = true;
-            string imagePath = "";
-            var sw = System.Diagnostics.Stopwatch.StartNew();
+        // ───────── one worker per source ─────────
+        private void RunWorker(SourceRuntime s, CancellationToken ct)
+        {
+            var tries = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-            try
+            while (!ct.IsCancellationRequested)
             {
-                bool hasModel = s.Type switch
+                var m = s.Monitor;                       // may be replaced at midnight
+                if (m == null || !m.TryDequeue(out string path))
                 {
-                    ModelType.MlNet => s.Predictor != null,
-                    ModelType.TorchSharp => s.Torch != null,
-                    ModelType.OneClass => s.OneClass != null,
-                    _ => s.Onnx != null
-                };
-                if (!hasModel)
-                {
-                    ShowMonitorProblem($"⚠️ [{s.Name}] No model loaded.");
-                    return;
+                    ct.WaitHandle.WaitOne(100);
+                    continue;
                 }
 
-                if (!monitor.TryDequeue(out imagePath)) return;
-
-                if (!File.Exists(imagePath))
+                try { ProcessOne(s, m, path, tries); }
+                catch (Exception ex)
                 {
-                    s.Retries.Remove(imagePath);
-                    return;
+                    LogDiag($"[{s.Name}] ERROR {Path.GetFileName(path)}: {ex}");
+                    Post(() => ShowMonitorProblem($"❌ [{s.Name}] Error on {Path.GetFileName(path)}: {ex.Message}"));
                 }
+            }
+        }
 
-                // Wait for the production system to finish writing the image
-                if (!FolderImageMonitor.IsFileReady(imagePath))
+        private void ProcessOne(SourceRuntime s, FolderImageMonitor m, string imagePath, Dictionary<string, int> tries)
+        {
+            var sw = Stopwatch.StartNew();
+
+            if (!File.Exists(imagePath)) { tries.Remove(imagePath); return; }
+
+            // still being written: put it back and move on
+            if (!FolderImageMonitor.IsFileReady(imagePath))
+            {
+                tries.TryGetValue(imagePath, out int n);
+                if (n < 30)
                 {
-                    s.Retries.TryGetValue(imagePath, out int tries);
-                    if (tries < 15)
-                    {
-                        s.Retries[imagePath] = tries + 1;
-                        monitor.Requeue(imagePath);
-                        _lastMonitorLine = $"   ⏳ [{s.Name}] Waiting for {Path.GetFileName(imagePath)} to finish writing (attempt {tries + 1}/15)...";
-                        ApplyMonitorStatus(force: false);
-                        if (tries == 0) LogDiag($"[{s.Name}] NOT READY (still being written): {imagePath}");
-                    }
-                    else
-                    {
-                        s.Retries.Remove(imagePath);
-                        LogDiag($"[{s.Name}] GAVE UP (file stayed locked by a writer): {imagePath}");
-                        _lastMonitorLine = $"   ❌ [{s.Name}] Gave up on {Path.GetFileName(imagePath)} - file stayed locked.";
-                        ApplyMonitorStatus(force: false);
-                    }
-                    return;
-                }
-                s.Retries.Remove(imagePath);
-
-                // Ground truth is the parent class-folder name (OK / NG)
-                string groundTruth = new DirectoryInfo(Path.GetDirectoryName(imagePath)!).Name;
-                string processedPath = PreprocessForPrediction(imagePath);
-                bool isTempFile = !string.Equals(processedPath, imagePath, StringComparison.OrdinalIgnoreCase);
-
-                (string Label, float Confidence) prediction;
-                Explanation? why = null;
-                try
-                {
-                    prediction = PredictAny(processedPath);
-                    string predictedForExplain = (prediction.Label ?? "").Trim().Trim('"');
-
-                    if (IsCriticalMissPair(groundTruth, predictedForExplain) ||
-                        IsFalseAlarmPair(groundTruth, predictedForExplain))
-                    {
-                        try { why = QuickExplain(processedPath, imagePath, groundTruth); }
-                        catch (Exception ex) { LogDiag($"[{s.Name}] EXPLAIN ERROR {Path.GetFileName(imagePath)}: {ex.Message}"); }
-                    }
-                }
-                finally
-                {
-                    if (isTempFile && File.Exists(processedPath))
-                        File.Delete(processedPath);
-                }
-
-                var (label, confidence) = prediction;
-                string cleanLabel = label?.Trim().Trim('"') ?? "Unknown";
-                string fileName = Path.GetFileName(imagePath);
-                string shownPath = imagePath;
-
-                bool isCriticalMiss = IsCriticalMissPair(groundTruth, cleanLabel);
-                bool isFalseAlarm = IsFalseAlarmPair(groundTruth, cleanLabel);
-                bool isKnownClass = groundTruth.Equals("OK", StringComparison.OrdinalIgnoreCase) ||
-                                    groundTruth.Equals("NG", StringComparison.OrdinalIgnoreCase);
-                bool isKnownPrediction = cleanLabel.Equals("OK", StringComparison.OrdinalIgnoreCase) ||
-                                         cleanLabel.Equals("NG", StringComparison.OrdinalIgnoreCase);
-                bool isCorrect = isKnownClass && isKnownPrediction && !isCriticalMiss && !isFalseAlarm &&
-                                 groundTruth.Equals(cleanLabel, StringComparison.OrdinalIgnoreCase);
-
-                string verdict = isCriticalMiss ? "🔴 Critical miss"
-                               : isFalseAlarm ? "🟡 False alarm"
-                               : isCorrect ? "✅ Correct"
-                               : "⚠️ Unknown / unsupported label";
-                string whyShort = why?.OneLine ?? "";
-
-                _checkedCount++;
-                s.Checked++;
-                if (isCorrect) { _correctCount++; s.Correct++; }
-                else if (isCriticalMiss) s.CriticalMisses++;
-                else if (isFalseAlarm) s.FalseAlarms++;
-
-                s.Dirty = true;
-                SaveDailyInspectionSummary(s, DateTime.Today);
-
-                if (!isCorrect)
-                {
-                    string sourceName = s.Name;
-                    Invoke(new Action(() => AddMonitoredRow(new ImageResult
-                    {
-                        FileName = fileName,
-                        ImagePath = shownPath,
-                        Subfolder = groundTruth,
-                        PredictedLabel = cleanLabel,
-                        CorrectedLabel = cleanLabel,
-                        Confidence = confidence,
-                        Verdict = verdict,
-                        Why = $"[{sourceName}] {whyShort}"
-                    })));
-
-                    if (isCriticalMiss || isFalseAlarm)
-                        LogMismatch(s, isCriticalMiss, fileName, shownPath, groundTruth, cleanLabel, confidence, why);
-
-                    if ((isCriticalMiss || isFalseAlarm) && confidence > 0.80f)
-                    {
-                        try { MoveHighConfidenceMismatch(s, imagePath, groundTruth, cleanLabel, confidence); }
-                        catch (Exception ex) { LogDiag($"[{s.Name}] IMAGE COPY ERROR: {imagePath} | {ex.Message}"); }
-                    }
-                    else if (!isCriticalMiss && !isFalseAlarm)
-                    {
-                        LogDiag($"[{s.Name}] UNSUPPORTED LABEL: {fileName} folder={groundTruth} prediction={cleanLabel}");
-                    }
-                }
-
-                string tag = $"[{s.Name}] ";
-                if (isCriticalMiss)
-                {
-                    _criticalMissCount++;
-                    _abnormalCount++;
-                    if (_usbLight != null && _usbLight.IsConnected) _usbLight.TurnOn();
-                    Invoke(new Action(() => FlashCriticalAlert(shownPath, fileName, confidence)));
-                }
-                else if (isFalseAlarm)
-                {
-                    _falseAlarmCount++;
-                    string reason = whyShort.Length > 0 ? " Why: " + whyShort + "." : "";
-                    Invoke(new Action(() => ShowMonitorSummary(
-                        $"   Last: {tag}{fileName} is in OK but predicted NG ({MismatchExplainer.Pct(confidence)}).{reason} Double-click its row for details.",
-                        Color.FromArgb(255, 248, 220))));
-                }
-                else if (isCorrect)
-                {
-                    if (_criticalMissCount == 0 && _usbLight != null && _usbLight.IsConnected)
-                        _usbLight.TurnOff();
-                    Invoke(new Action(() => ShowMonitorSummary(
-                        $"   Last: {tag}{fileName} → {cleanLabel} ({MismatchExplainer.Pct(confidence)}) matches folder {groundTruth}",
-                        Color.FromArgb(232, 245, 233))));
+                    tries[imagePath] = n + 1;
+                    m.Requeue(imagePath);
+                    if (n == 0) LogDiag($"[{s.Name}] NOT READY (still being written): {imagePath}");
+                    Thread.Sleep(200);
                 }
                 else
                 {
-                    Invoke(new Action(() => ShowMonitorSummary(
-                        $"   Last: {tag}{fileName} has unsupported folder/prediction: {groundTruth} → {cleanLabel}",
-                        Color.FromArgb(255, 235, 238))));
+                    tries.Remove(imagePath);
+                    LogDiag($"[{s.Name}] GAVE UP (file stayed locked by a writer): {imagePath}");
                 }
-
-                LogDiag($"[{s.Name}] PROCESSED {fileName} folder={groundTruth} pred={cleanLabel} " +
-                        $"{confidence:P1} {verdict} | {sw.ElapsedMilliseconds} ms | rows={_results.Count}");
+                return;
             }
-            catch (Exception ex)
+            tries.Remove(imagePath);
+
+            string groundTruth = new DirectoryInfo(Path.GetDirectoryName(imagePath)!).Name;
+            string processed = PreprocessFor(s, imagePath);
+            bool isTemp = !string.Equals(processed, imagePath, StringComparison.OrdinalIgnoreCase);
+            string posDetail = "";
+            (string Label, float Confidence) pred;
+            Explanation? why = null;
+            try
             {
-                LogDiag($"[{s.Name}] ERROR {Path.GetFileName(imagePath)}: {ex}");
-                try { ShowMonitorProblem($"❌ [{s.Name}] Error on {Path.GetFileName(imagePath)}: {ex.Message}"); } catch { }
+                pred = PredictFor(s, processed, out posDetail);
+                string lab = (pred.Label ?? "").Trim().Trim('"');
+
+                if (IsCriticalMissPair(groundTruth, lab) || IsFalseAlarmPair(groundTruth, lab))
+                {
+                    // QuickExplain uses the form's fields: run it on the UI thread with this source swapped in
+                    try { why = QuickExplainFor(s, processed, imagePath, groundTruth); }
+                    catch (Exception ex) { LogDiag($"[{s.Name}] EXPLAIN ERROR {Path.GetFileName(imagePath)}: {ex.Message}"); }
+                }
             }
             finally
             {
-                _isProcessingQueue = false;
+                if (isTemp && File.Exists(processed)) File.Delete(processed);
+            }
+
+            float confidence = pred.Confidence;
+            string cleanLabel = pred.Label?.Trim().Trim('"') ?? "Unknown";
+            string fileName = Path.GetFileName(imagePath);
+
+            bool isCriticalMiss = IsCriticalMissPair(groundTruth, cleanLabel);
+            bool isFalseAlarm = IsFalseAlarmPair(groundTruth, cleanLabel);
+            bool isKnownClass = groundTruth.Equals("OK", StringComparison.OrdinalIgnoreCase) ||
+                                groundTruth.Equals("NG", StringComparison.OrdinalIgnoreCase);
+            bool isKnownPred = cleanLabel.Equals("OK", StringComparison.OrdinalIgnoreCase) ||
+                               cleanLabel.Equals("NG", StringComparison.OrdinalIgnoreCase);
+            bool isCorrect = isKnownClass && isKnownPred && !isCriticalMiss && !isFalseAlarm &&
+                             groundTruth.Equals(cleanLabel, StringComparison.OrdinalIgnoreCase);
+
+            string verdict = isCriticalMiss ? "🔴 Critical miss"
+                           : isFalseAlarm ? "🟡 False alarm"
+                           : isCorrect ? "✅ Correct"
+                           : "⚠️ Unknown / unsupported label";
+
+            // slow disk work stays on the worker
+            if (isCriticalMiss || isFalseAlarm)
+            {
+                LogMismatch(s, isCriticalMiss, fileName, imagePath, groundTruth, cleanLabel, confidence, why);
+                if (confidence > 0.80f)
+                {
+                    try { MoveHighConfidenceMismatch(s, imagePath, groundTruth, cleanLabel, confidence); }
+                    catch (Exception ex) { LogDiag($"[{s.Name}] IMAGE COPY ERROR: {imagePath} | {ex.Message}"); }
+                }
+            }
+            else if (!isCorrect)
+                LogDiag($"[{s.Name}] UNSUPPORTED LABEL: {fileName} folder={groundTruth} prediction={cleanLabel}");
+
+            string whyShort = why?.OneLine ?? posDetail;
+            Post(() => ApplyResult(s, fileName, imagePath, groundTruth, cleanLabel, confidence,
+                                   verdict, whyShort, isCorrect, isCriticalMiss, isFalseAlarm));
+
+            LogDiag($"[{s.Name}] PROCESSED {fileName} folder={groundTruth} pred={cleanLabel} " +
+                    $"{confidence:P1} {verdict} | {sw.ElapsedMilliseconds} ms | queue={m.QueueCount}");
+        }
+
+        // ───────── UI part (counters, grid, alerts) ─────────
+        private void ApplyResult(SourceRuntime s, string fileName, string imagePath, string groundTruth,
+            string cleanLabel, float confidence, string verdict, string whyShort,
+            bool isCorrect, bool isCriticalMiss, bool isFalseAlarm)
+        {
+            if (!_sources.Contains(s)) return;       // source was removed in the meantime
+
+            _checkedCount++; s.Checked++;
+            if (isCorrect) { _correctCount++; s.Correct++; }
+            else if (isCriticalMiss) s.CriticalMisses++;
+            else if (isFalseAlarm) s.FalseAlarms++;
+            s.Dirty = true;                          // saved by the 5-second timer
+
+            if (!isCorrect)
+            {
+                AddMonitoredRow(new ImageResult
+                {
+                    FileName = fileName,
+                    ImagePath = imagePath,
+                    Subfolder = groundTruth,
+                    PredictedLabel = cleanLabel,
+                    CorrectedLabel = cleanLabel,
+                    Confidence = confidence,
+                    Verdict = verdict,
+                    Why = $"[{s.Name}] {whyShort}",
+                    SourceId = s.Profile.Id
+                });
+            }
+
+            string tag = $"[{s.Name}] ";
+            if (isCriticalMiss)
+            {
+                _criticalMissCount++;
+                _abnormalCount++;
+                if (_usbLight != null && _usbLight.IsConnected) _usbLight.TurnOn();
+                FlashCriticalAlert(imagePath, fileName, confidence);
+            }
+            else if (isFalseAlarm)
+            {
+                _falseAlarmCount++;
+                string reason = whyShort.Length > 0 ? " Why: " + whyShort + "." : "";
+                ShowMonitorSummary(
+                    $"   Last: {tag}{fileName} is in OK but predicted NG ({MismatchExplainer.Pct(confidence)}).{reason} Double-click its row for details.",
+                    Color.FromArgb(255, 248, 220));
+            }
+            else if (isCorrect)
+            {
+                if (_criticalMissCount == 0 && _usbLight != null && _usbLight.IsConnected) _usbLight.TurnOff();
+                ShowMonitorSummary(
+                    $"   Last: {tag}{fileName} → {cleanLabel} ({MismatchExplainer.Pct(confidence)}) matches folder {groundTruth}",
+                    Color.FromArgb(232, 245, 233));
+            }
+            else
+            {
+                ShowMonitorSummary(
+                    $"   Last: {tag}{fileName} has unsupported folder/prediction: {groundTruth} → {cleanLabel}",
+                    Color.FromArgb(255, 235, 238));
             }
         }
+
+        // ───────── per-source helpers (they never touch the form's model fields) ─────────
+        private static string PreprocessFor(SourceRuntime s, string imagePath)
+        {
+            if (s.Positions.Count > 0 || s.Roi == Rectangle.Empty) return imagePath;
+            if (s.Roi == Rectangle.Empty) return imagePath;
+
+            using var bmp = new Bitmap(imagePath);
+            int x = Math.Max(0, Math.Min(s.Roi.X, bmp.Width - s.Roi.Width));
+            int y = Math.Max(0, Math.Min(s.Roi.Y, bmp.Height - s.Roi.Height));
+            var safe = new Rectangle(x, y, Math.Min(s.Roi.Width, bmp.Width), Math.Min(s.Roi.Height, bmp.Height));
+
+            using var cropped = bmp.Clone(safe, bmp.PixelFormat);
+            string tmp = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".png");
+            cropped.Save(tmp, ImageFormat.Png);
+            return tmp;
+        }
+
+        private static (string Label, float Confidence) PredictOne(SourceRuntime s, string path)
+        {
+            switch (s.Type)
+            {
+                case ModelType.TorchSharp:
+                    { var r = s.Torch!.Predict(path); return (r.Label, r.Confidence); }
+                case ModelType.Onnx:
+                    { var r = s.Onnx!.Predict(path); return (r.Label, r.Confidence); }
+                case ModelType.OneClass:
+                    { var r = s.OneClass!.Predict(path); return (r.Label, r.Confidence); }
+                default:
+                    return s.Predictor!.PredictWithConfidence(path);
+            }
+        }
+
+        private static (string Label, float Confidence) PredictFor(SourceRuntime s, string path, out string detail)
+        {
+            detail = "";
+            if (s.Positions.Count == 0) return PredictOne(s, path);
+
+            var results = new List<(string, string, float)>();
+            foreach (var (pos, tmp) in PositionCropper.CropToTemp(path, s.Positions))
+            {
+                try
+                {
+                    var r = PredictOne(s, tmp);
+                    results.Add((pos.Name, (r.Label ?? "").Trim().Trim('"'), r.Confidence));
+                }
+                finally { try { File.Delete(tmp); } catch { } }
+            }
+            var a = PositionCropper.Aggregate(results);
+            detail = a.Detail;
+            return (a.Label, a.Confidence);
+        }
+
+        // Swaps the source in only for the duration of the call, then puts the main model back
+        //private Explanation? ExplainFor(SourceRuntime s, string processed, string imagePath, string groundTruth)
+        //{
+        //    var oType = _activeModelType; var oP = _predictor; var oT = _torchChecker;
+        //    var oO = _onnxChecker; var oC = _oneClassChecker;
+        //    var oRoi = _roiRect; var oSize = _trainingImageSize; var oFolder = _monitoredFolder;
+        //    try
+        //    {
+        //        ActivateSource(s);
+        //        return QuickExplain(processed, imagePath, groundTruth);
+        //    }
+        //    finally
+        //    {
+        //        _activeModelType = oType; _predictor = oP; _torchChecker = oT;
+        //        _onnxChecker = oO; _oneClassChecker = oC;
+        //        _roiRect = oRoi; _trainingImageSize = oSize; _monitoredFolder = oFolder;
+        //    }
+        //}
 
         // ─────────────────────────────────────────────────────────────────
         //  Daily summary CSV (one row per source per day)

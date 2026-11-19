@@ -576,6 +576,7 @@ namespace Image_Checker.Services
             public int RoiH { get; set; }
             public int ImageWidth { get; set; } = 224;
             public int ImageHeight { get; set; } = 224;
+            public List<ScrewPosition>? Positions { get; set; }
         }
     }
 }

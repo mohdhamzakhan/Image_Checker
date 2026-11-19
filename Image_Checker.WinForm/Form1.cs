@@ -1,5 +1,6 @@
 ﻿using Image_Checker.Services;
 using System.IO;
+using System.Runtime.Versioning;
 using System.Text;
 using System.Threading;
 using static Image_Checker.Services.IncrementalModelTrainer;
@@ -48,6 +49,7 @@ namespace Image_Checker.WinForm
         public Form1()
         {
             InitializeComponent();
+            EnsureMonitorSourcesButton();
             LoadConfiguration();
 
             _usbLight = new UsbLightController();
@@ -1399,7 +1401,57 @@ namespace Image_Checker.WinForm
                 }
             }
         }
+        [SupportedOSPlatform("Windows10.0.19041")]
+        private async void MenuTrainScrewModel_Click(object? sender, EventArgs e)
+        {
+            string? raw = PromptForFolder("Select the ScrewRaw folder (contains positions.json and OK / Missing_S1 ... folders)");
+            if (raw == null) return;
 
+            string dataset = Path.Combine(raw, "Dataset");
+            try
+            {
+                var cfg = ScrewDatasetBuilder.LoadConfig(raw);
+
+                if (Directory.Exists(dataset) &&
+                    MessageBox.Show("Dataset folder exists and will be rebuilt. Continue?", "Train",
+                        MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                if (Directory.Exists(dataset)) Directory.Delete(dataset, true);
+
+                progressBar.Visible = true; progressBar.Style = ProgressBarStyle.Marquee;
+                lblStatus.Text = "✂️ Cutting crops...";
+                var startedAt = DateTime.Now;
+                string? model = null;
+
+                await Task.Run(() =>
+                {
+                    var counts = ScrewDatasetBuilder.Build(raw, dataset, cfg, m => Console.WriteLine(m));
+                    foreach (var kv in counts) Console.WriteLine($"   {kv.Key}: {kv.Value} crops");
+                    if (counts.Count < 2)
+                        throw new InvalidOperationException("Need at least two classes (OK plus Missing or Other).");
+
+                    DataValidator.CreateCsv(dataset);        // images.csv from the class folders
+                    new ModelTrainer(new Microsoft.ML.MLContext(), dataset, Rectangle.Empty)
+                        .TrainAndEvaluate(imageWidth: cfg.ImageWidth, imageHeight: cfg.ImageHeight);
+
+                    model = Directory.GetFiles(dataset, "bestModel-*.zip")
+                        .Select(f => new FileInfo(f)).Where(f => f.LastWriteTime >= startedAt.AddSeconds(-1))
+                        .OrderByDescending(f => f.LastWriteTime).Select(f => f.FullName).FirstOrDefault();
+                    if (model == null) throw new InvalidOperationException("No model file was produced.");
+
+                    ScrewDatasetBuilder.PatchModelJson(model, cfg);
+                });
+
+                lblStatus.Text = $"✅ Screw model trained: {Path.GetFileName(model)}";
+                MessageBox.Show($"Model saved:\n{model}\n\nAdd it in 'Monitor Folders…' as the model for the screw-line folder.",
+                    "Training complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                lblStatus.Text = $"❌ Training failed: {ex.Message}";
+                MessageBox.Show(ex.Message, "Training failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally { progressBar.Visible = false; }
+        }
         private void BtnCorrect_Click(object sender, EventArgs e)
         {
             if (_correctionManager == null)
@@ -3360,6 +3412,7 @@ namespace Image_Checker.WinForm
             public float Confidence { get; set; }
             public string? Verdict { get; set; }
             public string? Why { get; set; }
+            public string? SourceId { get; set; }
         }
     }
 }
