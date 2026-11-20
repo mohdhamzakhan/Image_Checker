@@ -715,7 +715,7 @@ namespace Image_Checker.WinForm
                                 _basePath = parts[1].Trim();
                             else if (parts[0].Trim() == "ModelPath")
                                 _modelPath = parts[1].Trim();
-                            else if(parts[0].Trim() == "ModelBasePath")
+                            else if (parts[0].Trim() == "ModelBasePath")
                                 _monitorBasePath = parts[1].Trim();
                         }
                     }
@@ -3413,6 +3413,12 @@ namespace Image_Checker.WinForm
             public string? Verdict { get; set; }
             public string? Why { get; set; }
             public string? SourceId { get; set; }
+        }
+
+        private void screwPositionToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            using var f = new Image_Checker.WinForm.ScrewPositionEditorForm();
+            f.ShowDialog(this);
         }
     }
 }

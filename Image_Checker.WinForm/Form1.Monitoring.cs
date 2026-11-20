@@ -78,6 +78,7 @@ namespace Image_Checker.WinForm
         private Rectangle _mainRoi;
         private Size _mainSize;
         private string? _mainFolder;
+        private static readonly object _predictionCsvLock = new();
 
         // ─────────────────────────────────────────────────────────────────
         //  Model hooks  (the only part that needs YOUR existing code)
@@ -962,8 +963,31 @@ namespace Image_Checker.WinForm
                 LogDiag($"[{s.Name}] UNSUPPORTED LABEL: {fileName} folder={groundTruth} prediction={cleanLabel}");
 
             string whyShort = why?.OneLine ?? posDetail;
-            Post(() => ApplyResult(s, fileName, imagePath, groundTruth, cleanLabel, confidence,
-                                   verdict, whyShort, isCorrect, isCriticalMiss, isFalseAlarm));
+            // Save every ML prediction, including correct predictions.
+            SavePredictionToCsv(
+                s,
+                fileName,
+                imagePath,
+                groundTruth,
+                cleanLabel,
+                confidence,
+                verdict,
+                whyShort,
+                sw.ElapsedMilliseconds);
+
+            // Update UI
+            Post(() => ApplyResult(
+                s,
+                fileName,
+                imagePath,
+                groundTruth,
+                cleanLabel,
+                confidence,
+                verdict,
+                whyShort,
+                isCorrect,
+                isCriticalMiss,
+                isFalseAlarm));
 
             LogDiag($"[{s.Name}] PROCESSED {fileName} folder={groundTruth} pred={cleanLabel} " +
                     $"{confidence:P1} {verdict} | {sw.ElapsedMilliseconds} ms | queue={m.QueueCount}");
@@ -1377,6 +1401,83 @@ namespace Image_Checker.WinForm
                 grid.ClearSelection();
                 try { grid.FirstDisplayedScrollingRowIndex = grid.Rows.Count - 1; }
                 catch { }
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        //  Save Prediction
+        // ─────────────────────────────────────────────────────────────────
+        private void SavePredictionToCsv(
+    SourceRuntime s,
+    string fileName,
+    string imagePath,
+    string actualLabel,
+    string predictedLabel,
+    float confidence,
+    string verdict,
+    string explanation,
+    long processingTimeMs)
+        {
+            try
+            {
+                string safeSource = string.Concat(
+                    s.Name.Select(ch =>
+                        Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
+
+                string dateFolder = DateTime.Now.ToString("yyyy-MM-dd");
+
+                string directory = Path.Combine(
+                    AppContext.BaseDirectory,
+                    "PredictionHistory",
+                    safeSource);
+
+                Directory.CreateDirectory(directory);
+
+                string csvPath = Path.Combine(directory, dateFolder + ".csv");
+
+                const string header =
+                    "Timestamp,Source,FileName,ImagePath,ActualLabel," +
+                    "PredictedLabel,Confidence,Verdict,Explanation,ProcessingTimeMs";
+
+                string Escape(string? value)
+                {
+                    value ??= "";
+                    return "\"" + value.Replace("\"", "\"\"") + "\"";
+                }
+
+                string row = string.Join(",",
+                    Escape(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")),
+                    Escape(s.Name),
+                    Escape(fileName),
+                    Escape(imagePath),
+                    Escape(actualLabel),
+                    Escape(predictedLabel),
+                    confidence.ToString("F4",
+                        System.Globalization.CultureInfo.InvariantCulture),
+                    Escape(verdict),
+                    Escape(explanation),
+                    processingTimeMs.ToString(
+                        System.Globalization.CultureInfo.InvariantCulture));
+
+                lock (_predictionCsvLock)
+                {
+                    bool writeHeader = !File.Exists(csvPath) ||
+                                       new FileInfo(csvPath).Length == 0;
+
+                    using var writer = new StreamWriter(
+                        csvPath,
+                        append: true,
+                        encoding: new System.Text.UTF8Encoding(true));
+
+                    if (writeHeader)
+                        writer.WriteLine(header);
+
+                    writer.WriteLine(row);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogDiag($"[{s.Name}] PREDICTION CSV ERROR: {ex}");
             }
         }
     }
