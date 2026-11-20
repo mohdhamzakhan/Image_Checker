@@ -1,6 +1,8 @@
 ﻿#nullable enable
 using System;
 using System.Globalization;
+using System.Collections.Generic;
+using System.Drawing;
 
 namespace Image_Checker.Services
 {
@@ -13,6 +15,16 @@ namespace Image_Checker.Services
     /// in probability when one patch is hidden, yet the patch may still matter a lot. Log-odds keep the
     /// map informative however confident the model is.
     /// </summary>
+    /// 
+
+    public sealed class HotSpot
+    {
+        public int Rank { get; set; }
+        public Rectangle Bounds { get; set; }     // in crop pixels
+        public double SharePercent { get; set; }  // share of all evidence for the class
+        public float ScoreWithout { get; set; }   // class score if this spot is hidden
+        public string Where { get; set; } = "";
+    }
     public static class OcclusionMap
     {
         private const float Eps = 1e-4f;
@@ -61,6 +73,64 @@ namespace Image_Checker.Services
                 }
             }
             return heat;
+        }
+
+        /// <summary>Strongest separate spots that pushed toward the class (non-overlapping, best first).</summary>
+        public static List<HotSpot> FindSpots(float[,] heat, float baselineScore,
+                                              int imageWidth, int imageHeight, int maxSpots = 4)
+        {
+            int rows = heat.GetLength(0), cols = heat.GetLength(1);
+            var spots = new List<HotSpot>();
+
+            double totalPositive = 0;
+            foreach (float v in heat) if (v > 0) totalPositive += v;
+            if (totalPositive <= 0) return spots;
+
+            float cw = (float)imageWidth / cols, ch = (float)imageHeight / rows;
+            var taken = new bool[rows, cols];
+            var image = new Rectangle(0, 0, imageWidth, imageHeight);
+
+            for (int n = 0; n < maxSpots; n++)
+            {
+                float best = NoRegionThreshold;
+                int br = -1, bc = -1;
+                for (int r = 0; r < rows; r++)
+                    for (int c = 0; c < cols; c++)
+                        if (!taken[r, c] && heat[r, c] > best) { best = heat[r, c]; br = r; bc = c; }
+                if (br < 0) break;
+
+                // evidence of the spot = positive push in its 3x3 neighbourhood
+                double local = 0;
+                for (int dr = -1; dr <= 1; dr++)
+                    for (int dc = -1; dc <= 1; dc++)
+                    {
+                        int rr = br + dr, cc = bc + dc;
+                        if (rr >= 0 && rr < rows && cc >= 0 && cc < cols && heat[rr, cc] > 0)
+                            local += heat[rr, cc];
+                    }
+
+                // keep the next spot away from this one
+                for (int dr = -2; dr <= 2; dr++)
+                    for (int dc = -2; dc <= 2; dc++)
+                    {
+                        int rr = br + dr, cc = bc + dc;
+                        if (rr >= 0 && rr < rows && cc >= 0 && cc < cols) taken[rr, cc] = true;
+                    }
+
+                var bounds = Rectangle.Intersect(image, new Rectangle(
+                    (int)Math.Round(bc * cw - cw * 0.25f), (int)Math.Round(br * ch - ch * 0.25f),
+                    (int)Math.Round(cw * 1.5f), (int)Math.Round(ch * 1.5f)));
+
+                spots.Add(new HotSpot
+                {
+                    Rank = spots.Count + 1,
+                    Bounds = bounds,
+                    SharePercent = Math.Min(100.0, local / totalPositive * 100.0),
+                    ScoreWithout = Sigmoid(Logit(baselineScore) - best),
+                    Where = Where(br, bc, rows, cols)
+                });
+            }
+            return spots;
         }
 
         /// <summary>The cell that pushed hardest toward the class and how it is spread.</summary>

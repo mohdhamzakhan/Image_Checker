@@ -107,7 +107,8 @@ namespace Image_Checker.WinForm
             images.Controls.Add(_picHeat, 2, 0);
             images.Controls.Add(Caption("1. Your photo\n(yellow box = the part given to the model)"), 0, 1);
             images.Controls.Add(Caption("2. What the model sees\n(the cropped area)"), 1, 1);
-            images.Controls.Add(Caption("3. Where the model looked\n(red = pushed toward its answer, blue = against)"), 2, 1);
+            //images.Controls.Add(Caption("3. Where the model looked\n(red = pushed toward its answer, blue = against)"), 2, 1);
+            images.Controls.Add(Caption("3. Where the model finds its answer\n(circles = spots, % = share of the evidence)"), 2, 1);
             root.Controls.Add(images, 0, 1);
 
             var statusRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
@@ -214,7 +215,8 @@ namespace Image_Checker.WinForm
                 if (token.IsCancellationRequested) return;
 
                 // 3) heatmap: hide each patch in turn and watch the score
-                Post(() => _status.Text = "Finding where the model looked...");
+                //Post(() => _status.Text = "Finding where the model looked...");
+                Post(() => _status.Text = "Finding the spots the model relied on...");
                 bool ok = ExplainSession.AddHeatmap(res, scorer, 8,
                     () => token.IsCancellationRequested,
                     (done, total) => Post(() => ShowProgress(done, total)));
@@ -246,6 +248,15 @@ namespace Image_Checker.WinForm
                           "   brightness " + res.Stats.Brightness.ToString("0.0") +
                           "   contrast " + res.Stats.Contrast.ToString("0.0") +
                           "   sharpness " + res.Stats.Sharpness.ToString("0.0"));
+
+            if (res.Spots.Count > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine("Picture 3: each circle is an area the model relied on for " + res.Explanation.TopLabel + ".");
+                sb.AppendLine("The % is that area's share of the evidence. Look at those areas yourself:");
+                sb.AppendLine("if they are not on a real defect, the model reacted to something else.");
+            }
+
             return sb.ToString();
         }
 
@@ -283,7 +294,8 @@ namespace Image_Checker.WinForm
         private void ShowProgress(int done, int total)
         {
             _progress.Value = Math.Max(0, Math.Min(100, done * 100 / Math.Max(1, total)));
-            _status.Text = "Finding where the model looked... " + done + "/" + total;
+            //_status.Text = "Finding where the model looked... " + done + "/" + total;
+            _status.Text = "Finding the spots the model relied on... " + done + "/" + total;
         }
 
         private void ShowHeatmap(ExplainResult res, string text)

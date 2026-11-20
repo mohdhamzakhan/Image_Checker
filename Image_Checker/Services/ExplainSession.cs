@@ -114,7 +114,7 @@ namespace Image_Checker.Services
         public ScoreResult Baseline = null!;
         public ExplainInput Input = null!;
         public Explanation Explanation = null!;
-
+        public List<HotSpot> Spots = new List<HotSpot>();
         public void Dispose()
         {
             if (Original != null) Original.Dispose();
@@ -179,7 +179,8 @@ namespace Image_Checker.Services
         {
             result.Input.Training = training;
             result.Explanation = MismatchExplainer.Explain(result.Input);
-            if (result.Heat != null) AddHotspot(result);
+            //if (result.Heat != null) AddHotspot(result);
+            if (result.Heat != null) AddSpotReasons(result);
         }
 
         /// <summary>
@@ -209,13 +210,45 @@ namespace Image_Checker.Services
 
             if (heat == null) return false;
 
+            //result.Heat = heat;
+            //if (result.Heatmap != null) result.Heatmap.Dispose();
+            //result.Heatmap = ExplainImaging.RenderHeatmap(result.Crop, heat);
+            //AddHotspot(result);
+            //return true;
+
             result.Heat = heat;
+            result.Spots = OcclusionMap.FindSpots(heat, baseline.Scores[classIndex], w, h, 4);
             if (result.Heatmap != null) result.Heatmap.Dispose();
-            result.Heatmap = ExplainImaging.RenderHeatmap(result.Crop, heat);
-            AddHotspot(result);
+            result.Heatmap = ExplainImaging.RenderSpots(result.Crop, result.Spots);
+            AddSpotReasons(result);
             return true;
         }
+        private static void AddSpotReasons(ExplainResult result)
+        {
+            if (result.Heat == null) return;
 
+            string cls = result.Explanation.TopLabel;
+            int idx = result.Explanation.TopIndex;
+            float baseline = idx < result.Baseline.Scores.Length ? result.Baseline.Scores[idx] : 0.5f;
+
+            if (result.Spots.Count == 0)
+            {
+                result.Explanation.AddReason(OcclusionMap.DescribeHotspot(result.Heat, cls, baseline));
+                return;
+            }
+
+            foreach (HotSpot s in result.Spots)
+            {
+                string full = "Spot #" + s.Rank + " (" + s.Where + "): holds " +
+                    s.SharePercent.ToString("0", System.Globalization.CultureInfo.InvariantCulture) +
+                    "% of the evidence for " + cls + ". Hiding it lowers the " + cls + " score from " +
+                    (baseline * 100f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "% to " +
+                    (s.ScoreWithout * 100f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "%.";
+                string shortText = "spot #" + s.Rank + " " + s.Where + " " +
+                    s.SharePercent.ToString("0", System.Globalization.CultureInfo.InvariantCulture) + "%";
+                result.Explanation.AddReason(full, shortText);
+            }
+        }
         private static void AddHotspot(ExplainResult result)
         {
             if (result.Heat == null) return;

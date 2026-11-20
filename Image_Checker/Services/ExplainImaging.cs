@@ -3,8 +3,10 @@ using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
+using System.Drawing.Text;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Collections.Generic;
 
 namespace Image_Checker.Services
 {
@@ -37,6 +39,53 @@ namespace Image_Checker.Services
         {
             Rectangle r = ClampRoi(src.Width, src.Height, roi);
             return src.Clone(r, PixelFormat.Format24bppRgb);
+        }
+
+        /// <summary>Draws numbered circles with their % on the crop. One colour, no blue/red.</summary>
+        public static Bitmap RenderSpots(Bitmap crop, IList<HotSpot> spots)
+        {
+            var result = new Bitmap(crop.Width, crop.Height, PixelFormat.Format24bppRgb);
+            using (Graphics g = Graphics.FromImage(result))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+                g.DrawImage(crop, 0, 0, crop.Width, crop.Height);
+
+                float big = Math.Max(crop.Width, crop.Height);
+                float penWidth = Math.Max(2f, big * 0.012f);
+                float fontPx = Math.Max(12f, big * 0.065f);
+
+                using (var font = new Font("Segoe UI", fontPx, FontStyle.Bold, GraphicsUnit.Pixel))
+                {
+                    foreach (HotSpot s in spots)
+                    {
+                        Color c = s.Rank == 1 ? Color.FromArgb(255, 60, 0) : Color.FromArgb(255, 170, 0);
+                        using (var fill = new SolidBrush(Color.FromArgb(45, c)))
+                        using (var pen = new Pen(c, penWidth))
+                        {
+                            g.FillEllipse(fill, s.Bounds);
+                            g.DrawEllipse(pen, s.Bounds);
+                        }
+
+                        string text = "#" + s.Rank + "  " + s.SharePercent.ToString("0") + "%";
+                        SizeF size = g.MeasureString(text, font);
+                        float lx = Math.Max(0, Math.Min(crop.Width - size.Width - 4, s.Bounds.X));
+                        float ly = s.Bounds.Y - size.Height - 2;
+                        if (ly < 0) ly = s.Bounds.Bottom + 2;
+                        if (ly + size.Height > crop.Height) ly = Math.Max(0, crop.Height - size.Height);
+
+                        var box = new RectangleF(lx, ly, size.Width + 4, size.Height);
+                        using (var bg = new SolidBrush(Color.FromArgb(215, 20, 20, 20)))
+                        using (var border = new Pen(c, 2f))
+                        {
+                            g.FillRectangle(bg, box);
+                            g.DrawRectangle(border, box.X, box.Y, box.Width, box.Height);
+                        }
+                        g.DrawString(text, font, Brushes.White, lx + 2, ly);
+                    }
+                }
+            }
+            return result;
         }
 
         public static ImageStats ComputeStats(Bitmap bmp)
