@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Text;
 
 namespace Image_Checker.Services
 {
@@ -107,26 +108,27 @@ namespace Image_Checker.Services
         public Bitmap Original = null!;
         public Bitmap OriginalWithRoi = null!;
         public Bitmap Crop = null!;
-        public Bitmap? Heatmap;
-        public float[,]? Heat;
         public Rectangle RoiUsed;
         public ImageStats Stats = null!;
         public ScoreResult Baseline = null!;
         public ExplainInput Input = null!;
         public Explanation Explanation = null!;
-        public List<HotSpot> Spots = new List<HotSpot>();
+
+        public OcclusionResult? Occlusion;
+        public Dictionary<int, List<HotSpot>> SpotsByClass = new Dictionary<int, List<HotSpot>>();
+        /// <summary>All scores after covering ALL spots of class k at once.</summary>
+        public Dictionary<int, float[]> AllHiddenScores = new Dictionary<int, float[]>();
+
         public void Dispose()
         {
             if (Original != null) Original.Dispose();
             if (OriginalWithRoi != null) OriginalWithRoi.Dispose();
             if (Crop != null) Crop.Dispose();
-            if (Heatmap != null) Heatmap.Dispose();
         }
     }
 
     public static class ExplainSession
     {
-        /// <summary>Fast part (well under a second): crop, statistics, one prediction, the written explanation.</summary>
         public static ExplainResult Prepare(string imagePath, Rectangle roi, string? folderLabel,
                                             IImageScorer scorer, TrainingStats? training)
         {
@@ -174,87 +176,118 @@ namespace Image_Checker.Services
             }
         }
 
-        /// <summary>Adds the training-image comparison once it is available (it can take a moment the first time).</summary>
         public static void Refine(ExplainResult result, TrainingStats training)
         {
             result.Input.Training = training;
             result.Explanation = MismatchExplainer.Explain(result.Input);
-            //if (result.Heat != null) AddHotspot(result);
-            if (result.Heat != null) AddSpotReasons(result);
+            if (result.Occlusion != null) AddTopClassReasons(result);
         }
 
-        /// <summary>
-        /// Slow part: hide each patch in turn and re-score (cells x cells predictions).
-        /// Returns false if cancelled or if the model gave no scores.
-        /// </summary>
-        public static bool AddHeatmap(ExplainResult result, IImageScorer scorer, int cells,
-                                      Func<bool>? cancelled, Action<int, int>? progress)
+        /// <summary>One scan (cells x cells predictions) gives the spots for EVERY class.</summary>
+        public static bool AddOcclusion(ExplainResult result, IImageScorer scorer, int cells,
+                                        Func<bool>? cancelled, Action<int, int>? progress)
         {
             ScoreResult baseline = result.Baseline;
             if (baseline.Scores.Length == 0) return false;
 
-            int classIndex = result.Explanation.TopIndex;
             int w = result.Crop.Width, h = result.Crop.Height;
             Color fill = ExplainImaging.MeanColor(result.Stats);
             float cw = (float)w / cells, ch = (float)h / cells;
 
-            float[,]? heat = OcclusionMap.Compute(cells, classIndex, baseline.Scores, (r, c) =>
+            OcclusionResult? occ = OcclusionMap.Run(cells, baseline.Scores, (r, c) =>
             {
-                // the patch is the cell grown by 50%, so neighbouring patches overlap and the map is smooth
-                int x = (int)Math.Round(c * cw - cw * 0.25f);
-                int y = (int)Math.Round(r * ch - ch * 0.25f);
-                var patch = new Rectangle(x, y, (int)Math.Round(cw * 1.5f), (int)Math.Round(ch * 1.5f));
-                using (Bitmap hidden = ExplainImaging.Hide(result.Crop, patch, fill))
+                using (Bitmap hidden = ExplainImaging.Hide(result.Crop, OcclusionMap.CellPatch(r, c, cw, ch), fill))
                     return ExplainImaging.ScoreBitmap(scorer, hidden).Scores;
             }, cancelled, progress);
+            if (occ == null) return false;
 
-            if (heat == null) return false;
+            result.Occlusion = occ;
+            string[] names = result.Explanation.ClassNames;
+            for (int k = 0; k < baseline.Scores.Length && k < names.Length; k++)
+            {
+                List<HotSpot> spots = OcclusionMap.FindSpots(occ, k, names[k], w, h, 4);
+                result.SpotsByClass[k] = spots;
+                if (spots.Count == 0) continue;
+                using (Bitmap hidden = ExplainImaging.HideMany(result.Crop, spots.Select(s => s.Bounds), fill))
+                    result.AllHiddenScores[k] = ExplainImaging.ScoreBitmap(scorer, hidden).Scores;
+            }
 
-            //result.Heat = heat;
-            //if (result.Heatmap != null) result.Heatmap.Dispose();
-            //result.Heatmap = ExplainImaging.RenderHeatmap(result.Crop, heat);
-            //AddHotspot(result);
-            //return true;
-
-            result.Heat = heat;
-            result.Spots = OcclusionMap.FindSpots(heat, baseline.Scores[classIndex], w, h, 4);
-            if (result.Heatmap != null) result.Heatmap.Dispose();
-            result.Heatmap = ExplainImaging.RenderSpots(result.Crop, result.Spots);
-            AddSpotReasons(result);
+            AddTopClassReasons(result);
             return true;
         }
-        private static void AddSpotReasons(ExplainResult result)
+
+        private static void AddTopClassReasons(ExplainResult r)
         {
-            if (result.Heat == null) return;
-
-            string cls = result.Explanation.TopLabel;
-            int idx = result.Explanation.TopIndex;
-            float baseline = idx < result.Baseline.Scores.Length ? result.Baseline.Scores[idx] : 0.5f;
-
-            if (result.Spots.Count == 0)
-            {
-                result.Explanation.AddReason(OcclusionMap.DescribeHotspot(result.Heat, cls, baseline));
-                return;
-            }
-
-            foreach (HotSpot s in result.Spots)
-            {
-                string full = "Spot #" + s.Rank + " (" + s.Where + "): holds " +
-                    s.SharePercent.ToString("0", System.Globalization.CultureInfo.InvariantCulture) +
-                    "% of the evidence for " + cls + ". Hiding it lowers the " + cls + " score from " +
-                    (baseline * 100f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "% to " +
-                    (s.ScoreWithout * 100f).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "%.";
-                string shortText = "spot #" + s.Rank + " " + s.Where + " " +
-                    s.SharePercent.ToString("0", System.Globalization.CultureInfo.InvariantCulture) + "%";
-                result.Explanation.AddReason(full, shortText);
-            }
+            int k = r.Explanation.TopIndex;
+            List<HotSpot>? spots;
+            string? shortText = null;
+            if (r.SpotsByClass.TryGetValue(k, out spots) && spots.Count > 0)
+                shortText = "relies on the " + spots[0].Where + " (" + spots[0].DropText + ")";
+            r.Explanation.AddReason("Where the model looked: " + Describe(r, k), shortText);
         }
-        private static void AddHotspot(ExplainResult result)
+
+        private static int ArgMax(float[] v)
         {
-            if (result.Heat == null) return;
-            float baseline = result.Explanation.TopIndex < result.Baseline.Scores.Length
-                ? result.Baseline.Scores[result.Explanation.TopIndex] : 0.5f;
-            result.Explanation.AddReason(OcclusionMap.DescribeHotspot(result.Heat, result.Explanation.TopLabel, baseline));
+            int best = 0;
+            for (int i = 1; i < v.Length; i++) if (v[i] > v[best]) best = i;
+            return best;
+        }
+
+        /// <summary>Plain-language reading of the spots of class k.</summary>
+        public static string Describe(ExplainResult r, int k)
+        {
+            string[] names = r.Explanation.ClassNames;
+            string cls = names[k];
+            float p = r.Baseline.Scores[k];
+            int top = ArgMax(r.Baseline.Scores);
+            bool wasTop = top == k;
+
+            List<HotSpot>? spots;
+            if (!r.SpotsByClass.TryGetValue(k, out spots) || spots.Count == 0)
+                return "No single area stands out for " + cls + ". Covering any one patch barely changes its score, " +
+                       "so the model is judging the crop as a whole (overall brightness, texture, layout) rather than one spot.";
+
+            float[]? hidden;
+            r.AllHiddenScores.TryGetValue(k, out hidden);
+
+            var sb = new StringBuilder();
+            sb.Append(spots.Count == 1 ? "One area" : spots.Count + " areas").Append(" support").Append(spots.Count == 1 ? "s " : " ")
+              .Append(cls).Append(". ");
+
+            if (hidden == null || k >= hidden.Length) return sb.ToString().Trim();
+
+            float after = hidden[k];
+            float drop = p - after;
+            int newTop = ArgMax(hidden);
+            bool flips = wasTop && newTop != k;
+
+            sb.Append("Covering ").Append(spots.Count == 1 ? "it" : "all of them together").Append(" lowers ").Append(cls)
+              .Append(" from ").Append(MismatchExplainer.Pct(p)).Append(" to ").Append(MismatchExplainer.Pct(after));
+            if (flips) sb.Append(", and the model would then answer ").Append(names[newTop]);
+            sb.Append(". ");
+
+            if (!wasTop)
+            {
+                sb.Append("These are the parts of the crop that look most like ").Append(cls)
+                  .Append(" to the model, even though it chose ").Append(names[top])
+                  .Append(". If they sit on a real ").Append(cls).Append("-looking feature, that explains a close call.");
+            }
+            else if (flips || drop >= 0.30f)
+            {
+                sb.Append("The answer depends strongly on these areas. Look at them in the picture: if they show a real defect the model is right; " +
+                          "if they show glare, a marking, a shadow or background, it is reacting to the wrong thing.");
+            }
+            else if (drop >= 0.10f)
+            {
+                sb.Append("Moderate dependence: these areas contribute, but the model also uses the rest of the crop.");
+            }
+            else
+            {
+                sb.Append("Weak dependence: the answer comes from the crop as a whole, not from one spot.");
+                if (p >= 0.97f)
+                    sb.Append(" (A model this sure stays sure when one area is covered, so a small change does not mean the area is unimportant.)");
+            }
+            return sb.ToString();
         }
     }
 

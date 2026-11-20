@@ -20,10 +20,50 @@ namespace Image_Checker.Services
     public sealed class HotSpot
     {
         public int Rank { get; set; }
-        public Rectangle Bounds { get; set; }     // in crop pixels
-        public double SharePercent { get; set; }  // share of all evidence for the class
-        public float ScoreWithout { get; set; }   // class score if this spot is hidden
+        public int ClassIndex { get; set; }
+        public string ClassName { get; set; } = "";
+        public Rectangle Bounds { get; set; }          // crop pixels
         public string Where { get; set; } = "";
+        public float ScoreBefore { get; set; }         // class score now
+        public float ScoreWithout { get; set; }        // class score with this area covered
+        public int NewTopIndex { get; set; } = -1;     // >= 0 when covering it alone changes the model's answer
+
+        public float Drop { get { return ScoreBefore - ScoreWithout; } }
+
+        public string DropText
+        {
+            get
+            {
+                float pts = Drop * 100f;
+                if (pts < 0.05f) return "no change";
+                return "-" + pts.ToString(pts < 10f ? "0.0" : "0", CultureInfo.InvariantCulture) + " pts";
+            }
+        }
+    }
+
+    /// <summary>Every class's score for every hidden cell, from ONE scan.</summary>
+    public sealed class OcclusionResult
+    {
+        public float[] Baseline = new float[0];
+        public float[,][] Scores = new float[0, 0][];
+
+        public float ClassScore(int r, int c, int k)
+        {
+            float[] s = Scores[r, c];
+            return k < s.Length ? s[k] : Baseline[k];
+        }
+
+        /// <summary>Log-odds change of class k per cell (positive = the cell supports the class).</summary>
+        public float[,] Heat(int k)
+        {
+            int rows = Scores.GetLength(0), cols = Scores.GetLength(1);
+            var heat = new float[rows, cols];
+            float b = OcclusionMap.Logit(Baseline[k]);
+            for (int r = 0; r < rows; r++)
+                for (int c = 0; c < cols; c++)
+                    heat[r, c] = b - OcclusionMap.Logit(ClassScore(r, c, k));
+            return heat;
+        }
     }
     public static class OcclusionMap
     {
@@ -40,6 +80,36 @@ namespace Image_Checker.Services
         public static float Sigmoid(float x)
         {
             return (float)(1.0 / (1.0 + Math.Exp(-x)));
+        }
+
+        public static Rectangle CellPatch(int r, int c, float cw, float ch)
+        {
+            return new Rectangle((int)Math.Round(c * cw - cw * 0.25f), (int)Math.Round(r * ch - ch * 0.25f),
+                                 (int)Math.Round(cw * 1.5f), (int)Math.Round(ch * 1.5f));
+        }
+
+        private static int ArgMax(float[] v)
+        {
+            int best = 0;
+            for (int i = 1; i < v.Length; i++) if (v[i] > v[best]) best = i;
+            return best;
+        }
+
+        public static OcclusionResult? Run(int cells, float[] baseline, Func<int, int, float[]> scoreWithCellHidden,
+                                   Func<bool>? isCancelled = null, Action<int, int>? progress = null)
+        {
+            if (cells < 2) throw new ArgumentOutOfRangeException(nameof(cells));
+            var res = new OcclusionResult { Baseline = baseline, Scores = new float[cells, cells][] };
+            int total = cells * cells, done = 0;
+            for (int r = 0; r < cells; r++)
+                for (int c = 0; c < cells; c++)
+                {
+                    if (isCancelled != null && isCancelled()) return null;
+                    res.Scores[r, c] = scoreWithCellHidden(r, c);
+                    done++;
+                    if (progress != null) progress(done, total);
+                }
+            return res;
         }
 
         /// <summary>
@@ -75,20 +145,17 @@ namespace Image_Checker.Services
             return heat;
         }
 
-        /// <summary>Strongest separate spots that pushed toward the class (non-overlapping, best first).</summary>
-        public static List<HotSpot> FindSpots(float[,] heat, float baselineScore,
+        /// <summary>Strongest separate areas that support class k (best first, non-overlapping).</summary>
+        public static List<HotSpot> FindSpots(OcclusionResult res, int k, string className,
                                               int imageWidth, int imageHeight, int maxSpots = 4)
         {
+            float[,] heat = res.Heat(k);
             int rows = heat.GetLength(0), cols = heat.GetLength(1);
-            var spots = new List<HotSpot>();
-
-            double totalPositive = 0;
-            foreach (float v in heat) if (v > 0) totalPositive += v;
-            if (totalPositive <= 0) return spots;
-
             float cw = (float)imageWidth / cols, ch = (float)imageHeight / rows;
             var taken = new bool[rows, cols];
             var image = new Rectangle(0, 0, imageWidth, imageHeight);
+            int baseTop = ArgMax(res.Baseline);
+            var spots = new List<HotSpot>();
 
             for (int n = 0; n < maxSpots; n++)
             {
@@ -99,17 +166,6 @@ namespace Image_Checker.Services
                         if (!taken[r, c] && heat[r, c] > best) { best = heat[r, c]; br = r; bc = c; }
                 if (br < 0) break;
 
-                // evidence of the spot = positive push in its 3x3 neighbourhood
-                double local = 0;
-                for (int dr = -1; dr <= 1; dr++)
-                    for (int dc = -1; dc <= 1; dc++)
-                    {
-                        int rr = br + dr, cc = bc + dc;
-                        if (rr >= 0 && rr < rows && cc >= 0 && cc < cols && heat[rr, cc] > 0)
-                            local += heat[rr, cc];
-                    }
-
-                // keep the next spot away from this one
                 for (int dr = -2; dr <= 2; dr++)
                     for (int dc = -2; dc <= 2; dc++)
                     {
@@ -117,17 +173,18 @@ namespace Image_Checker.Services
                         if (rr >= 0 && rr < rows && cc >= 0 && cc < cols) taken[rr, cc] = true;
                     }
 
-                var bounds = Rectangle.Intersect(image, new Rectangle(
-                    (int)Math.Round(bc * cw - cw * 0.25f), (int)Math.Round(br * ch - ch * 0.25f),
-                    (int)Math.Round(cw * 1.5f), (int)Math.Round(ch * 1.5f)));
-
+                float[] sc = res.Scores[br, bc];
+                int topNow = ArgMax(sc);
                 spots.Add(new HotSpot
                 {
                     Rank = spots.Count + 1,
-                    Bounds = bounds,
-                    SharePercent = Math.Min(100.0, local / totalPositive * 100.0),
-                    ScoreWithout = Sigmoid(Logit(baselineScore) - best),
-                    Where = Where(br, bc, rows, cols)
+                    ClassIndex = k,
+                    ClassName = className,
+                    Bounds = Rectangle.Intersect(image, CellPatch(br, bc, cw, ch)),
+                    Where = Where(br, bc, rows, cols),
+                    ScoreBefore = res.Baseline[k],
+                    ScoreWithout = res.ClassScore(br, bc, k),
+                    NewTopIndex = (baseTop == k && topNow != k) ? topNow : -1
                 });
             }
             return spots;
