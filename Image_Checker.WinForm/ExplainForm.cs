@@ -102,6 +102,7 @@ namespace Image_Checker.WinForm
             ConfigurePicture(_picOriginal);
             ConfigurePicture(_picCrop);
             ConfigurePicture(_picHeat);
+            _picHeat.DoubleClick += (s, e) => ShowLarge(_picHeat.Image);
             images.Controls.Add(_picOriginal, 0, 0);
             images.Controls.Add(_picCrop, 1, 0);
             images.Controls.Add(_picHeat, 2, 0);
@@ -151,6 +152,21 @@ namespace Image_Checker.WinForm
 
             Controls.Add(root);
             CancelButton = _close;
+        }
+
+        private void ShowLarge(Image? img)
+        {
+            if (img == null) return;
+            var f = new Form
+            {
+                Text = "Spots - " + Path.GetFileName(_imagePath),
+                StartPosition = FormStartPosition.CenterParent,
+                ClientSize = new Size(800, 800)
+            };
+            var pb = new PictureBox { Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom, Image = img };
+            f.Controls.Add(pb);
+            f.FormClosed += (s, e) => pb.Image = null;   // the image belongs to the result, don't dispose it
+            f.Show(this);
         }
 
         private static void ConfigurePicture(PictureBox pb)
