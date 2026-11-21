@@ -1,4 +1,7 @@
-﻿using Image_Checker.Inspection.Models;
+﻿using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+using Image_Checker.Inspection.Models;
 using Image_Checker.Inspection.Services;
 using Image_Checker.Utils;
 
@@ -22,6 +25,18 @@ public sealed class SupervisorForm : Form
     private string _serial = "";
     private string _finalText = "";
 
+    // ── auto capture (product appears -> holds still -> checked) ──
+    // Values are the mean gray-level difference (0-255) of a 48x36 thumbnail. Tune if the trigger is too eager / too lazy.
+    private const int ThumbW = 48, ThumbH = 36;
+    private const double PresentThreshold = 12;   // frame differs from the empty view -> something is there
+    private const double MoveThreshold = 5;       // frame-to-frame change -> something is moving
+    private const double StillThreshold = 2.5;    // frame-to-frame change below this -> it is still
+    private const double ChangeThreshold = 10;    // differs from the last checked view -> a new side was shown
+    private const double StillMs = 900;           // how long it must stay still before the check
+    private byte[]? _emptyThumb, _prevThumb, _captureThumb;
+    private bool _sawMotion;
+    private DateTime _stillSince = DateTime.MinValue;
+
     private readonly ComboBox cmbProduct = new();
     private readonly TextBox txtSerial = new();
     private readonly Label lblCamera = new(), lblInstruction = new(), lblVerdict = new(),
@@ -29,6 +44,9 @@ public sealed class SupervisorForm : Form
     private readonly ListView lvSteps = new();
     private readonly PictureBox picPreview = new(), picCrop = new();
     private Button btnStart = null!, btnSetup = null!, btnCapture = null!, btnOverride = null!, btnReject = null!;
+    private Button btnLearn = null!;
+    private readonly CheckBox chkAuto = new();
+    private readonly Label lblAuto = new();
 
     public SupervisorForm()
     {
@@ -104,6 +122,25 @@ public sealed class SupervisorForm : Form
         lblCamera.Anchor = AnchorStyles.Right;
         lblCamera.Margin = new Padding(0, 0, Ui.Inner, 0);
         lblCamera.Text = "Camera: -";
+
+        chkAuto.Text = "Auto capture";
+        chkAuto.Checked = true;
+        chkAuto.AutoSize = true;
+        chkAuto.Margin = new Padding(Ui.Inner, 6, 0, 0);
+        chkAuto.CheckedChanged += (_, _) =>
+        {
+            _prevThumb = null;
+            _sawMotion = false;
+            _stillSince = DateTime.MinValue;
+            SetAuto(chkAuto.Checked ? "on" : "off");
+        };
+        btnLearn = Ui.Btn("Learn empty view", 140, BtnLearn_Click);
+        lblAuto.AutoSize = true;
+        lblAuto.ForeColor = Ui.Grey;
+        lblAuto.Margin = new Padding(Ui.Inner, 6, 0, 0);
+        var autoFlow = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
+        autoFlow.Controls.AddRange(new Control[] { chkAuto, btnLearn, lblAuto });
+        t.Controls.Add(autoFlow, 5, 0);
 
         t.Controls.Add(HeaderLabel("Product"), 0, 0);
         t.Controls.Add(cmbProduct, 1, 0);
@@ -310,6 +347,9 @@ public sealed class SupervisorForm : Form
             }
 
             _recipe = recipe;
+            _emptyThumb = null;   // lighting/camera may differ: the empty view must be learned again
+            _prevThumb = null;
+            _captureThumb = null;
             ResetPart();
             _busy = true;
             UpdateButtons();
@@ -339,6 +379,7 @@ public sealed class SupervisorForm : Form
         var frame = _camera.GetFrameCopy();
         if (frame != null)
         {
+            AutoDetect(frame);
             var old = picPreview.Image;
             picPreview.Image = frame;
             old?.Dispose();
@@ -455,6 +496,9 @@ public sealed class SupervisorForm : Form
     private void ApplyResult(StepConfig step, StepResult r)
     {
         _attempts[_step]++;
+        _sawMotion = false;               // the next side needs new movement before the next auto check
+        _stillSince = DateTime.MinValue;
+        _prevThumb = null;
         var old = _results[_step];
         _results[_step] = r;
         ShowVerdict(step, r);
@@ -536,8 +580,16 @@ public sealed class SupervisorForm : Form
         RefreshSteps();
         UpdateInstruction();
         UpdateButtons();
-        txtSerial.SelectAll();
-        txtSerial.Focus();
+        _sawMotion = false;
+        if (chkAuto.Checked)
+        {
+            txtSerial.Clear();   // the next product gets a new serial (typed/scanned, or generated automatically)
+        }
+        else
+        {
+            txtSerial.SelectAll();
+            txtSerial.Focus();
+        }
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -642,8 +694,143 @@ public sealed class SupervisorForm : Form
         btnCapture.Enabled = ready;
         btnStart.Enabled = ready;
         btnSetup.Enabled = !_busy;
+        btnLearn.Enabled = ready;
         btnOverride.Enabled = _awaitingDecision && !_busy;
         btnReject.Enabled = _partActive && !_busy;
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  AUTO CAPTURE
+    //  product appears / is turned -> moves -> holds still 0.9 s -> checked.
+    //  OK -> next step (needs new movement). NG / CHECK -> stops until the supervisor decides.
+    // ══════════════════════════════════════════════════════════════
+
+    private void AutoDetect(Bitmap frame)
+    {
+        if (!chkAuto.Checked) { _prevThumb = null; return; }
+        if (_recipe == null || _busy) return;
+        if (_awaitingDecision)
+        {
+            _prevThumb = null;
+            SetAuto("STOPPED - retake (Space), override or reject");
+            return;
+        }
+        if (_emptyThumb == null)
+        {
+            SetAuto("press 'Learn empty view' with nothing in front of the camera");
+            return;
+        }
+
+        var cur = MakeThumb(frame);
+        var prev = _prevThumb;
+        _prevThumb = cur;
+        if (prev == null) return;
+
+        double frameDiff = MeanDiff(cur, prev);
+        bool present = MeanDiff(cur, _emptyThumb) > PresentThreshold;
+
+        if (!present)
+        {
+            _sawMotion = true;                    // the next product that arrives counts as new
+            _stillSince = DateTime.MinValue;
+            SetAuto(_partActive ? "product removed - put it back" : "waiting for a product");
+            return;
+        }
+
+        if (frameDiff > MoveThreshold ||
+            (_captureThumb != null && MeanDiff(cur, _captureThumb) > ChangeThreshold))
+            _sawMotion = true;
+
+        if (!_sawMotion)
+        {
+            SetAuto(_partActive ? "show the next side to the camera" : "remove the product");
+            return;
+        }
+
+        if (frameDiff > StillThreshold)
+        {
+            _stillSince = DateTime.MinValue;
+            SetAuto("moving - hold it still");
+            return;
+        }
+
+        if (_stillSince == DateTime.MinValue) _stillSince = DateTime.UtcNow;
+        if ((DateTime.UtcNow - _stillSince).TotalMilliseconds < StillMs)
+        {
+            SetAuto("hold still...");
+            return;
+        }
+
+        _captureThumb = cur;
+        _sawMotion = false;
+        _stillSince = DateTime.MinValue;
+        SetAuto("checking...");
+        _ = AutoCaptureAsync();
+    }
+
+    private async Task AutoCaptureAsync()
+    {
+        if (_busy || _recipe == null) return;
+        if (!_partActive && txtSerial.Text.Trim().Length == 0)
+            txtSerial.Text = "AUTO-" + DateTime.Now.ToString("yyyyMMdd-HHmmss");   // no scanner: generate a serial
+        await CaptureAsync();
+    }
+
+    private void BtnLearn_Click(object? sender, EventArgs e)
+    {
+        using var frame = _camera.GetFrameCopy();
+        if (frame == null) { SetStatus("No camera image.", true); return; }
+
+        _emptyThumb = MakeThumb(frame);
+        _prevThumb = null;
+        _captureThumb = null;
+        _sawMotion = true;
+        _stillSince = DateTime.MinValue;
+        SetStatus("Empty view learned. Put a product in front of the camera.");
+    }
+
+    /// <summary>48x36 gray version of the whole frame (cheap to compare).</summary>
+    private static byte[] MakeThumb(Bitmap frame)
+    {
+        using var small = new Bitmap(ThumbW, ThumbH, PixelFormat.Format24bppRgb);
+        using (var g = Graphics.FromImage(small))
+        {
+            g.InterpolationMode = InterpolationMode.Bilinear;
+            g.DrawImage(frame, new Rectangle(0, 0, ThumbW, ThumbH));
+        }
+
+        var data = small.LockBits(new Rectangle(0, 0, ThumbW, ThumbH), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+        try
+        {
+            var bytes = new byte[Math.Abs(data.Stride) * ThumbH];
+            Marshal.Copy(data.Scan0, bytes, 0, bytes.Length);
+            var gray = new byte[ThumbW * ThumbH];
+            for (int y = 0; y < ThumbH; y++)
+                for (int x = 0; x < ThumbW; x++)
+                {
+                    int i = y * data.Stride + x * 3;   // B, G, R
+                    gray[y * ThumbW + x] = (byte)((bytes[i] * 114 + bytes[i + 1] * 587 + bytes[i + 2] * 299) / 1000);
+                }
+            return gray;
+        }
+        finally
+        {
+            small.UnlockBits(data);
+        }
+    }
+
+    private static double MeanDiff(byte[] a, byte[] b)
+    {
+        int n = Math.Min(a.Length, b.Length);
+        long sum = 0;
+        for (int i = 0; i < n; i++) sum += Math.Abs(a[i] - b[i]);
+        return n == 0 ? 0 : (double)sum / n;
+    }
+
+    private void SetAuto(string text)
+    {
+        string full = "Auto: " + text;
+        if (lblAuto.Text != full) lblAuto.Text = full;
     }
 
     private void SetStatus(string text, bool warning = false)

@@ -170,8 +170,9 @@ public sealed class StepSetupForm : Form
         btnLoadProduct = Ui.Btn("Load / create product", 160, (_, _) => LoadOrCreateProduct());
         btnConnect = Ui.Btn("Connect camera", 130, (_, _) => ConnectCamera());
         btnDataFolder = Ui.Btn("Data folder...", 110, (_, _) => ChooseDataFolder());
+        var btnFind = Ui.Btn("Find cameras", 110, BtnFindCameras_Click);
         var flow = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
-        flow.Controls.AddRange(new Control[] { btnLoadProduct, btnConnect, btnDataFolder });
+        flow.Controls.AddRange(new Control[] { btnLoadProduct, btnConnect, btnFind, btnDataFolder });
         Ui.Span(t, flow);
         return g;
     }
@@ -383,6 +384,23 @@ public sealed class StepSetupForm : Form
             Log($"Camera {_recipe.CameraIndex} connected ({_recipe.FrameWidth}x{_recipe.FrameHeight}).");
         }
         else Log("Camera: " + error);
+    }
+
+    private async void BtnFindCameras_Click(object? sender, EventArgs e)
+    {
+        _tmr.Stop();
+        _camera.Stop();   // a running camera cannot be probed
+        Log("Looking for cameras...");
+        var found = await Task.Run(() => CameraService.FindCameras(5));
+        if (found.Count == 0)
+        {
+            Log("No camera found. Check the cable, the Windows camera privacy setting, and that no other program uses it.");
+            return;
+        }
+        Log("Cameras found at index: " + string.Join(", ", found) +
+            "  (the laptop's built-in camera is usually 0; a USB camera plugged in later is usually 1).");
+        nudCamera.Value = found[0];
+        Log($"Camera index set to {found[0]}. Press 'Connect camera' to see it; change the index if it is the wrong one.");
     }
 
     private void ChooseDataFolder()

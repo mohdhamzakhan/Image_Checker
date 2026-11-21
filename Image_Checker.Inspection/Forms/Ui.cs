@@ -18,7 +18,7 @@ internal static class Ui
         var b = new Button
         {
             Text = text,
-            Size = new Size(width, ControlHeight),
+            Size = new Size(width, ControlHeight+10),
             Margin = new Padding(Inner, 0, 0, 0),
             FlatStyle = FlatStyle.Flat,
             UseVisualStyleBackColor = false,
