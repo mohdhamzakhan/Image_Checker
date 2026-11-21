@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="OpenCvSharp4" Version="4.13.0.20261107" />
+    <PackageReference Include="OpenCvSharp4.Extensions" Version="4.13.0.20261107" />
+    <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20261107" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Image_Checker\Image_Checker.csproj" />
+  </ItemGroup>
+
+</Project>
