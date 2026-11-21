@@ -42,76 +42,36 @@ public sealed class CameraService : IDisposable
     public bool IsHealthy =>
         _running && DateTime.UtcNow.Ticks - Interlocked.Read(ref _lastFrameTicks) < TimeSpan.FromSeconds(2).Ticks;
 
-
     public bool Start(int index, int width, int height, out string error)
     {
         Stop();
-
-        error = string.Empty;
-        VideoCapture cap = null;
-
+        error = "";
         try
         {
-            // Stage 1: Initialize camera
-            cap = new VideoCapture(index, VideoCaptureAPIs.DSHOW);
-
-            // Stage 2: Check camera availability
+            var cap = new VideoCapture(index, VideoCaptureAPIs.DSHOW);
             if (!cap.IsOpened())
             {
                 cap.Dispose();
-                cap = null;
-
-                error = $"Camera {index} could not be opened. " +
-                        "Check whether it is connected or being used by another application.";
-
+                error = $"Camera {index} could not be opened. Is it plugged in and not used by another program?";
                 return false;
             }
 
-            // Stage 3: Configure resolution
             cap.Set(VideoCaptureProperties.FrameWidth, width);
             cap.Set(VideoCaptureProperties.FrameHeight, height);
 
-            // Stage 4: Assign camera
             _capture = cap;
-            cap = null; // Ownership transferred to _capture
-
             _running = true;
-
-            Interlocked.Exchange(
-                ref _lastFrameTicks,
-                DateTime.UtcNow.Ticks);
-
-            // Stage 5: Start camera reader thread
-            _thread = new Thread(ReadLoop)
-            {
-                IsBackground = true,
-                Name = "CameraReader"
-            };
-
+            Interlocked.Exchange(ref _lastFrameTicks, DateTime.UtcNow.Ticks);
+            _thread = new Thread(ReadLoop) { IsBackground = true, Name = "CameraReader" };
             _thread.Start();
-
             return true;
         }
         catch (Exception ex)
         {
-            _running = false;
-
-            // Dispose camera if initialization failed
-            try
-            {
-                cap?.Dispose();
-            }
-            catch
-            {
-                // Ignore cleanup exception
-            }
-
-            error = $"Camera initialization failed.\r\n\r\n{ex}";
-
+            error = ex.Message;
             return false;
         }
     }
-
 
     private void ReadLoop()
     {
