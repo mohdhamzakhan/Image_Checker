@@ -1,19 +1,18 @@
 ﻿// ══════════════════════════════════════════════════════════════════════════════
 //  ModelBuilderForm.cs  –  Code-behind for the redesigned form.
+//
+//  Time-Series task now uses Image_Checker.Forecasting (ForecastEngine):
+//    • one forecast per series key (item, item|customer, ...)
+//    • zero-filled calendar, demand-pattern aware models, rolling backtest
+//    • result saved as  bestModel-Forecast-<stamp>.forecast.json
+//  All other tasks (classification / regression) are unchanged.
 // ══════════════════════════════════════════════════════════════════════════════
 
+using Image_Checker.Forecasting;
 using Image_Checker.Services;
 using Microsoft.ML;
-using System;
-using System.Collections.Generic;
 using System.Data;
-using System.Drawing;
-using System.IO;
-using System.Linq;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Windows.Forms;
 
 namespace Image_Checker.Forms
 {
@@ -24,9 +23,9 @@ namespace Image_Checker.Forms
         private readonly DataPreprocessor _pp = new();
         private DataTable? _raw;
         private PreprocessingSummary? _lastPrep;
-        private string? _savedModel;      // primary model path
-        private string? _savedSsaModel;   // SSA model path (TS tasks)
+        private string? _savedModel;      // primary model / forecast file path
         private CancellationTokenSource? _cts;
+        private Forecasting.ForecastReport? _lastForecast;
 
         // ── algorithm descriptions ─────────────────────────────────────────
         private static readonly Dictionary<string, (string Title, string Body)> _algo = new()
@@ -110,7 +109,7 @@ namespace Image_Checker.Forms
             WireEvents();
             SetAlgoInfo("SDCA");
 
-            // ADD THIS: Force handle creation for all hidden tabs immediately.
+            // Force handle creation for all hidden tabs immediately.
             // This prevents layout exceptions when filling the DataGridViews in the background.
             foreach (TabPage tab in tabMain.TabPages) { var _ = tab.Handle; }
         }
@@ -210,31 +209,27 @@ namespace Image_Checker.Forms
 
         /// <summary>
         /// Picks a sensible default label column instead of blindly taking
-        /// the last column in the file (that default is exactly what sent a
-        /// whole training run into a cascade of failures when a text column
-        /// like OPERATING_UNIT happened to be last — SSA tried to aggregate
-        /// it numerically, got NaN for every period, and every regression
-        /// trainer failed with "0 valid instances").
+        /// the last column in the file.
         ///
         /// Preference order:
         ///   1. A numeric column whose name matches a common target pattern
         ///      (quantity, amount, sales, revenue, demand, value, price...).
         ///   2. The first numeric column, if no name match is found.
         ///   3. The last column, only as a last resort when NO column in the
-        ///      file is numeric at all (matches the old behavior).
+        ///      file is numeric at all.
         /// </summary>
         private string GuessLabelColumn(List<string> cols)
         {
             if (_raw == null || cols.Count == 0) return cols.LastOrDefault() ?? "";
 
-            bool IsNumeric(string col)
+            bool IsNumericCol(string col)
             {
                 var type = _raw.Columns[col]?.DataType;
                 return type == typeof(int) || type == typeof(long) || type == typeof(short)
                     || type == typeof(float) || type == typeof(double) || type == typeof(decimal);
             }
 
-            var numericCols = cols.Where(IsNumeric).ToList();
+            var numericCols = cols.Where(IsNumericCol).ToList();
             if (numericCols.Count == 0) return cols[^1]; // nothing numeric — old fallback
 
             string[] targetPatterns =
@@ -262,23 +257,22 @@ namespace Image_Checker.Forms
             cmbLabel.Items.AddRange(cols.Cast<object>().ToArray());
             cmbLabel.SelectedIndex = Math.Max(0, cols.IndexOf(GuessLabelColumn(cols)));
 
+            // Time-series date column: pre-select a date-looking column
+            var dateLike = cols.FirstOrDefault(c =>
+                c.Contains("DATE", StringComparison.OrdinalIgnoreCase) ||
+                c.Contains("TRX", StringComparison.OrdinalIgnoreCase));
+
             cmbTsDate.Items.Clear();
             cmbTsDate.Items.Add("(none)");
             cols.ForEach(c => cmbTsDate.Items.Add(c));
-            cmbTsDate.SelectedIndex = 0;
+            cmbTsDate.SelectedIndex = dateLike != null ? cols.IndexOf(dateLike) + 1 : 0;
 
             cmbSplitDateCol.Items.Clear();
             cmbSplitDateCol.Items.Add("(none)");
             cols.ForEach(c => cmbSplitDateCol.Items.Add(c));
 
-            // Best-effort default: if a column looks like a transaction date
-            // (TRX_DATE, ORDER_DATE, DATE, etc.), pre-select it and turn on
-            // the time-based split by default — it's the correct choice for
-            // sales/forecasting data far more often than a random split is.
-            var dateLike = cols.FirstOrDefault(c =>
-                c.Contains("DATE", StringComparison.OrdinalIgnoreCase) ||
-                c.Contains("TRX", StringComparison.OrdinalIgnoreCase));
-
+            // For sales/forecasting data a time-based split is far more often
+            // correct than a random split, so default to it when a date column exists.
             if (dateLike != null)
             {
                 cmbSplitDateCol.SelectedItem = dateLike;
@@ -292,6 +286,17 @@ namespace Image_Checker.Forms
 
             clbFeatures.Items.Clear(); clbIgnore.Items.Clear();
             cols.ForEach(c => { clbFeatures.Items.Add(c, true); clbIgnore.Items.Add(c, false); });
+
+            // Series keys for forecasting: one forecast per combination of the ticked columns.
+            // Default = columns that look like an item / SKU / product id.
+            // (Do NOT match "PART": PARTY_NAME would match it.)
+            clbSeriesKeys.Items.Clear();
+            foreach (var c in cols)
+            {
+                bool key = new[] { "ITEM", "SKU", "PRODUCT" }
+                    .Any(p => c.Contains(p, StringComparison.OrdinalIgnoreCase));
+                clbSeriesKeys.Items.Add(c, key);
+            }
 
             // Uncheck the default label column straight away
             OnLabelChanged();
@@ -383,6 +388,10 @@ namespace Image_Checker.Forms
             int lblIdx = clbFeatures.Items.IndexOf(newLabel);
             if (lblIdx >= 0) clbFeatures.SetItemChecked(lblIdx, false);
 
+            // ── Series keys: the quantity column can never be a key ────────
+            int keyIdx = clbSeriesKeys.Items.IndexOf(newLabel);
+            if (keyIdx >= 0) clbSeriesKeys.SetItemChecked(keyIdx, false);
+
             // ── Preprocessing grids ───────────────────────────────────────
             HideGridRow(dgvCleaning, newLabel, _previousLabel);
             HideGridRow(dgvTransform, newLabel, _previousLabel);
@@ -393,7 +402,7 @@ namespace Image_Checker.Forms
 
         private static void HideGridRow(DataGridView grid, string labelName, string previousLabel)
         {
-            // ✅ ADDED: Prevent Handle crashes by dropping active cell focus before hiding rows
+            // Prevent Handle crashes by dropping active cell focus before hiding rows
             grid.CurrentCell = null;
 
             foreach (DataGridViewRow row in grid.Rows)
@@ -582,14 +591,40 @@ namespace Image_Checker.Forms
         // ─────────────────────────────────────────────────────────────────
         private async void OnTrain(object? s, EventArgs e)
         {
+            // ── 1. Validate EVERYTHING before touching the UI state ─────────
             if (_raw == null) { Warn("Load a data file first."); return; }
             string lbl = cmbLabel.SelectedItem?.ToString() ?? "";
             if (lbl == "") { Warn("Select a label column."); return; }
 
-            var feat = Checked(clbFeatures).Where(c => c != lbl).ToList();
-            var ign = Checked(clbIgnore);
             bool ts = ParseTask() == TaskType.TimeSeries;
 
+            // forecasting inputs
+            var keyCols = Checked(clbSeriesKeys).Where(c => c != lbl).ToList();
+            string dateCol = cmbTsDate.SelectedIndex > 0 ? cmbTsDate.SelectedItem?.ToString() ?? "" : "";
+
+            if (ts)
+            {
+                if (dateCol == "")
+                { Warn("Pick the date column in the Time-Series options."); return; }
+                if (keyCols.Count == 0)
+                { Warn("Tick at least one series key column (for example the item column)."); return; }
+                if (keyCols.Contains(dateCol, StringComparer.OrdinalIgnoreCase))
+                { Warn("The date column cannot also be a series key."); return; }
+            }
+
+            Granularity gran = Granularity.Month;
+            if (Enum.TryParse(cmbTsGran.SelectedItem?.ToString(), true, out Granularity parsedGran))
+                gran = parsedGran;      // "Year" (not supported by the engine) falls back to Month
+
+            var fcOpt = new ForecastOptions
+            {
+                Granularity = gran,
+                Horizon = (int)nudTsHorizon.Value > 0 ? (int)nudTsHorizon.Value : 6,
+                IntervalLevel = (double)nudTsConf.Value / 100.0
+            };
+
+            var feat = Checked(clbFeatures).Where(c => c != lbl).ToList();
+            var ign = Checked(clbIgnore);
             if (!ts && feat.Count == 0) { Warn("Select at least one feature column."); return; }
 
             var catCols = dgvTransform.Rows.Cast<DataGridViewRow>()
@@ -599,10 +634,11 @@ namespace Image_Checker.Forms
                 .Where(c => c != "" && feat.Contains(c))
                 .ToList();
 
-            // ── Snapshot ALL UI values on the UI thread BEFORE Task.Run ────
+            // ── 2. Snapshot ALL UI values on the UI thread BEFORE Task.Run ──
             var filePath = txtFilePath.Text;
             var ppConfig = BuildPPConfig();
             var trainerBase = SnapshotTrainerConfig();
+            var outDir = trainerBase.OutputDirectory;
 
             var logW = new RtbWriter(rtbLog, this);
             var old = Console.Out;
@@ -617,7 +653,8 @@ namespace Image_Checker.Forms
             btnCancelTrain.Enabled = true;
             btnSaveModel.Enabled = btnExportReport.Enabled = false;
             _savedModel = null;
-            _savedSsaModel = null;
+            _lastForecast = null;
+            _lastPrep = null;
 
             PreprocessingSummary? prep = null;
             string? mPath = null;
@@ -630,14 +667,27 @@ namespace Image_Checker.Forms
                     try
                     {
                         ct.ThrowIfCancellationRequested();
+
+                        // ── NEW forecasting path ──────────────────────────────
+                        // Deliberately skips DataPreprocessor: removing "duplicate" rows or
+                        // capping "outliers" on raw sales transactions destroys real demand.
+                        if (ts)
+                        {
+                            var recs = ForecastDataLoader.FromDataTable(
+                                _raw!, dateCol, lbl, keyCols, Console.WriteLine);
+                            var rep = ForecastEngine.Run(recs, fcOpt, Console.WriteLine, ct);
+                            _lastForecast = rep;
+                            mPath = ForecastStore.Save(rep, keyCols, lbl, outDir);
+                            return;
+                        }
+
+                        // ── Classification / regression path (unchanged) ──────
                         prep = _pp.Run(filePath, lbl, feat, catCols, ign, ppConfig);
                         ct.ThrowIfCancellationRequested();
 
                         var cfg = new DataTrainerConfig
                         {
-                            DataFilePath = trainerBase.Task == TaskType.TimeSeries
-                                                    ? filePath
-                                                    : prep.TempCsvPath,
+                            DataFilePath = prep.TempCsvPath,
                             Separator = ',',
                             HasHeader = true,
                             LabelColumnName = trainerBase.LabelColumnName,
@@ -659,24 +709,13 @@ namespace Image_Checker.Forms
                 }, ct);
 
                 Console.SetOut(old);
-                if (err != null) { LogColor($"\n❌ {err.GetBaseException().Message}", Color.OrangeRed); SetStatus("Failed.", false); return; }
-                if (mPath == null) { LogColor("\n⚠️ Cancelled.", Color.Gold); SetStatus("Cancelled.", false); return; }
+                if (err != null)
+                { LogColor($"\n❌ {err.GetBaseException().Message}", Color.OrangeRed); SetStatus("Failed.", false); return; }
+                if (mPath == null)
+                { LogColor("\n⚠️ Cancelled.", Color.Gold); SetStatus("Cancelled.", false); return; }
 
-                _savedModel = mPath; _lastPrep = prep;
-
-                if (ParseTask() == TaskType.TimeSeries && mPath != null)
-                {
-                    _savedSsaModel = mPath;
-                    var dir = Path.GetDirectoryName(mPath) ?? "";
-                    var regressionZip = Directory.GetFiles(dir, "bestModel-*_Regression-*.zip")
-                        .OrderByDescending(f => File.GetLastWriteTime(f))
-                        .FirstOrDefault();
-                    if (regressionZip != null) _savedModel = regressionZip;
-                }
-                else
-                {
-                    _savedSsaModel = null;
-                }
+                _savedModel = mPath;
+                _lastPrep = prep;
 
                 LogColor($"\n✅ Saved:\n   {mPath}", Color.LightGreen);
                 FillResults(mPath);
@@ -684,11 +723,12 @@ namespace Image_Checker.Forms
                 SetStatus("Training complete.", false);
             }
             catch (OperationCanceledException)
-            { Console.SetOut(old); LogColor("\n⚠️ Cancelled.", Color.Gold); SetStatus("Cancelled.", false); }
+            { LogColor("\n⚠️ Cancelled.", Color.Gold); SetStatus("Cancelled.", false); }
             catch (Exception ex)
-            { Console.SetOut(old); LogColor($"\n❌ {ex.Message}", Color.OrangeRed); SetStatus("Error.", false); }
+            { LogColor($"\n❌ {ex.Message}", Color.OrangeRed); SetStatus("Error.", false); }
             finally
             {
+                Console.SetOut(old);        // always restore the console, whatever happened
                 SetBusy(false, "");
                 btnTrain.Enabled = true;
                 btnCancelTrain.Enabled = false;
@@ -704,41 +744,41 @@ namespace Image_Checker.Forms
         {
             if (InvokeRequired) { Invoke(() => FillResults(path)); return; }
 
-            bool isTs = ParseTask() == TaskType.TimeSeries;
-
-            lblResultTitle.Text = isTs
-                ? "📅  Time-Series training complete — SSA + Regression models saved"
-                : $"🏆  Best model: {Path.GetFileNameWithoutExtension(path)}";
-
             var dt = new DataTable();
             dt.Columns.Add("Property"); dt.Columns.Add("Value");
 
-            if (isTs && _savedSsaModel != null)
+            // ── Forecast result ───────────────────────────────────────────
+            if (ParseTask() == TaskType.TimeSeries && _lastForecast != null)
             {
-                dt.Rows.Add("== SSA FORECAST MODEL ==", "(load this for forecasting)");
-                dt.Rows.Add("SSA File", Path.GetFileName(_savedSsaModel));
-                dt.Rows.Add("SSA Folder", Path.GetDirectoryName(_savedSsaModel));
-                dt.Rows.Add("Use for", "Time-Series Forecast tab");
+                var f = _lastForecast;
+                lblResultTitle.Text = "📈  Forecast complete";
+
+                dt.Rows.Add("Forecast file", Path.GetFileName(path));
+                dt.Rows.Add("Saved to", Path.GetDirectoryName(path));
+                dt.Rows.Add("Series forecast", f.Series.Count.ToString("N0"));
+                dt.Rows.Add("Granularity", f.Options.Granularity.ToString());
+                dt.Rows.Add("Horizon", f.Options.Horizon);
+                dt.Rows.Add("Backtest WAPE (chosen models)",
+                    double.IsNaN(f.OverallWape) ? "n/a" : f.OverallWape.ToString("P1"));
+                dt.Rows.Add("Backtest WAPE (baseline)",
+                    double.IsNaN(f.BaselineWape) ? "n/a" : f.BaselineWape.ToString("P1"));
+                dt.Rows.Add("Series beating baseline",
+                    double.IsNaN(f.ShareBeatingBaseline) ? "n/a" : f.ShareBeatingBaseline.ToString("P0"));
                 dt.Rows.Add("", "");
+                dt.Rows.Add("Open in", "Prediction form → Browse & Load → this .forecast.json");
 
-                var dir = Path.GetDirectoryName(_savedSsaModel) ?? "";
-                var regZip = Directory.GetFiles(dir, "bestModel-*_Regression-*.zip")
-                    .OrderByDescending(f => File.GetLastWriteTime(f)).FirstOrDefault();
-                if (regZip != null)
-                {
-                    dt.Rows.Add("== REGRESSION MODEL ==", "(load this for row prediction)");
-                    dt.Rows.Add("Regression File", Path.GetFileName(regZip));
-                    dt.Rows.Add("Regression Folder", Path.GetDirectoryName(regZip));
-                    dt.Rows.Add("Use for", "Input Data tab — predict by customer/item");
-                    dt.Rows.Add("", "");
-                }
-            }
-            else
-            {
-                dt.Rows.Add("Model File", Path.GetFileName(path));
-                dt.Rows.Add("Saved To", Path.GetDirectoryName(path));
+                dgvResults.DataSource = dt;
+                rtbResultLog.Clear();
+                rtbResultLog.AppendText(f.SummaryText());
+                btnSaveModel.Enabled = btnExportReport.Enabled = true;
+                return;
             }
 
+            // ── Classification / regression result ─────────────────────────
+            lblResultTitle.Text = $"🏆  Best model: {Path.GetFileNameWithoutExtension(path)}";
+
+            dt.Rows.Add("Model File", Path.GetFileName(path));
+            dt.Rows.Add("Saved To", Path.GetDirectoryName(path));
             dt.Rows.Add("Label", cmbLabel.SelectedItem?.ToString());
             dt.Rows.Add("Task", ParseTask().ToString());
             dt.Rows.Add("Split", $"{100 - (int)nudTestPct.Value}% train / {nudTestPct.Value}% test");
@@ -754,43 +794,8 @@ namespace Image_Checker.Forms
 
             dgvResults.DataSource = dt;
             rtbResultLog.Clear();
-
-            if (isTs && _savedSsaModel != null)
-            {
-                void Ln(string t, Color c)
-                {
-                    rtbResultLog.SelectionColor = c;
-                    rtbResultLog.AppendText(t + "\n");
-                }
-                Ln("TWO MODELS WERE SAVED", Color.Cyan);
-                Ln("═══════════════════════════════════════════════════", Color.FromArgb(100, 145, 215));
-                Ln("", Color.White);
-                Ln("📅  MODEL 1 — SSA FORECAST  (for time trend forecasting)", Color.LightGreen);
-                Ln($"   File : {Path.GetFileName(_savedSsaModel)}", Color.FromArgb(188, 210, 188));
-                Ln("   How  : Open Prediction Form", Color.FromArgb(188, 210, 188));
-                Ln("         → Browse & Load → select SSA file", Color.FromArgb(188, 210, 188));
-                Ln("         → Time-Series Forecast tab", Color.FromArgb(188, 210, 188));
-                Ln("         → Set horizon (e.g. 12) + Granularity = Month", Color.FromArgb(188, 210, 188));
-                Ln("         → Run Forecast", Color.FromArgb(188, 210, 188));
-                Ln("", Color.White);
-                var dir2 = Path.GetDirectoryName(_savedSsaModel) ?? "";
-                var reg2 = Directory.GetFiles(dir2, "bestModel-*_Regression-*.zip")
-                    .OrderByDescending(f => File.GetLastWriteTime(f)).FirstOrDefault();
-                if (reg2 != null)
-                {
-                    Ln("📊  MODEL 2 — REGRESSION  (predict qty for specific customer/item)", Color.LightSkyBlue);
-                    Ln($"   File : {Path.GetFileName(reg2)}", Color.FromArgb(188, 210, 188));
-                    Ln("   How  : Open Prediction Form", Color.FromArgb(188, 210, 188));
-                    Ln("         → Browse & Load → select Regression file", Color.FromArgb(188, 210, 188));
-                    Ln("         → Input Data tab", Color.FromArgb(188, 210, 188));
-                    Ln("         → Add Row, enter PARTY_NAME / INVENTORY_ITEM_ID / TRX_DATE", Color.FromArgb(188, 210, 188));
-                    Ln("         → Run Prediction", Color.FromArgb(188, 210, 188));
-                }
-            }
-            else if (_lastPrep != null)
-            {
+            if (_lastPrep != null)
                 foreach (var l in _lastPrep.Log) rtbResultLog.AppendText(l + "\n");
-            }
 
             btnSaveModel.Enabled = btnExportReport.Enabled = true;
         }
@@ -802,6 +807,22 @@ namespace Image_Checker.Forms
         {
             if (_savedModel == null || !File.Exists(_savedModel))
             { Warn("No model found."); return; }
+
+            // Forecast file: a single self-contained .forecast.json
+            if (ForecastStore.IsForecastFile(_savedModel))
+            {
+                using var fd = new SaveFileDialog
+                {
+                    Filter = "Forecast (*.forecast.json)|*.forecast.json",
+                    FileName = Path.GetFileName(_savedModel)
+                };
+                if (fd.ShowDialog() != DialogResult.OK) return;
+                File.Copy(_savedModel, fd.FileName, true);
+                MessageBox.Show($"Saved to:\n{fd.FileName}", "Done",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
             using var d = new SaveFileDialog
             { Filter = "ML.NET Model (*.zip)|*.zip", FileName = Path.GetFileName(_savedModel) };
             if (d.ShowDialog() != DialogResult.OK) return;
@@ -814,6 +835,25 @@ namespace Image_Checker.Forms
 
         private async void OnExport(object? s, EventArgs e)
         {
+            // Forecast: export the two CSVs (forecast + accuracy)
+            if (_lastForecast != null && ParseTask() == TaskType.TimeSeries)
+            {
+                using var fb = new FolderBrowserDialog { Description = "Choose output folder" };
+                if (fb.ShowDialog() != DialogResult.OK) return;
+                try
+                {
+                    var fcPath = Path.Combine(fb.SelectedPath, "forecast.csv");
+                    var acPath = Path.Combine(fb.SelectedPath, "accuracy.csv");
+                    _lastForecast.ExportForecastCsv(fcPath);
+                    _lastForecast.ExportAccuracyCsv(acPath);
+                    MessageBox.Show($"Exported:\n{fcPath}\n{acPath}", "Done",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                { MessageBox.Show(ex.Message, "Export Error", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                return;
+            }
+
             if (_savedModel == null || _lastPrep == null) { Warn("Train a model first."); return; }
             using var d = new FolderBrowserDialog { Description = "Choose output folder" };
             if (d.ShowDialog() != DialogResult.OK) return;

@@ -35,6 +35,9 @@ public sealed class InspectionRecipe
     public int CameraIndex { get; set; }
     public int FrameWidth { get; set; } = 1280;
     public int FrameHeight { get; set; } = 720;
+    /// <summary>Mirror the camera image left-right (many laptop cameras show a mirrored picture).</summary>
+    public bool FlipHorizontal { get; set; }
+    public bool FlipVertical { get; set; }
     public List<StepConfig> Steps { get; set; } = new();
 
     public void SetStepCount(int count)

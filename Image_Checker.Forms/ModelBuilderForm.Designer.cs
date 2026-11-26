@@ -39,6 +39,8 @@ namespace Image_Checker.Forms
         private GroupBox grpTS;
         private ComboBox cmbTsDate, cmbTsGran;
         private NumericUpDown nudTsHorizon, nudTsWindow, nudTsSeries, nudTsConf;
+        private CheckedListBox clbSeriesKeys;
+        private Label lblSeriesKeys;
 
         // per-column grids
         private DataGridView dgvCleaning, dgvTransform, dgvReduction;
@@ -298,6 +300,27 @@ namespace Image_Checker.Forms
                 ForeColor = Color.FromArgb(41, 98, 200),
                 Visible = false
             };
+
+            lblSeriesKeys = new Label
+            {
+                Text = "Series key columns (one forecast per combination)",
+                Location = new Point(12, 210),
+                Size = new Size(320, 32),
+                Font = new Font("Segoe UI", 8.5f, FontStyle.Regular),
+                ForeColor = Color.FromArgb(60, 60, 60)
+            };
+
+            clbSeriesKeys = new CheckedListBox
+            {
+                Location = new Point(12, 244),
+                Size = new Size(320, 90),
+                Font = new Font("Segoe UI", 8.5f, FontStyle.Regular),
+                CheckOnClick = true,
+                IntegralHeight = false
+            };
+
+            grpTS.Controls.Add(lblSeriesKeys);
+            grpTS.Controls.Add(clbSeriesKeys);
 
             int ty = 26;
             void TSRow(string lbl, Control ctrl, string tooltip = "")

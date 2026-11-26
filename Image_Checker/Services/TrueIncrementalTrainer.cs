@@ -70,7 +70,7 @@ namespace Image_Checker.Services
                     var safe = new System.Drawing.Rectangle(x, y,
                         Math.Min(roi.RoiW, bmp.Width), Math.Min(roi.RoiH, bmp.Height));
 
-                    using var crop = bmp.Clone(safe, bmp.PixelFormat);
+                    using var crop = RoiMask.Replace(bmp.Clone(safe, bmp.PixelFormat));
 
                     string tag = Convert.ToHexString(
                         System.Security.Cryptography.SHA1.HashData(

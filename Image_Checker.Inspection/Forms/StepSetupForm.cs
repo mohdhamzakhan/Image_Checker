@@ -24,12 +24,13 @@ public sealed class StepSetupForm : Form
     private readonly ComboBox cmbProduct = new(), cmbResolution = new(), cmbStep = new();
     private readonly TextBox txtStepName = new(), txtLog = new();
     private readonly CheckBox chkLightGbm = new(), chkSdca = new(), chkLbfgs = new(), chkFastTree = new();
+    private readonly CheckBox chkMirror = new(), chkFlipV = new();
     private readonly Label lblCounts = new(), lblModel = new();
     private readonly PictureBox picPreview = new();
     private NumericUpDown nudSteps = null!, nudCamera = null!, nudTrials = null!, nudFolds = null!,
                           nudRoiX = null!, nudRoiY = null!, nudRoiW = null!, nudRoiH = null!;
     private Button btnLoadProduct = null!, btnConnect = null!, btnDataFolder = null!,
-                   btnOkShot = null!, btnNgShot = null!, btnNewPart = null!, btnOpenFolder = null!,
+                   btnOkShot = null!, btnNgShot = null!, btnNoPartShot = null!, btnNewPart = null!, btnOpenFolder = null!,
                    btnTrain = null!, btnCancel = null!, btnTest = null!, btnSave = null!, btnClose = null!;
 
     /// <summary>The product that was being edited (so the supervisor screen can select it).</summary>
@@ -47,7 +48,7 @@ public sealed class StepSetupForm : Form
         };
     }
 
-    private static string NewPartId() => "P" + DateTime.Now.ToString("yyMMddHHmmss");
+    private static string NewPartId() => "P" + DateTime.Now.ToString("yyMMddHHmmssfff");
 
     private static NumericUpDown Nud(int min, int max, int value) =>
         new() { Minimum = min, Maximum = max, Value = value, Width = 80 };
@@ -167,6 +168,16 @@ public sealed class StepSetupForm : Form
         cmbResolution.SelectedIndex = 1;
         Ui.Row(t, "Resolution", cmbResolution);
 
+        chkMirror.Text = "Mirror (flip left-right)";
+        chkMirror.AutoSize = true;
+        chkFlipV.Text = "Flip upside down";
+        chkFlipV.AutoSize = true;
+        chkMirror.CheckedChanged += (_, _) => OnFlipChanged();
+        chkFlipV.CheckedChanged += (_, _) => OnFlipChanged();
+        var flipFlow = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
+        flipFlow.Controls.AddRange(new Control[] { chkMirror, chkFlipV });
+        Ui.Row(t, "Image orientation", flipFlow);
+
         btnLoadProduct = Ui.Btn("Load / create product", 160, (_, _) => LoadOrCreateProduct());
         btnConnect = Ui.Btn("Connect camera", 130, (_, _) => ConnectCamera());
         btnDataFolder = Ui.Btn("Data folder...", 110, (_, _) => ChooseDataFolder());
@@ -207,6 +218,11 @@ public sealed class StepSetupForm : Form
         Ui.Row(t, "ROI (pixels)", roiFlow);
 
         Ui.Row(t, "Trained model", lblModel);
+        var btnSelectModel = Ui.Btn("Select model file...", 150, (_, _) => SelectModel());
+        var btnModelFolder = Ui.Btn("Open model folder", 140, (_, _) => OpenModelFolder());
+        var modelFlow = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
+        modelFlow.Controls.AddRange(new Control[] { btnSelectModel, btnModelFolder });
+        Ui.Span(t, modelFlow);
 
         var hint = new Label
         {
@@ -239,7 +255,8 @@ public sealed class StepSetupForm : Form
         btnNewPart = Ui.Btn("New part", 90, (_, _) => { _partId = NewPartId(); Log("New part id: " + _partId); });
         btnOpenFolder = Ui.Btn("Open folder", 100, (_, _) => OpenDatasetFolder());
         var flow = new FlowLayoutPanel { AutoSize = true, WrapContents = true };
-        flow.Controls.AddRange(new Control[] { btnOkShot, btnNgShot, btnNewPart, btnOpenFolder });
+        btnNoPartShot = Ui.Btn("Capture NoPart  (F3)", 150, (_, _) => Capture("NoPart"), Ui.Grey);
+        flow.Controls.AddRange(new Control[] { btnOkShot, btnNgShot, btnNoPartShot, btnNewPart, btnOpenFolder });
         Ui.Span(t, flow);
 
         var hint = new Label
@@ -312,6 +329,10 @@ public sealed class StepSetupForm : Form
         string res = $"{r.FrameWidth}x{r.FrameHeight}";
         int ri = cmbResolution.Items.IndexOf(res);
         cmbResolution.SelectedIndex = ri >= 0 ? ri : 1;
+        chkMirror.Checked = r.FlipHorizontal;
+        chkFlipV.Checked = r.FlipVertical;
+        _camera.FlipHorizontal = r.FlipHorizontal;
+        _camera.FlipVertical = r.FlipVertical;
         _loading = false;
         FillSteps();
     }
@@ -357,6 +378,8 @@ public sealed class StepSetupForm : Form
     {
         if (_recipe == null) return;
         _recipe.CameraIndex = (int)nudCamera.Value;
+        _recipe.FlipHorizontal = chkMirror.Checked;
+        _recipe.FlipVertical = chkFlipV.Checked;
         var parts = cmbResolution.Text.Split('x');
         if (parts.Length == 2 && int.TryParse(parts[0], out var w) && int.TryParse(parts[1], out var h))
         {
@@ -377,6 +400,8 @@ public sealed class StepSetupForm : Form
     {
         if (_recipe == null) { Warn("Load or create a product first."); return; }
         ReadSettings();
+        _camera.FlipHorizontal = chkMirror.Checked;
+        _camera.FlipVertical = chkFlipV.Checked;
         _tmr.Stop();
         if (_camera.Start(_recipe.CameraIndex, _recipe.FrameWidth, _recipe.FrameHeight, out var error))
         {
@@ -384,6 +409,16 @@ public sealed class StepSetupForm : Form
             Log($"Camera {_recipe.CameraIndex} connected ({_recipe.FrameWidth}x{_recipe.FrameHeight}).");
         }
         else Log("Camera: " + error);
+    }
+
+    private void OnFlipChanged()
+    {
+        _camera.FlipHorizontal = chkMirror.Checked;   // takes effect on the live picture immediately
+        _camera.FlipVertical = chkFlipV.Checked;
+        if (_loading || _recipe == null) return;
+        ReadSettings();
+        Log("Orientation changed. Photos captured BEFORE this change keep the old orientation: " +
+            "delete and recapture them, then retrain the step.");
     }
 
     private async void BtnFindCameras_Click(object? sender, EventArgs e)
@@ -514,6 +549,37 @@ public sealed class StepSetupForm : Form
         }
     }
 
+    /// <summary>
+    /// ModelTrainer splits train/test by the text before "___" in the file name. If nearly all images share one
+    /// id (no 'New part' pressed), the test set ends up empty and training fails. Spread them over groups of 4.
+    /// </summary>
+    private void EnsureGroups(string datasetDir)
+    {
+        foreach (var label in new[] { "OK", "NG", "NoPart" })
+        {
+            string dir = Path.Combine(datasetDir, label);
+            if (!Directory.Exists(dir)) continue;
+
+            var files = Directory.GetFiles(dir).OrderBy(f => f, StringComparer.Ordinal).ToList();
+            int groups = files.Select(f => Path.GetFileName(f).Split("___")[0]).Distinct().Count();
+            // aim for about 15 groups per class: groups of 1 for small sets, up to 4 images per group for big ones
+            int size = Math.Clamp(files.Count / 15, 1, 4);
+            int needed = (files.Count + size - 1) / size;
+            if (groups >= 15 || groups >= needed) continue;
+
+            int i = 0;
+            foreach (var f in files)
+            {
+                string name = Path.GetFileName(f);
+                int cut = name.IndexOf("___", StringComparison.Ordinal);
+                string rest = cut >= 0 ? name[(cut + 3)..] : name;
+                File.Move(f, Path.Combine(dir, $"G{label}{i / size:D3}___{rest}"));
+                i++;
+            }
+            Log($"{label}: {files.Count} images regrouped into {needed} groups so the test split works.");
+        }
+    }
+
     private int CountImages(string label)
     {
         var s = CurrentStep();
@@ -525,7 +591,55 @@ public sealed class StepSetupForm : Form
     private void UpdateCounts()
     {
         var s = CurrentStep();
-        lblCounts.Text = s == null ? "" : $"{s.Title}:   OK {CountImages("OK")}   |   NG {CountImages("NG")}";
+        if (s == null) { lblCounts.Text = ""; return; }
+        int noPart = CountImages("NoPart");
+        lblCounts.Text = $"{s.Title}:   OK {CountImages("OK")}   |   NG {CountImages("NG")}" +
+                         (noPart > 0 ? $"   |   NoPart {noPart}" : "");
+    }
+
+    /// <summary>Assigns an existing model (.zip) to the selected step, e.g. one trained earlier.</summary>
+    private void SelectModel()
+    {
+        var step = CurrentStep();
+        if (step == null || _recipe == null) { Warn("Load or create a product first."); return; }
+
+        string startDir = RecipeStore.StepDatasetDir(_recipe.Name, step.Number);
+        using var dlg = new OpenFileDialog
+        {
+            Title = $"Select the model for {step.Title}",
+            Filter = "ML.NET model (*.zip)|*.zip",
+            InitialDirectory = Directory.Exists(startDir) ? startDir : RecipeStore.Root
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+        step.ModelPath = dlg.FileName;
+
+        // the .json saved next to a model holds the ROI it was trained with: use it for this step
+        if (RoiSidecar.TryRead(RoiSidecar.PathFor(dlg.FileName), out var info) && info.HasRoi)
+        {
+            step.Roi = info.ToRectangle();
+            Log($"{step.Title}: ROI taken from the model's .json: {step.RoiX},{step.RoiY}  {step.RoiW}x{step.RoiH}");
+        }
+        else
+        {
+            Log($"{step.Title}: no ROI found next to the model (.json missing). Keep the ROI you drew only if it " +
+                "matches the one the model was trained with.");
+        }
+
+        SaveRecipe();
+        ShowStep();
+        Log($"{step.Title}: model set to {dlg.FileName}");
+    }
+
+    private void OpenModelFolder()
+    {
+        var step = CurrentStep();
+        if (step == null || _recipe == null) return;
+
+        if (step.HasModel)
+            System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{step.ModelPath}\"");
+        else
+            OpenDatasetFolder();
     }
 
     private void OpenDatasetFolder()
@@ -548,9 +662,32 @@ public sealed class StepSetupForm : Form
         if (!step.HasRoi) { Warn("Draw the ROI of this step first."); return; }
 
         int ok = CountImages("OK"), ng = CountImages("NG");
-        if (ok == 0 || ng == 0) { Warn("Capture images for both OK and NG first."); return; }
+        if (ok < 10 || ng < 10)
+        {
+            Warn($"This step has {ok} OK and {ng} NG images. Capture at least 10 of each (30 or more is recommended), " +
+                 "otherwise the train/test split can come out empty and training fails.");
+            return;
+        }
         if (!chkLightGbm.Checked && !chkSdca.Checked && !chkLbfgs.Checked && !chkFastTree.Checked)
         { Warn("Select at least one algorithm."); return; }
+        int np = CountImages("NoPart");
+        if (np > 0 && np < 10)
+        {
+            Warn($"NoPart has only {np} images. Capture at least 10, or delete them to train without that class.");
+            return;
+        }
+
+        // ModelTrainer calculates the NG limit for the SMALLEST class, so NG must be the smallest one
+        int smallestOther = np > 0 ? Math.Min(ok, np) : ok;
+        string others = np > 0 ? $"OK {ok}, NoPart {np}" : $"OK {ok}";
+        if (ng >= smallestOther && MessageBox.Show(this,
+                $"NG has {ng} images but should be the smallest class ({others}).\n\n" +
+                "The NG limit is calculated for the smallest class, so with these counts it could be wrong. " +
+                "Capture more of the other classes first.\n\nTrain anyway?",
+                "Class sizes", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+            return;
+
         if ((ok < 20 || ng < 20) && MessageBox.Show(this,
                 $"Only {ok} OK and {ng} NG images. At least 20-30 of each is recommended.\n\nTrain anyway?",
                 "Few images", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
@@ -558,6 +695,7 @@ public sealed class StepSetupForm : Form
 
         SaveRecipe();
         string dataset = RecipeStore.StepDatasetDir(_recipe.Name, step.Number);
+        EnsureGroups(dataset);
         var options = new TrainOptions(chkSdca.Checked, chkLbfgs.Checked, chkFastTree.Checked,
                                        chkLightGbm.Checked, (int)nudTrials.Value, (int)nudFolds.Value);
         var roi = step.Roi;
@@ -629,7 +767,7 @@ public sealed class StepSetupForm : Form
         _training = on;
         btnTrain.Enabled = !on;
         btnCancel.Enabled = on;
-        btnOkShot.Enabled = btnNgShot.Enabled = !on;
+        btnOkShot.Enabled = btnNgShot.Enabled = btnNoPartShot.Enabled = !on;
         btnLoadProduct.Enabled = !on;
         btnTest.Enabled = !on;
         cmbStep.Enabled = !on;
@@ -657,6 +795,7 @@ public sealed class StepSetupForm : Form
     {
         if (keyData == Keys.F1) { Capture("OK"); return true; }
         if (keyData == Keys.F2) { Capture("NG"); return true; }
+        if (keyData == Keys.F3) { Capture("NoPart"); return true; }
         return base.ProcessCmdKey(ref msg, keyData);
     }
 

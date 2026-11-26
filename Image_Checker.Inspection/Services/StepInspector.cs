@@ -141,9 +141,20 @@ public sealed class StepInspector : IDisposable
 
             result.NgScore = ngScore;
             result.Threshold = m.NgThreshold;
-            result.Verdict = ng ? StepVerdict.Ng : (s.IsOutOfDistribution ? StepVerdict.Uncertain : StepVerdict.Ok);
+            int topIdx = Array.IndexOf(s.Scores, top);
+            string topName = s.ClassNames != null && topIdx >= 0 && topIdx < s.ClassNames.Length
+                ? s.ClassNames[topIdx]
+                : s.PredictedLabel;
+            bool noPart = topName.Equals("NoPart", StringComparison.OrdinalIgnoreCase);
+
+            result.Verdict = ng ? StepVerdict.Ng
+                           : noPart ? StepVerdict.Uncertain
+                           : s.IsOutOfDistribution ? StepVerdict.Uncertain
+                           : StepVerdict.Ok;
             result.Detail = $"NG score {ngScore:P1} (NG limit {m.NgThreshold:P0})";
-            if (result.Verdict == StepVerdict.Uncertain)
+            if (!ng && noPart)
+                result.Detail = $"No part found in the checked area ({top:P0}). Put the product in position and retake.";
+            else if (result.Verdict == StepVerdict.Uncertain)
                 result.Detail += $". The model is not sure ({s.OodReason}). Check the product position and lighting, then retake.";
         }
         catch (Exception ex)

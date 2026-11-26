@@ -2,6 +2,7 @@
 using System.IO;
 using System.Runtime.Versioning;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using static Image_Checker.Services.IncrementalModelTrainer;
 
@@ -26,6 +27,7 @@ namespace Image_Checker.WinForm
         //Hamza 16-11-26
         //private Queue<string> _newImageQueue = new Queue<string>();
         private bool _isProcessingQueue = false;
+        private float _ngThreshold = 0.5f;
         // Add these fields at the top of Form1 class
         private UsbLightController _usbLight;
         //private Label lblUsbLightStatus; // You'll need to add this to your form designer
@@ -49,6 +51,40 @@ namespace Image_Checker.WinForm
         public Form1()
         {
             InitializeComponent();
+
+            // Remove Duplicate Images
+            var miDuplicates = new ToolStripMenuItem("🧹 Remove Duplicate Images...");
+            miDuplicates.Click += (s, e) =>
+            {
+                using var f = new DuplicateCleanerForm(_basePath);
+                f.ShowDialog(this);
+            };
+
+            menuFile.DropDownItems.Add(miDuplicates);
+
+            // Statistics Page
+            var miStatistics = new ToolStripMenuItem("📊 Statistics Page...");
+
+            miStatistics.Click += (s, e) =>
+            {
+                var profiles = LoadMonitorProfilesForStatistics();
+
+                string inspectionLogPath = Path.Combine(
+                    AppDomain.CurrentDomain.BaseDirectory,
+                    "Results",
+                    "inspection_log.csv"
+                );
+
+                using var f = new DailyReportForm(
+                    profiles,
+                    inspectionLogPath
+                );
+
+                f.ShowDialog(this);
+            };
+
+            menuFile.DropDownItems.Add(miStatistics);
+
             EnsureMonitorSourcesButton();
             LoadConfiguration();
 
@@ -60,7 +96,30 @@ namespace Image_Checker.WinForm
         {
             ConnectUsbLight();
         }
+        private List<MonitorProfile> LoadMonitorProfilesForStatistics()
+        {
+            string configPath = Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                "monitor_profiles.json"
+            );
 
+            if (!File.Exists(configPath))
+            {
+                MessageBox.Show(
+                    $"Configuration file not found:\n{configPath}",
+                    "Statistics",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning
+                );
+
+                return new List<MonitorProfile>();
+            }
+
+            string json = File.ReadAllText(configPath);
+
+            return JsonSerializer.Deserialize<List<MonitorProfile>>(json)
+                   ?? new List<MonitorProfile>();
+        }
         private void MenuCorrections_Click(object? sender, EventArgs e)
         {
             throw new NotImplementedException();
@@ -967,6 +1026,7 @@ namespace Image_Checker.WinForm
         }
         private void LoadSidecarConfig(string modelPath)
         {
+            RoiMask.Enabled = RoiMask.ReadFlag(modelPath);
             var jsonPath = Path.ChangeExtension(modelPath, ".json");
             if (!File.Exists(jsonPath)) return;
 
@@ -1017,12 +1077,40 @@ namespace Image_Checker.WinForm
                     return (ocp.Label, ocp.Confidence);
 
                 default: // MlNet
-                    if (_predictor == null)
-                        throw new InvalidOperationException("ML.NET model not loaded.");
-                    return _predictor.PredictWithConfidence(imagePath);
+                    if (_predictor == null) throw new InvalidOperationException("ML.NET model not loaded.");
+                    return PredictMlNetWithLimit(imagePath);
             }
         }
+        private (string Label, float Confidence) PredictMlNetWithLimit(string imagePath)
+        {
+            var s = _predictor.PredictScores(imagePath);
+            int ng = s.ClassNames == null ? -1
+                : Array.FindIndex(s.ClassNames, n => n.Equals("NG", StringComparison.OrdinalIgnoreCase));
+            if (ng < 0 || ng >= s.Scores.Length)
+                return (s.PredictedLabel, s.Scores.Length == 0 ? 0f : s.Scores.Max());
 
+            if (s.Scores[ng] >= _ngThreshold) return ("NG", s.Scores[ng]);
+
+            int best = -1;   // not NG: best of the other classes
+            for (int i = 0; i < s.Scores.Length; i++)
+                if (i != ng && (best < 0 || s.Scores[i] > s.Scores[best])) best = i;
+            string label = best >= 0 && s.ClassNames != null && best < s.ClassNames.Length ? s.ClassNames[best] : "OK";
+            return (label, best >= 0 ? s.Scores[best] : 1f - s.Scores[ng]);
+        }
+
+        private static float ReadNgThreshold(string modelPath)
+        {
+            try
+            {
+                var json = Path.ChangeExtension(modelPath, ".json");
+                if (!File.Exists(json)) return 0.5f;
+                using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(json));
+                if (doc.RootElement.TryGetProperty("NgThreshold", out var t) && t.TryGetSingle(out var f) && f > 0f && f < 1f)
+                    return f;
+            }
+            catch { }
+            return 0.5f;
+        }
         private void SaveConfiguration()
         {
             File.WriteAllLines(CONFIG_FILE, new[]
@@ -1074,6 +1162,8 @@ namespace Image_Checker.WinForm
                     var cfg = System.Text.Json.JsonSerializer.Deserialize<RoiConfig>(json);
                     _roiRect = new Rectangle(cfg.RoiX, cfg.RoiY, cfg.RoiW, cfg.RoiH);
                     _trainingImageSize = new Size(cfg.ImageWidth, cfg.ImageHeight);
+                    _ngThreshold = ReadNgThreshold(_modelPath);
+                    RoiMask.Enabled = RoiMask.ReadFlag(_modelPath);
                 }
             }
             catch (Exception ex)
@@ -1098,7 +1188,7 @@ namespace Image_Checker.WinForm
                 Math.Min(_roiRect.Width, bmp.Width),
                 Math.Min(_roiRect.Height, bmp.Height));
 
-            using var cropped = bmp.Clone(safeRoi, bmp.PixelFormat);
+            using var cropped = RoiMask.Replace(bmp.Clone(safeRoi, bmp.PixelFormat));
 
             using var resized = new Bitmap(cropped, _trainingImageSize);
 

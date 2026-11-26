@@ -1,7 +1,12 @@
 ﻿// ══════════════════════════════════════════════════════════════════════════════
-// ModelPredictionForm.cs – Complete rewrite with working predictions
+// ModelPredictionForm.cs
+//
+//  Loads either
+//    • a *.forecast.json  (new forecasting engine: one forecast per item, instant), or
+//    • a *.zip ML.NET model (classification / regression / legacy SSA).
 // ══════════════════════════════════════════════════════════════════════════════
 
+using Image_Checker.Forecasting;
 using Image_Checker.Services;
 using Microsoft.ML;
 using Microsoft.ML.Data;
@@ -30,12 +35,17 @@ namespace Image_Checker.Forms
         private DataTable? _lastOutput;
         private bool _clampNegative = true;
 
+        // ── Forecast-file state (new engine) ───────────────────────────────
+        private ForecastFile? _fc;
+        private decimal _horizonMaxDefault;
+
         // ── Constructor ────────────────────────────────────────────────────
         public ModelPredictionForm()
         {
             InitializeComponent();
             InitForm();
             WireEvents();
+            _horizonMaxDefault = nudHorizonCount.Maximum;
         }
 
         // ── Event wiring ───────────────────────────────────────────────────
@@ -57,8 +67,7 @@ namespace Image_Checker.Forms
         /// <summary>
         /// Safely sets up splitResults' fixed chart pane. Called once, from
         /// the Form's Load event, after the control actually has its real,
-        /// final size — see the comment on splitResults in the Designer file
-        /// for why this can't be done any earlier.
+        /// final size.
         /// </summary>
         private void ConfigureResultsSplitter()
         {
@@ -73,11 +82,8 @@ namespace Image_Checker.Forms
             }
             catch
             {
-                // If the form is somehow still too small for a 220px chart
-                // pane even at Load time (a very small MinimumSize override,
-                // say), just leave the SplitContainer at its own safe
-                // default rather than letting a cosmetic sizing preference
-                // crash the form on startup.
+                // If the form is somehow still too small, leave the SplitContainer
+                // at its own safe default rather than crash on startup.
             }
         }
 
@@ -87,13 +93,25 @@ namespace Image_Checker.Forms
         private void OnLoadModel(object? s, EventArgs e)
         {
             using var dlg = new OpenFileDialog
-            { Filter = "ML.NET Model (*.zip)|*.zip|All Files|*.*", Title = "Select Model" };
+            {
+                Filter = "Models & forecasts (*.zip;*.forecast.json)|*.zip;*.json|ML.NET Model (*.zip)|*.zip|Forecast (*.forecast.json)|*.forecast.json|All Files|*.*",
+                Title = "Select Model or Forecast File"
+            };
             if (dlg.ShowDialog() != DialogResult.OK) return;
 
             try
             {
                 _modelPath = dlg.FileName;
                 txtModelPath.Text = _modelPath;
+
+                // ── NEW: forecast file from the new engine ──────────────────
+                if (ForecastStore.IsForecastFile(_modelPath))
+                {
+                    LoadForecastFile(_modelPath);
+                    return;
+                }
+
+                _fc = null;
                 _model = _ml.Model.Load(_modelPath, out _schema);
 
                 var jsonPath = Path.ChangeExtension(_modelPath, ".json");
@@ -109,7 +127,7 @@ namespace Image_Checker.Forms
                 if (isTs)
                 {
                     lblModelInfo.Text =
-                        $"TimeSeries (SSA) | Label: {_meta?.LabelColumn ?? "?"} | " +
+                        $"TimeSeries (SSA, legacy) | Label: {_meta?.LabelColumn ?? "?"} | " +
                         $"Horizon: {_meta?.HorizonSteps} {_meta?.Granularity ?? "steps"} | " +
                         $"Trained: {_meta?.TrainedAt?[..10] ?? "?"}";
 
@@ -143,15 +161,48 @@ namespace Image_Checker.Forms
         }
 
         /// <summary>
+        /// Loads a *.forecast.json and presents it through the existing Forecast tab:
+        /// a synthetic ModelMetaConfig is built from the file so the filter panel
+        /// (dropdowns of item / customer values) works without any other change.
+        /// </summary>
+        private void LoadForecastFile(string path)
+        {
+            _fc = ForecastStore.Load(path);
+            _model = null;
+            _schema = null;
+
+            _meta = new ModelMetaConfig
+            {
+                Task = "TimeSeries",
+                LabelColumn = _fc.QuantityColumn,
+                FeatureColumns = _fc.KeyColumns,
+                CategoricalColumns = _fc.KeyColumns,
+                UniqueValues = _fc.UniqueKeyValues(),
+                HorizonSteps = _fc.Horizon,
+                Granularity = _fc.GranularityName,
+                TrainedAt = _fc.TrainedAt
+            };
+
+            string wape = double.IsNaN(_fc.OverallWape) ? "n/a" : _fc.OverallWape.ToString("P0");
+            string baseWape = double.IsNaN(_fc.BaselineWape) ? "n/a" : _fc.BaselineWape.ToString("P0");
+            string trained = _fc.TrainedAt.Length >= 10 ? _fc.TrainedAt[..10] : "?";
+
+            lblModelInfo.Text =
+                $"Forecast | {_fc.Series.Count:N0} series | {_fc.GranularityName} | " +
+                $"Horizon: {_fc.Horizon} | Backtest WAPE {wape} (baseline {baseWape}) | Trained: {trained}";
+
+            SetupForecastTab();
+            tabForecast.Enabled = true;
+            tabInput.Enabled = false;
+            tabMain.SelectedTab = tabForecast;
+            SetStatus($"Loaded: {Path.GetFileName(path)}", false);
+        }
+
+        /// <summary>
         /// Controls.Clear() removes child controls from their parent but
         /// does NOT dispose them -- their native window handles stay alive
-        /// until the GC eventually finalizes them, which isn't fast enough
-        /// to prevent handle exhaustion if a model is loaded more than once
-        /// in a session (very likely while testing). Each load can create
-        /// hundreds to thousands of controls (one ComboBox/TextBox per
-        /// feature column, each potentially holding thousands of items), so
-        /// disposing the previous batch explicitly before rebuilding matters
-        /// here far more than it would for a handful of static controls.
+        /// until the GC eventually finalizes them. Disposing the previous
+        /// batch explicitly before rebuilding avoids handle exhaustion.
         /// </summary>
         private static void ClearAndDispose(Control.ControlCollection controls)
         {
@@ -260,7 +311,7 @@ namespace Image_Checker.Forms
                         Tag = col
                     };
 
-                    // CRITICAL FIX: AddRange defers handle creation. Do not use BeginUpdate/EndUpdate or AutoComplete.
+                    // AddRange defers handle creation. Do not use BeginUpdate/EndUpdate or AutoComplete.
                     var itemsArray = new string[vals.Count + 1];
                     itemsArray[0] = "";
                     vals.CopyTo(itemsArray, 1);
@@ -350,16 +401,9 @@ namespace Image_Checker.Forms
                 if (ans == DialogResult.No) return;
             }
 
-            // Warn about values the model likely never saw during training.
-            // A one-hot/categorical feature the model has no vocabulary
-            // entry for gets encoded as all-zero at prediction time — the
-            // model silently loses that signal entirely, which is usually
-            // what's behind a suspiciously-low or flat-zero prediction with
-            // no visible error. Note: for very high-cardinality columns,
-            // UniqueValues only stores the most frequent subset (see
-            // BuildUniqueValues), so this can also flag a value that WAS
-            // seen in training but didn't make that cutoff — worded below
-            // to reflect that uncertainty rather than stating it as fact.
+            // Warn about values the model likely never saw during training. A categorical
+            // feature the model has no vocabulary entry for is encoded as all-zero at
+            // prediction time, which usually explains a suspiciously low prediction.
             if (_meta?.UniqueValues != null)
             {
                 var unseen = inputValues
@@ -471,8 +515,17 @@ namespace Image_Checker.Forms
         private void SetupForecastTab()
         {
             if (_meta == null) return;
+
+            bool fromFile = _fc != null;
+
+            // A forecast file is fixed at training time: horizon is capped at what was
+            // trained, granularity and start date no longer apply.
+            nudHorizonCount.Maximum = fromFile ? Math.Max(1, _fc!.Horizon) : _horizonMaxDefault;
             if (_meta.HorizonSteps > 0)
                 nudHorizonCount.Value = Math.Min(_meta.HorizonSteps, nudHorizonCount.Maximum);
+
+            cmbGranularity.Enabled = !fromFile;
+            dtpStartDate.Enabled = !fromFile;
 
             for (int i = 0; i < cmbGranularity.Items.Count; i++)
                 if (string.Equals(cmbGranularity.Items[i]?.ToString(),
@@ -488,12 +541,6 @@ namespace Image_Checker.Forms
         // ════════════════════════════════════════════════════════════════════
         private readonly Dictionary<string, Control> _filterControls = new();
 
-        // ════════════════════════════════════════════════════════════════════
-        // FILTER PANEL
-        // ════════════════════════════════════════════════════════════════════
-        // ════════════════════════════════════════════════════════════════════
-        // FILTER PANEL
-        // ════════════════════════════════════════════════════════════════════
         private void BuildFilterPanel()
         {
             pnlFilterGrid.AutoScroll = false;
@@ -511,14 +558,18 @@ namespace Image_Checker.Forms
 
             if (filterCols.Length == 0) return;
 
-            // ----------------------------------------------------------------
-            // NEW: DYNAMICALLY UPDATE THE HINT TEXT BASED ON ACTUAL DROPDOWNS
-            // ----------------------------------------------------------------
+            // Hint text reflects which columns really have dropdowns
             var dropCols = filterCols
                 .Where(c => _meta.UniqueValues != null && _meta.UniqueValues.ContainsKey(c) && _meta.UniqueValues[c].Count > 0)
                 .ToList();
 
-            if (dropCols.Count > 0)
+            if (_fc != null)
+            {
+                lblFilterHint.Text =
+                    $"Pick values from: {string.Join(" + ", dropCols)}.  " +
+                    "Leave everything blank for the total of all series; fill only some to sum the matching series.";
+            }
+            else if (dropCols.Count > 0)
             {
                 lblFilterHint.Text = $"Dropdowns are populated from your training data. Select a combination of: {string.Join(" + ", dropCols)}";
             }
@@ -526,7 +577,6 @@ namespace Image_Checker.Forms
             {
                 lblFilterHint.Text = "Enter values below to filter the forecast. Leave blank for a global forecast.";
             }
-            // ----------------------------------------------------------------
 
             pnlFilterGrid.SuspendLayout();
 
@@ -551,7 +601,8 @@ namespace Image_Checker.Forms
             int scrollWidth = SystemInformation.VerticalScrollBarWidth;
             tbl.Width = Math.Max(300, pnlFilterGrid.ClientSize.Width - scrollWidth - 2);
 
-            pnlFilterGrid.Resize += (s, e) => {
+            pnlFilterGrid.Resize += (s, e) =>
+            {
                 int sw = pnlFilterGrid.VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth : 0;
                 tbl.Width = Math.Max(300, pnlFilterGrid.ClientSize.Width - sw - 2);
             };
@@ -672,25 +723,32 @@ namespace Image_Checker.Forms
         // ════════════════════════════════════════════════════════════════════
         private async void OnForecast(object? s, EventArgs e)
         {
-            if (_model == null) { AlertNoModel(); return; }
+            if (_model == null && _fc == null) { AlertNoModel(); return; }
 
             int horizon = (int)nudHorizonCount.Value;
             string gran = cmbGranularity.SelectedItem?.ToString() ?? "Month";
             DateTime startDate = dtpStartDate.Value.Date;
             var filterVals = GetFilterValues();
             var labelCol = _meta?.LabelColumn ?? "QUANTITY_INVOICED";
+            bool fromFile = _fc != null;
 
             string filterDesc = filterVals.Count > 0
                 ? " | " + string.Join(", ", filterVals.Select(kv => $"{kv.Key}={kv.Value}"))
                 : " | All data";
 
-            SetBusy(true, $"Forecasting {horizon} {gran}(s)...");
+            SetBusy(true, $"Forecasting {horizon} period(s)...");
             DataTable? result = null;
             Exception? err = null;
+            string info = "";
 
             await Task.Run(() =>
             {
-                try { result = RunSSAForecast(horizon, gran, startDate, filterVals); }
+                try
+                {
+                    result = fromFile
+                        ? BuildFromStore(horizon, filterVals, out info)
+                        : RunSSAForecast(horizon, gran, startDate, filterVals);
+                }
                 catch (Exception ex) { err = ex; }
             });
 
@@ -702,12 +760,49 @@ namespace Image_Checker.Forms
                 return;
             }
 
-            ShowOutput(result!, $"SSA Forecast: {horizon} {gran}(s) | {labelCol}{filterDesc}");
+            string title = fromFile
+                ? $"Forecast: {horizon} {_fc!.GranularityName}(s) | {labelCol}{filterDesc} | {info}"
+                : $"SSA Forecast: {horizon} {gran}(s) | {labelCol}{filterDesc}";
+
+            ShowOutput(result!, title);
             tabMain.SelectedTab = tabOutput;
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // SSA FORECAST ENGINE
+        // NEW: FORECAST FROM A *.forecast.json  (history + forecast + interval)
+        // ════════════════════════════════════════════════════════════════════
+        private DataTable BuildFromStore(int horizon, Dictionary<string, string> filters, out string info)
+        {
+            var sl = ForecastStore.Slice(_fc!, filters, horizon, historyPeriods: 24);
+            if (sl.SeriesCount == 0)
+                throw new InvalidOperationException(
+                    "No series match the selected filter.\nPick values from the dropdowns " +
+                    "(a combination that never occurred in the data has no forecast).");
+
+            string fmt = string.Equals(_fc!.GranularityName, "Month", StringComparison.OrdinalIgnoreCase)
+                ? "yyyy-MM" : "yyyy-MM-dd";
+
+            var dt = new DataTable();
+            dt.Columns.Add("Period", typeof(string));
+            foreach (var c in new[] { "Actual", "Forecast", "Lower", "Upper" })
+                dt.Columns.Add(c, typeof(double));
+
+            for (int i = 0; i < sl.History.Length; i++)
+                dt.Rows.Add(sl.HistoryPeriods[i].ToString(fmt), sl.History[i],
+                            DBNull.Value, DBNull.Value, DBNull.Value);
+
+            for (int i = 0; i < sl.Forecast.Length; i++)
+                dt.Rows.Add(sl.ForecastPeriods[i].ToString(fmt), DBNull.Value,
+                            Math.Round(sl.Forecast[i], 2),
+                            Math.Round(sl.Lower[i], 2),
+                            Math.Round(sl.Upper[i], 2));
+
+            info = sl.Summary;
+            return dt;
+        }
+
+        // ════════════════════════════════════════════════════════════════════
+        // SSA FORECAST ENGINE  (legacy .zip SSA models only)
         // ════════════════════════════════════════════════════════════════════
         private DataTable RunSSAForecast(int horizon, string gran, DateTime startDate,
             Dictionary<string, string> filterValues)
@@ -761,7 +856,7 @@ namespace Image_Checker.Forms
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // FILTERED FORECAST
+        // FILTERED FORECAST (legacy)
         // ════════════════════════════════════════════════════════════════════
         private DataTable RunFilteredForecast(
             int horizon, string gran, DateTime startDate,
@@ -858,7 +953,7 @@ namespace Image_Checker.Forms
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // BUILD FORECAST TABLE
+        // BUILD FORECAST TABLE (legacy)
         // ════════════════════════════════════════════════════════════════════
         private DataTable BuildForecastTable(
             float[] fc, float[] lo, float[] hi,
@@ -976,10 +1071,9 @@ namespace Image_Checker.Forms
         // ════════════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// Repopulates the "Plot:" checklist with the current result table's
-        /// numeric, plottable columns (everything except the row-index-like
-        /// "Step" column), defaulting to the first one checked so the chart
-        /// shows something immediately after a run.
+        /// Repopulates the "Plot:" checklist with the current result table's numeric,
+        /// plottable columns. For a forecast file, "Actual" and "Forecast" are ticked so
+        /// the chart shows history flowing into the forecast; otherwise the first column.
         /// </summary>
         private void UpdateChartSeriesOptions(DataTable dt)
         {
@@ -993,14 +1087,22 @@ namespace Image_Checker.Forms
                 .ToList();
 
             foreach (var col in numericCols) clbChartSeries.Items.Add(col);
-            if (clbChartSeries.Items.Count > 0) clbChartSeries.SetItemChecked(0, true);
+
+            bool historyChart = dt.Columns.Contains("Actual") && dt.Columns.Contains("Forecast");
+            for (int i = 0; i < clbChartSeries.Items.Count; i++)
+            {
+                string name = clbChartSeries.Items[i]?.ToString() ?? "";
+                bool tick = historyChart ? name is "Actual" or "Forecast" : i == 0;
+                clbChartSeries.SetItemChecked(i, tick);
+            }
         }
 
         /// <summary>
         /// Builds the chart from _lastOutput using whatever chart type and
         /// series the user currently has selected. X-axis uses "Period" if
         /// present (forecast results), else "Step", else the row index.
-        /// Safe to call with no plottable columns — it just clears the chart.
+        /// Rows with a null value for a series (history rows have no Forecast
+        /// and vice-versa) are skipped.
         /// </summary>
         private void RenderChart()
         {
@@ -1093,7 +1195,7 @@ namespace Image_Checker.Forms
             using var sw = new StreamWriter(path, false, Encoding.UTF8);
             sw.WriteLine(string.Join(",", dt.Columns.Cast<DataColumn>().Select(c => CsvEsc(c.ColumnName))));
             foreach (DataRow r in dt.Rows)
-                sw.WriteLine(string.Join(",", r.ItemArray.Select(v => CsvEsc(v?.ToString() ?? ""))));
+                sw.WriteLine(string.Join(",", r.ItemArray.Select(v => CsvEsc(v is DBNull ? "" : v?.ToString() ?? ""))));
         }
 
         private static void WriteHtml(DataTable dt, string path)
@@ -1125,7 +1227,7 @@ namespace Image_Checker.Forms
                 bool highlight = r[0]?.ToString()?.StartsWith("►") == true;
                 sb.Append($"<tr{(highlight ? " class='highlight'" : "")}>");
                 foreach (var v in r.ItemArray)
-                    sb.Append($"<td>{HtmlEnc(v?.ToString() ?? "")}</td>");
+                    sb.Append($"<td>{HtmlEnc(v is DBNull ? "" : v?.ToString() ?? "")}</td>");
                 sb.Append("</tr>");
             }
             sb.Append("</table></body></html>");
@@ -1182,7 +1284,7 @@ namespace Image_Checker.Forms
         }
 
         // ════════════════════════════════════════════════════════════════════
-        // SSA INNER TYPES
+        // SSA INNER TYPES (legacy)
         // ════════════════════════════════════════════════════════════════════
         private class TsValueRow
         {

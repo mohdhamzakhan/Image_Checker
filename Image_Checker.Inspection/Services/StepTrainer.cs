@@ -1,8 +1,7 @@
-﻿using Image_Checker.Services;
-using Microsoft.ML;
-using System.Drawing;
+﻿using System.Drawing;
 using System.Text;
-using System.Windows.Forms;
+using Image_Checker.Services;
+using Microsoft.ML;
 
 namespace Image_Checker.Inspection.Services;
 
@@ -17,7 +16,18 @@ public static class StepTrainer
         if (!Directory.Exists(datasetDir))
             throw new DirectoryNotFoundException("Dataset folder not found: " + datasetDir);
 
+        foreach (var label in new[] { "OK", "NG" })
+        {
+            string dir = Path.Combine(datasetDir, label);
+            int count = Directory.Exists(dir) ? Directory.GetFiles(dir).Length : 0;
+            if (count < 10)
+                throw new InvalidOperationException(
+                    $"Class {label} has only {count} images. Capture at least 10 (30 or more is recommended).");
+        }
+
         var started = DateTime.Now;
+        // color images have 3 values per pixel: keep the longest side at 224 px or less so training stays fast
+        double scale = Math.Min(1.0, 224.0 / Math.Max(1, Math.Max(roi.Width, roi.Height)));
         var previousOut = Console.Out;
         Console.SetOut(new LineWriter(log));   // ModelTrainer reports through Console
         try
@@ -32,8 +42,8 @@ public static class StepTrainer
                 useFastTree: options.FastTree,
                 useLightGBM: options.LightGbm,
                 useTransferLearning: false,
-                imageWidth: Math.Max(32, roi.Width),
-                imageHeight: Math.Max(32, roi.Height),
+                imageWidth: Math.Max(32, (int)Math.Round(roi.Width * scale)),
+                imageHeight: Math.Max(32, (int)Math.Round(roi.Height * scale)),
                 cancellationToken: ct);
         }
         finally

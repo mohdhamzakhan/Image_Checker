@@ -1,0 +1,11 @@
+[
+  {
+    "Name": "test",
+    "FolderPath": "D:\\",
+    "ModelPath": "D:\\TIG_images(without backgroundplate)\\bestModel-SDCA_MaxEnt-20261117132753.zip",
+    "Enabled": true,
+    "UseDateFolders": false,
+    "DateFormat": "yy\\MM\\dd",
+    "Id": "c75de0d1094e49adade05bc6f10de096"
+  }
+]

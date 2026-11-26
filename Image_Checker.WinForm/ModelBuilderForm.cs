@@ -433,6 +433,7 @@ namespace Image_Checker.WinForm
             if (modelFiles.Any())
             {
                 var latest = modelFiles.OrderByDescending(File.GetCreationTime).First();
+                if (RoiMask.DatasetMasked(_datasetPath)) RoiMask.WriteFlag(latest, true);
                 if (_outputPath != _datasetPath)
                 {
                     var dest = Path.Combine(_outputPath, Path.GetFileName(latest));
@@ -483,7 +484,9 @@ namespace Image_Checker.WinForm
                 MessageBox.Show("Select a dataset folder first.", "Apply ROI", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-
+            bool circle = MessageBox.Show(
+                        "Also paint everything outside a circle gray?\n\nRecommended for round parts such as a ball.",
+                        "Circular mask", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
             btnApplyRoi.Enabled = false;
             btnApplyRoi.Text = "Processing...";
             progressBar.Visible = true;
@@ -523,7 +526,8 @@ namespace Image_Checker.WinForm
                                 int x = Math.Max(0, Math.Min(roiRect.X, bmp.Width - roiRect.Width));
                                 int y = Math.Max(0, Math.Min(roiRect.Y, bmp.Height - roiRect.Height));
                                 var safe = new Rectangle(x, y, Math.Min(roiRect.Width, bmp.Width), Math.Min(roiRect.Height, bmp.Height));
-                                using var crop = bmp.Clone(safe, bmp.PixelFormat);
+                                using var raw = bmp.Clone(safe, bmp.PixelFormat);
+                                using var crop = circle ? RoiMask.CircleMasked(raw) : raw;
                                 crop.Save(Path.Combine(outputRoot, kvp.Key, Path.GetFileName(imgPath)));
                                 processed++;
                                 int pct = (int)((processed / (float)totalImages) * 100);
@@ -538,6 +542,7 @@ namespace Image_Checker.WinForm
                 });
 
                 LogMessage($"✅ Cropped {processed} images → {outputRoot}", System.Drawing.Color.Green);
+                if (circle) RoiMask.MarkDataset(outputRoot);
                 _datasetPath = outputRoot; txtDatasetPath.Text = outputRoot;
                 ValidateDataset();
             }

@@ -369,21 +369,21 @@
             lblCVFolds.AutoSize = true;
             lblCVFolds.Font = new Font("Microsoft Sans Serif", 9F);
             lblCVFolds.Location = new Point(16, 240);
-            lblCVFolds.Text = "Cross-Validation Folds (2–10):";
+            lblCVFolds.Text = "Cross-Validation Folds (2–100):";
 
             numCVFolds.Font = new Font("Microsoft Sans Serif", 9F);
             numCVFolds.Location = new Point(290, 236);
-            numCVFolds.Minimum = 2; numCVFolds.Maximum = 10; numCVFolds.Value = 3;
+            numCVFolds.Minimum = 2; numCVFolds.Maximum = 100; numCVFolds.Value = 3;
             numCVFolds.Size = new Size(80, 28);
 
             lblTrials.AutoSize = true;
             lblTrials.Font = new Font("Microsoft Sans Serif", 9F);
             lblTrials.Location = new Point(16, 290);
-            lblTrials.Text = "Hyperparameter Tuning Trials (1–20):";
+            lblTrials.Text = "Hyperparameter Tuning Trials (1–200):";
 
             numTrials.Font = new Font("Microsoft Sans Serif", 9F);
             numTrials.Location = new Point(340, 286);
-            numTrials.Minimum = 1; numTrials.Maximum = 20; numTrials.Value = 5;
+            numTrials.Minimum = 1; numTrials.Maximum = 200; numTrials.Value = 5;
             numTrials.Size = new Size(80, 28);
 
             lblImageSize.AutoSize = true;

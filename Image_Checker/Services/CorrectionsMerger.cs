@@ -288,7 +288,7 @@ namespace Image_Checker.Services
                 Math.Min(roi.Width, bmp.Width),
                 Math.Min(roi.Height, bmp.Height));
 
-            using var cropped = bmp.Clone(safe, bmp.PixelFormat);
+            using var cropped = RoiMask.Replace(bmp.Clone(safe, bmp.PixelFormat));
             cropped.Save(destPath, ImageFormat.Png);
         }
 

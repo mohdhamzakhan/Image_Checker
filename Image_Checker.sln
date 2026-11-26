@@ -13,6 +13,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Image_Checker.Inspection", "Image_Checker.Inspection\Image_Checker.Inspection.csproj", "{2FF5DAE0-9951-49C1-B792-CE78930224DF}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Image_Checker.Forecasting", "Image_Checker.Forecasting\Image_Checker.Forecasting.csproj", "{DD3C87B8-E54D-43BB-B046-572E6302A2C3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -35,6 +37,10 @@ Global
 		{2FF5DAE0-9951-49C1-B792-CE78930224DF}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2FF5DAE0-9951-49C1-B792-CE78930224DF}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{2FF5DAE0-9951-49C1-B792-CE78930224DF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DD3C87B8-E54D-43BB-B046-572E6302A2C3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DD3C87B8-E54D-43BB-B046-572E6302A2C3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DD3C87B8-E54D-43BB-B046-572E6302A2C3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DD3C87B8-E54D-43BB-B046-572E6302A2C3}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

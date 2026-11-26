@@ -20,6 +20,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<ProjectReference Include="..\Image_Checker.Forecasting\Image_Checker.Forecasting.csproj" />
 		<ProjectReference Include="..\Image_Checker\Image_Checker.csproj" />
 	</ItemGroup>
 

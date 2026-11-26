@@ -70,7 +70,7 @@ namespace Image_Checker.Services
         private const float Eps = 1e-4f;
         /// <summary>Log-odds change below which a patch is treated as irrelevant.</summary>
         public const float NoRegionThreshold = 0.10f;
-
+        private const float MinVisibleDrop = 0.0005f;   // 0.05 points
         public static float Logit(float p)
         {
             p = Math.Max(Eps, Math.Min(1f - Eps, p));
@@ -147,7 +147,8 @@ namespace Image_Checker.Services
 
         /// <summary>Strongest separate areas that support class k (best first, non-overlapping).</summary>
         public static List<HotSpot> FindSpots(OcclusionResult res, int k, string className,
-                                              int imageWidth, int imageHeight, int maxSpots = 4)
+                                              int imageWidth, int imageHeight, int maxSpots = 4,
+                                              bool[,]? eligible = null)
         {
             float[,] heat = res.Heat(k);
             int rows = heat.GetLength(0), cols = heat.GetLength(1);
@@ -163,7 +164,12 @@ namespace Image_Checker.Services
                 int br = -1, bc = -1;
                 for (int r = 0; r < rows; r++)
                     for (int c = 0; c < cols; c++)
-                        if (!taken[r, c] && heat[r, c] > best) { best = heat[r, c]; br = r; bc = c; }
+                    {
+                        if (taken[r, c] || heat[r, c] <= best) continue;
+                        if (eligible != null && !eligible[r, c]) continue;                         // blank area
+                        if (res.Baseline[k] - res.ClassScore(r, c, k) < MinVisibleDrop) continue;  // changes nothing visible
+                        best = heat[r, c]; br = r; bc = c;
+                    }
                 if (br < 0) break;
 
                 for (int dr = -2; dr <= 2; dr++)

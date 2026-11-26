@@ -203,9 +203,10 @@ namespace Image_Checker.Services
 
             result.Occlusion = occ;
             string[] names = result.Explanation.ClassNames;
+            bool[,] content = ExplainImaging.ContentMap(result.Crop, cells);
             for (int k = 0; k < baseline.Scores.Length && k < names.Length; k++)
             {
-                List<HotSpot> spots = OcclusionMap.FindSpots(occ, k, names[k], w, h, 4);
+                List<HotSpot> spots = OcclusionMap.FindSpots(occ, k, names[k], w, h, 4, content);
                 result.SpotsByClass[k] = spots;
                 if (spots.Count == 0) continue;
                 using (Bitmap hidden = ExplainImaging.HideMany(result.Crop, spots.Select(s => s.Bounds), fill))

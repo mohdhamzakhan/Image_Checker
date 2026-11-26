@@ -36,6 +36,14 @@ public sealed class CameraService : IDisposable
         return found;
     }
 
+    private volatile bool _flipH, _flipV;
+
+    /// <summary>Mirror left-right. Applied to every frame, so preview, training photos and checks all agree.</summary>
+    public bool FlipHorizontal { get => _flipH; set => _flipH = value; }
+
+    /// <summary>Flip upside down.</summary>
+    public bool FlipVertical { get => _flipV; set => _flipV = value; }
+
     public bool IsRunning => _running;
 
     /// <summary>true when a new frame arrived during the last 2 seconds (false = cable pulled / camera stuck).</summary>
@@ -88,6 +96,10 @@ public sealed class CameraService : IDisposable
                     Thread.Sleep(20);
                     continue;
                 }
+
+                bool h = _flipH, v = _flipV;
+                if (h || v)
+                    Cv2.Flip(mat, mat, h && v ? FlipMode.XY : h ? FlipMode.Y : FlipMode.X);
 
                 var bmp = BitmapConverter.ToBitmap(mat);
                 lock (_gate)

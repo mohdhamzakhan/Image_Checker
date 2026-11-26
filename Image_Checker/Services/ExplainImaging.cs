@@ -38,7 +38,7 @@ namespace Image_Checker.Services
         public static Bitmap CropToRoi(Bitmap src, Rectangle roi)
         {
             Rectangle r = ClampRoi(src.Width, src.Height, roi);
-            return src.Clone(r, PixelFormat.Format24bppRgb);
+            return RoiMask.Replace(src.Clone(r, PixelFormat.Format24bppRgb));
         }
 
         /// <summary>Draws numbered circles with their % on the crop. One colour, no blue/red.</summary>
@@ -280,6 +280,64 @@ namespace Image_Checker.Services
         private static int Clamp255(double v)
         {
             return (int)Math.Max(0, Math.Min(255, Math.Round(v)));
+        }
+
+        /// <summary>true for cells whose patch holds real picture content (not a flat white / black / gray area).</summary>
+        public static bool[,] ContentMap(Bitmap bmp, int cells, float minStdDev = 8f)
+        {
+            int w = bmp.Width, h = bmp.Height;
+            Bitmap? converted = null;
+            Bitmap src = bmp;
+            if (bmp.PixelFormat != PixelFormat.Format24bppRgb)
+            {
+                converted = bmp.Clone(new Rectangle(0, 0, w, h), PixelFormat.Format24bppRgb);
+                src = converted;
+            }
+
+            try
+            {
+                var gray = new float[w * h];
+                BitmapData data = src.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+                try
+                {
+                    int stride = data.Stride;
+                    var bytes = new byte[Math.Abs(stride) * h];
+                    Marshal.Copy(data.Scan0, bytes, 0, bytes.Length);
+                    for (int y = 0; y < h; y++)
+                        for (int x = 0; x < w; x++)
+                        {
+                            int i = y * stride + x * 3;   // B, G, R
+                            gray[y * w + x] = 0.299f * bytes[i + 2] + 0.587f * bytes[i + 1] + 0.114f * bytes[i];
+                        }
+                }
+                finally { src.UnlockBits(data); }
+
+                var map = new bool[cells, cells];
+                float cw = (float)w / cells, ch = (float)h / cells;
+                var whole = new Rectangle(0, 0, w, h);
+                for (int r = 0; r < cells; r++)
+                    for (int c = 0; c < cells; c++)
+                    {
+                        Rectangle p = Rectangle.Intersect(whole, OcclusionMap.CellPatch(r, c, cw, ch));
+                        if (p.Width < 2 || p.Height < 2) continue;
+                        double sum = 0, sq = 0;
+                        int n = 0;
+                        for (int y = p.Top; y < p.Bottom; y++)
+                            for (int x = p.Left; x < p.Right; x++)
+                            {
+                                float v = gray[y * w + x];
+                                sum += v; sq += v * v; n++;
+                            }
+                        double mean = sum / n;
+                        double std = Math.Sqrt(Math.Max(0, sq / n - mean * mean));
+                        map[r, c] = std >= minStdDev;
+                    }
+                return map;
+            }
+            finally
+            {
+                if (converted != null) converted.Dispose();
+            }
         }
     }
 }

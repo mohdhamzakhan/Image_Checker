@@ -356,6 +356,8 @@ public sealed class SupervisorForm : Form
             SetStatus("Loading the models...");
 
             var issues = await Task.Run(() => _inspector.Load(recipe));
+            _camera.FlipHorizontal = recipe.FlipHorizontal;
+            _camera.FlipVertical = recipe.FlipVertical;
             if (!_camera.Start(recipe.CameraIndex, recipe.FrameWidth, recipe.FrameHeight, out var camError))
                 issues.Add("Camera: " + camError);
 

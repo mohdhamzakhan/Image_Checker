@@ -6,6 +6,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using Tensorflow;
 using static SkiaSharp.SKImageFilter;
@@ -21,6 +22,117 @@ namespace Image_Checker.Services
         {
             [Microsoft.ML.Data.ColumnName("Label")] public uint Label { get; set; }
             [Microsoft.ML.Data.ColumnName("Score")] public float[] Score { get; set; } = Array.Empty<float>();
+        }
+
+        // Rows used to identify test-set false negatives (actual NG predicted OK).
+        //private sealed class MisclassifiedImageRow
+        //{
+        //    [ColumnName("ImagePath")] public string ImagePath { get; set; } = string.Empty;
+        //    [ColumnName("Label")] public string Label { get; set; } = string.Empty;
+        //    [ColumnName("PredictedLabel")] public string PredictedLabel { get; set; } = string.Empty;
+        //    [ColumnName("Score")] public float[] Score { get; set; } = Array.Empty<float>();
+        //}
+
+        private sealed class MisclassifiedImageRow
+        {
+            [ColumnName("ImagePath")]
+            public string ImagePath { get; set; } = string.Empty;
+
+            [ColumnName("ActualLabelText")]
+            public string Label { get; set; } = string.Empty;
+
+            [ColumnName("PredictedLabel")]
+            public string PredictedLabel { get; set; } = string.Empty;
+
+            [ColumnName("Score")]
+            public float[] Score { get; set; } = Array.Empty<float>();
+        }
+
+        /// <summary>
+        /// Exports NG images that the evaluated model classified as OK.
+        /// The predictions are taken from the same holdout split used for the confusion matrix.
+        /// </summary>
+        private void ExportMissedNgImages(
+            ITransformer model,
+            IDataView testSet,
+            IReadOnlyList<string> classLabels,
+            string ngLabel)
+        {
+            try
+            {
+                var predictions = model.Transform(testSet);
+
+                // Convert only the actual label key to text.
+                // PredictedLabel is already a string in this model's output.
+                var labelMapping = _mlContext.Transforms.Conversion
+                    .MapKeyToValue("ActualLabelText", "Label");
+
+                var mappingModel = labelMapping.Fit(predictions);
+                var readablePredictions = mappingModel.Transform(predictions);
+
+                var rows = _mlContext.Data
+                    .CreateEnumerable<MisclassifiedImageRow>(
+                        readablePredictions,
+                        reuseRowObject: false);
+
+                var missed = rows
+                    .Where(r => string.Equals(r.Label, ngLabel, StringComparison.OrdinalIgnoreCase)
+                             && !string.Equals(r.PredictedLabel, ngLabel, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                var outputDir = Path.Combine(_basePath, "Missed_NG_Images");
+                Directory.CreateDirectory(outputDir);
+
+                var csvPath = Path.Combine(outputDir, "Missed_NG_Images.csv");
+                int ngScoreIndex = classLabels.ToList().IndexOf(ngLabel);
+
+                using (var writer = new StreamWriter(csvPath, false, new UTF8Encoding(true)))
+                {
+                    writer.WriteLine("ImagePath,ActualLabel,PredictedLabel,NGScore");
+                    foreach (var row in missed)
+                    {
+                        float ngScore = ngScoreIndex >= 0 && row.Score != null
+                                     && ngScoreIndex < row.Score.Length
+                            ? row.Score[ngScoreIndex]
+                            : float.NaN;
+
+                        writer.WriteLine(string.Join(",",
+                            CsvEscape(row.ImagePath),
+                            CsvEscape(row.Label),
+                            CsvEscape(row.PredictedLabel),
+                            ngScore.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)));
+
+                        if (File.Exists(row.ImagePath))
+                        {
+                            var destination = Path.Combine(outputDir, Path.GetFileName(row.ImagePath));
+                            if (File.Exists(destination))
+                            {
+                                var name = Path.GetFileNameWithoutExtension(row.ImagePath);
+                                var ext = Path.GetExtension(row.ImagePath);
+                                destination = Path.Combine(outputDir, $"{name}_{Guid.NewGuid():N}{ext}");
+                            }
+                            File.Copy(row.ImagePath, destination, overwrite: false);
+                        }
+                    }
+                }
+
+                Console.WriteLine($"\\n🕵️ Missed NG images: {missed.Count}");
+                Console.WriteLine($"   CSV: {csvPath}");
+                Console.WriteLine($"   Images copied to: {outputDir}");
+                foreach (var row in missed)
+                    Console.WriteLine($"   ❌ NG predicted {row.PredictedLabel}: {row.ImagePath}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️ Could not export missed NG images: {ex.GetBaseException().Message}");
+            }
+        }
+
+        private static string CsvEscape(string value)
+        {
+            value ??= string.Empty;
+
+            return "\"" + value.Replace("\"", "\"\"") + "\"";
         }
 
         private float SweepNgThreshold(IDataView feats, IEstimator<ITransformer> est, int ng, int folds)
@@ -125,27 +237,27 @@ namespace Image_Checker.Services
         }
         private (double Recall, double Precision, double F2, int Tp, int Fn, int Fp) JudgeCv(
     IDataView feats, IEstimator<ITransformer> est, int ng, int folds = 5)
-{
-    var cv = _mlContext.MulticlassClassification.CrossValidate(
-        feats, est, folds, labelColumnName: "Label", samplingKeyColumnName: "Group", seed: 42);
+        {
+            var cv = _mlContext.MulticlassClassification.CrossValidate(
+                feats, est, folds, labelColumnName: "Label", samplingKeyColumnName: "Group", seed: 42);
 
-    int tp = 0, fn = 0, fp = 0;
-    foreach (var f in cv)
-    {
-        var c = f.Metrics.ConfusionMatrix.Counts;            // [actual][predicted]
-        for (int a = 0; a < c.Count; a++)
-            for (int p = 0; p < c.Count; p++)
+            int tp = 0, fn = 0, fp = 0;
+            foreach (var f in cv)
             {
-                if (a == ng && p == ng) tp += (int)c[a][p];
-                else if (a == ng)       fn += (int)c[a][p];
-                else if (p == ng)       fp += (int)c[a][p];
+                var c = f.Metrics.ConfusionMatrix.Counts;            // [actual][predicted]
+                for (int a = 0; a < c.Count; a++)
+                    for (int p = 0; p < c.Count; p++)
+                    {
+                        if (a == ng && p == ng) tp += (int)c[a][p];
+                        else if (a == ng) fn += (int)c[a][p];
+                        else if (p == ng) fp += (int)c[a][p];
+                    }
             }
-    }
-    double rec  = tp / (double)Math.Max(1, tp + fn);
-    double prec = tp / (double)Math.Max(1, tp + fp);
-    double f2   = 5 * prec * rec / Math.Max(1e-9, 4 * prec + rec);   // recall counts 2× precision
-    return (rec, prec, f2, tp, fn, fp);
-}
+            double rec = tp / (double)Math.Max(1, tp + fn);
+            double prec = tp / (double)Math.Max(1, tp + fp);
+            double f2 = 5 * prec * rec / Math.Max(1e-9, 4 * prec + rec);   // recall counts 2× precision
+            return (rec, prec, f2, tp, fn, fp);
+        }
         private void FixDoubleDrivePaths(string csvPath)
         {
             Console.WriteLine("🔧 Checking for path issues...");
@@ -465,7 +577,7 @@ namespace Image_Checker.Services
                         _mlContext, cachedTrain, "Label",
                         nTrials: trials, cvFolds: cvFolds, seed: 42,
                         logPath: ftLogPath, sampleFraction: 1.0,
-                        ngIndex:ngIndex,
+                        ngIndex: ngIndex,
                         cancellationToken: cancellationToken);
 
                     var ftTrials = ReadTrialsFromCsv(ftLogPath, "fasttree");
@@ -540,7 +652,7 @@ namespace Image_Checker.Services
                         _mlContext, cachedTrain, "Label",
                         nTrials: trials, cvFolds: cvFolds, seed: 42,
                         logPath: lgbLogPath, sampleFraction: 1.0,
-                        ngIndex:ngIndex,
+                        ngIndex: ngIndex,
                         cancellationToken: cancellationToken);
 
                     var lgbTrials = ReadTrialsFromCsv(lgbLogPath, "lightgbm");
@@ -777,6 +889,11 @@ namespace Image_Checker.Services
 
             foreach (var m in cmResult.PerClass)
                 Console.WriteLine($"   {m.Label,-20} F1={m.F1:P1}  Prec={m.Precision:P1}  Rec={m.Recall:P1}");
+
+            Console.WriteLine("Exporting Miss NG Images");
+
+            // Export false-negative NG samples from this exact holdout evaluation.
+            ExportMissedNgImages(best.Model, split.TestSet, classLabels, classLabels[ngIndex]);
 
             // ── Build per-class image counts ──────────────────────────────────
             var classCounts = new Dictionary<string, int>();
