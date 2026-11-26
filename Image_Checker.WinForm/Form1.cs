@@ -62,28 +62,14 @@ namespace Image_Checker.WinForm
 
             menuFile.DropDownItems.Add(miDuplicates);
 
-            // Statistics Page
-            var miStatistics = new ToolStripMenuItem("📊 Statistics Page...");
 
-            miStatistics.Click += (s, e) =>
+            var miReport = new ToolStripMenuItem("📈 Daily Report...");
+            miReport.Click += (s, e) =>
             {
-                var profiles = LoadMonitorProfilesForStatistics();
-
-                string inspectionLogPath = Path.Combine(
-                    AppDomain.CurrentDomain.BaseDirectory,
-                    "Results",
-                    "inspection_log.csv"
-                );
-
-                using var f = new DailyReportForm(
-                    profiles,
-                    inspectionLogPath
-                );
-
+                using var f = new DailyReportForm(_profiles);
                 f.ShowDialog(this);
             };
-
-            menuFile.DropDownItems.Add(miStatistics);
+            menuFile.DropDownItems.Add(miReport);
 
             EnsureMonitorSourcesButton();
             LoadConfiguration();
