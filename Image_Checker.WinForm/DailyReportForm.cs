@@ -4,8 +4,9 @@ using Image_Checker.Services;
 namespace Image_Checker.WinForm
 {
     /// <summary>
-    /// Pick a day and see how many images were scanned: OK / NG split, a second pie (parts or sources),
-    /// and scans per hour. Data comes from the monitored date folders or from inspection_log.csv.
+    /// Pick a shift date and a shift (A, B, C, all shifts, calendar day) and see how many images were scanned:
+    /// OK / NG split, a second pie (shifts, sources or parts) and scans per hour.
+    /// Data comes from the monitored date folders or from inspection_log.csv.
     /// </summary>
     public class DailyReportForm : Form
     {
@@ -16,19 +17,22 @@ namespace Image_Checker.WinForm
         private static readonly Color Amber = Color.FromArgb(239, 150, 20);
         private static readonly Color Blue = Color.FromArgb(0, 120, 215);
         private static readonly Color Teal = Color.FromArgb(0, 137, 123);
+        private static readonly Color Purple = Color.FromArgb(142, 68, 173);
         private static readonly Color Grey = Color.FromArgb(110, 110, 110);
-        private static readonly Color[] Palette =
-            { Blue, Color.FromArgb(142, 68, 173), Teal, Color.FromArgb(121, 85, 72), Amber, Grey };
+        private static readonly Color[] Palette = { Blue, Purple, Teal, Color.FromArgb(121, 85, 72), Amber, Grey };
 
         private readonly List<MonitorProfile> _profiles;
+        private CancellationTokenSource? _cts;
+        private int _loadId;
 
         private readonly DateTimePicker dtpDay = new();
-        private readonly ComboBox cmbSource = new(), cmbProfile = new();
+        private readonly ComboBox cmbShift = new(), cmbSource = new(), cmbProfile = new();
         private readonly TextBox txtLog = new();
         private readonly Panel pnlMonitor = new(), pnlLog = new();
-        private readonly Label lblTitle = new(), lblStatus = new();
+        private readonly Label lblTitle = new(), lblStatus = new(), lblHint = new();
         private readonly Label lblTotal = new(), lblOk = new(), lblNg = new(), lblOther = new(), lblExtra = new();
         private readonly Label capExtra = new();
+        private readonly ProgressBar progress = new();
         private readonly PieChartControl pieResult = new(), pieSecond = new();
         private readonly StackedBarChartControl barHours = new();
         private TableLayoutPanel _report = null!;
@@ -40,8 +44,8 @@ namespace Image_Checker.WinForm
 
             Text = "Daily scan report";
             Font = new Font("Segoe UI", 9f);
-            MinimumSize = new Size(1000, 680);
-            Size = new Size(1250, 800);
+            MinimumSize = new Size(1000, 700);
+            Size = new Size(1250, 820);
             StartPosition = FormStartPosition.CenterParent;
 
             BuildLayout();
@@ -54,6 +58,7 @@ namespace Image_Checker.WinForm
             cmbSource.SelectedIndex = (_profiles.Count == 0 && txtLog.Text.Length > 0) ? 1 : 0;
 
             Shown += async (_, _) => { if (_profiles.Count > 0 || File.Exists(txtLog.Text)) await ShowDayAsync(); };
+            FormClosing += (_, _) => _cts?.Cancel();
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -83,26 +88,39 @@ namespace Image_Checker.WinForm
         {
             var grp = new GroupBox
             {
-                Text = "1. Choose the day and the data",
+                Text = "1. Choose the shift and the data",
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 Padding = new Padding(Inner),
                 Margin = new Padding(0, 0, 0, Inner)
             };
 
-            var t = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 6, RowCount = 2 };
+            var t = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 6, RowCount = 3 };
             t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 230));
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 330));
             t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 340));
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 270));
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
             dtpDay.Format = DateTimePickerFormat.Long;
             dtpDay.MaxDate = DateTime.Today;
-            dtpDay.Value = DateTime.Today;
+            dtpDay.Value = Shifts.ProductionDate(DateTime.Now);
             dtpDay.Anchor = AnchorStyles.Left | AnchorStyles.Right;
             dtpDay.Margin = new Padding(0, 0, Inner * 2, Inner);
+
+            cmbShift.DropDownStyle = ComboBoxStyle.DropDownList;
+            cmbShift.Items.AddRange(new object[]
+            {
+                "All shifts (06:00 - 06:00)",
+                "Shift A (06:00 - 14:30)",
+                "Shift B (14:30 - 23:00)",
+                "Shift C (23:00 - 06:00)",
+                "Calendar day (00:00 - 24:00)"
+            });
+            cmbShift.SelectedIndex = 0;   // order matches the ShiftKind enum
+            cmbShift.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+            cmbShift.Margin = new Padding(0, 0, Inner, Inner);
 
             cmbSource.DropDownStyle = ComboBoxStyle.DropDownList;
             cmbSource.Items.AddRange(new object[]
@@ -111,28 +129,37 @@ namespace Image_Checker.WinForm
                 "Inspection log (inspection_log.csv)"
             });
             cmbSource.Anchor = AnchorStyles.Left | AnchorStyles.Right;
-            cmbSource.Margin = new Padding(0, 0, Inner, Inner);
+            cmbSource.Margin = new Padding(0, 0, Inner * 2, Inner);
             cmbSource.SelectedIndexChanged += (_, _) =>
             {
                 pnlMonitor.Visible = cmbSource.SelectedIndex == 0;
                 pnlLog.Visible = cmbSource.SelectedIndex == 1;
             };
 
+            lblHint.AutoSize = true;
+            lblHint.ForeColor = Grey;
+            lblHint.Anchor = AnchorStyles.Left;
+            lblHint.Text = "A shift belongs to the date it starts on: Shift C of 26 Nov = 26 Nov 23:00 to 27 Nov 06:00.";
+
             btnShow = MakeButton("Show report", 130, async (_, _) => await ShowDayAsync(), true);
             btnShow.Margin = new Padding(Inner, 0, 0, Inner);
 
-            t.Controls.Add(HeaderLabel("Day"), 0, 0);
+            t.Controls.Add(HeaderLabel("Shift date"), 0, 0);
             t.Controls.Add(dtpDay, 1, 0);
-            t.Controls.Add(HeaderLabel("Data"), 2, 0);
-            t.Controls.Add(cmbSource, 3, 0);
+            t.Controls.Add(HeaderLabel("Shift"), 2, 0);
+            t.Controls.Add(cmbShift, 3, 0);
             t.Controls.Add(btnShow, 5, 0);
+            t.Controls.Add(HeaderLabel("Data"), 0, 1);
+            t.Controls.Add(cmbSource, 1, 1);
+            t.Controls.Add(lblHint, 2, 1);
+            t.SetColumnSpan(lblHint, 4);
 
             // mode specific row: only one of the two panels is visible
             var pnlMode = new Panel { Dock = DockStyle.Fill, AutoSize = true };
 
             var tm = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, RowCount = 1 };
             tm.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            tm.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 340));
+            tm.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 330));
             cmbProfile.DropDownStyle = ComboBoxStyle.DropDownList;
             cmbProfile.Anchor = AnchorStyles.Left | AnchorStyles.Right;
             tm.Controls.Add(HeaderLabel("Source"), 0, 0);
@@ -157,7 +184,7 @@ namespace Image_Checker.WinForm
 
             pnlMode.Controls.Add(pnlLog);
             pnlMode.Controls.Add(pnlMonitor);
-            t.Controls.Add(pnlMode, 0, 1);
+            t.Controls.Add(pnlMode, 0, 2);
             t.SetColumnSpan(pnlMode, 6);
 
             grp.Controls.Add(t);
@@ -180,7 +207,7 @@ namespace Image_Checker.WinForm
             _report.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             lblTitle.AutoSize = true;
-            lblTitle.Font = new Font("Segoe UI", 14f, FontStyle.Bold);
+            lblTitle.Font = new Font("Segoe UI", 13f, FontStyle.Bold);
             lblTitle.Margin = new Padding(0, 0, 0, Inner);
             lblTitle.Text = "Daily scan report";
 
@@ -220,17 +247,24 @@ namespace Image_Checker.WinForm
             {
                 Dock = DockStyle.Fill,
                 AutoSize = true,
-                ColumnCount = 2,
+                ColumnCount = 3,
                 RowCount = 1,
                 Margin = new Padding(0, Inner, 0, 0)
             };
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
             t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
             lblStatus.Dock = DockStyle.Fill;
             lblStatus.TextAlign = ContentAlignment.MiddleLeft;
             lblStatus.ForeColor = Grey;
-            lblStatus.Text = "Choose a day and press Show report.";
+            lblStatus.Text = "Choose a shift and press Show report.";
+
+            progress.Dock = DockStyle.Fill;
+            progress.Style = ProgressBarStyle.Marquee;
+            progress.MarqueeAnimationSpeed = 30;
+            progress.Margin = new Padding(Inner, 8, Inner, 8);
+            progress.Visible = false;
 
             var flow = new FlowLayoutPanel
             {
@@ -245,7 +279,8 @@ namespace Image_Checker.WinForm
             flow.Controls.Add(btnSave);
 
             t.Controls.Add(lblStatus, 0, 0);
-            t.Controls.Add(flow, 1, 0);
+            t.Controls.Add(progress, 1, 0);
+            t.Controls.Add(flow, 2, 0);
             return t;
         }
 
@@ -325,6 +360,9 @@ namespace Image_Checker.WinForm
             bool folders = cmbSource.SelectedIndex == 0;
             string logPath = txtLog.Text.Trim();
             var profiles = SelectedProfiles();
+            var kind = (ShiftKind)Math.Max(0, cmbShift.SelectedIndex);
+            var (start, end, title) = Shifts.Window(day, kind);
+            bool splitByShift = kind == ShiftKind.All || kind == ShiftKind.CalendarDay;
 
             if (folders && profiles.Count == 0)
             {
@@ -338,24 +376,55 @@ namespace Image_Checker.WinForm
                 return;
             }
 
-            btnShow.Enabled = false;
+            _cts?.Cancel();                    // a newer request replaces a running one
+            _cts = new CancellationTokenSource();
+            var ct = _cts.Token;
+            int id = ++_loadId;
+
+            progress.Visible = true;
             lblStatus.ForeColor = Grey;
-            lblStatus.Text = "Loading...";
+            lblStatus.Text = "Counting images...";
+            lblTitle.Text = $"Loading {title}, {day:dd MMM yyyy} ...";
+
+            void Report(int n)
+            {
+                try
+                {
+                    BeginInvoke(new Action(() =>
+                    {
+                        if (id == _loadId) lblStatus.Text = $"Counting images... {n:N0} found so far";
+                    }));
+                }
+                catch { /* window closed */ }
+            }
+
             try
             {
-                var stats = await Task.Run(() => folders
-                    ? DailyStatsReader.FromFolders(profiles, day)
-                    : DailyStatsReader.FromInspectionLog(logPath, day));
+                DayStats stats = await Task.Run(() =>
+                {
+                    if (!folders) return DailyStatsReader.FromInspectionLog(logPath, start, end, title);
+
+                    var scans = new List<DayScan>();
+                    for (var d = start.Date; d < end && d <= DateTime.Today; d = d.AddDays(1))
+                        scans.Add(DailyStatsReader.ScanDay(profiles, d, Report, ct));
+                    return DailyStatsReader.Build(scans, start, end, title, splitByShift);
+                }, ct);
+
+                if (id != _loadId) return;     // a newer request is already running
                 Render(stats, folders);
             }
+            catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                lblStatus.ForeColor = Red;
-                lblStatus.Text = "Could not build the report: " + ex.Message;
+                if (id == _loadId)
+                {
+                    lblStatus.ForeColor = Red;
+                    lblStatus.Text = "Could not build the report: " + ex.Message;
+                }
             }
             finally
             {
-                btnShow.Enabled = true;
+                if (id == _loadId) progress.Visible = false;
             }
         }
 
@@ -363,8 +432,8 @@ namespace Image_Checker.WinForm
         {
             int total = s.Total, ok = s.Count("OK"), ng = s.Count("NG");
 
-            lblTitle.Text = $"Daily scan report  -  {s.Date:dddd, dd MMMM yyyy}" +
-                            (folders ? "  (date folders)" : "  (inspection log)");
+            lblTitle.Text = $"{s.WindowTitle}   |   {s.Start:ddd dd MMM yyyy HH:mm}  to  {s.End:ddd dd MMM yyyy HH:mm}" +
+                            (folders ? "   (date folders)" : "   (inspection log)");
             lblTotal.Text = total.ToString("N0");
             lblOk.Text = Describe(ok, total);
             lblNg.Text = Describe(ng, total);
@@ -373,6 +442,7 @@ namespace Image_Checker.WinForm
             {
                 capExtra.Text = "Active sources";
                 lblExtra.Text = s.Secondary.Count.ToString();
+                if (s.SecondaryTitle.Contains("shift")) { capExtra.Text = "Shifts with scans"; }
             }
             else
             {
@@ -380,16 +450,19 @@ namespace Image_Checker.WinForm
                 lblExtra.Text = $"{s.Secondary.Values.Sum()} / {s.Overrides}";
             }
 
-            // pie 1: result split
-            var palette = 0;
+            int palette = 0;
             Color Pick(string name)
             {
-                if (name.Equals("OK", StringComparison.OrdinalIgnoreCase) || name.StartsWith("Passed", StringComparison.OrdinalIgnoreCase) && !name.Contains("override"))
+                if (name.Equals("OK", StringComparison.OrdinalIgnoreCase) ||
+                    (name.StartsWith("Passed", StringComparison.OrdinalIgnoreCase) && !name.Contains("override")))
                     return Green;
-                if (name.Equals("NG", StringComparison.OrdinalIgnoreCase) || name.Equals("Rejected", StringComparison.OrdinalIgnoreCase))
+                if (name.Equals("NG", StringComparison.OrdinalIgnoreCase) ||
+                    name.Equals("Rejected", StringComparison.OrdinalIgnoreCase))
                     return Red;
                 if (name.Equals("CHECK", StringComparison.OrdinalIgnoreCase) || name.Contains("override")) return Amber;
                 if (name.Equals("ERROR", StringComparison.OrdinalIgnoreCase)) return Grey;
+                if (name.StartsWith("Shift ", StringComparison.OrdinalIgnoreCase))
+                    return name.EndsWith("A") ? Blue : name.EndsWith("B") ? Teal : Purple;
                 return Palette[palette++ % Palette.Length];
             }
 
@@ -400,22 +473,20 @@ namespace Image_Checker.WinForm
                 s.Results.OrderBy(kv => Rank(kv.Key)).ThenBy(kv => kv.Key)
                          .Select(kv => new Slice(kv.Key, kv.Value, Pick(kv.Key))));
 
-            // pie 2: parts (log) or sources (folders)
-            pieSecond.SetData(s.SecondaryTitle,
-                s.Secondary.OrderByDescending(kv => kv.Value)
-                           .Select(kv => new Slice(kv.Key, kv.Value, Pick(kv.Key))));
+            var second = s.SecondaryTitle.Contains("shift")
+                ? s.Secondary.OrderBy(kv => kv.Key)
+                : s.Secondary.OrderByDescending(kv => kv.Value);
+            pieSecond.SetData(s.SecondaryTitle, second.Select(kv => new Slice(kv.Key, kv.Value, Pick(kv.Key))));
 
-            // bars: scans per hour
-            var hours = Enumerable.Range(0, 24).Select(h => h.ToString("00")).ToArray();
-            barHours.SetData("Scans per hour", hours, new[]
+            barHours.SetData("Scans per hour (clock hour)", s.BucketLabels, new[]
             {
-                new BarSeries("OK", Green, s.OkPerHour),
-                new BarSeries("NG", Red, s.NgPerHour),
-                new BarSeries("Other", Amber, s.OtherPerHour)
+                new BarSeries("OK", Green, s.OkPerBucket),
+                new BarSeries("NG", Red, s.NgPerBucket),
+                new BarSeries("Other", Amber, s.OtherPerBucket)
             });
 
             lblStatus.ForeColor = Grey;
-            lblStatus.Text = (total == 0 ? "No scans found for this day." : $"{total:N0} scans on {s.Date:dd MMM yyyy}.") +
+            lblStatus.Text = (total == 0 ? "No scans found in this period." : $"{total:N0} scans.") +
                              (s.Note.Length > 0 ? "  " + s.Note : "");
         }
 
@@ -428,7 +499,7 @@ namespace Image_Checker.WinForm
             {
                 Title = "Save the report as a picture",
                 Filter = "PNG image (*.png)|*.png",
-                FileName = $"daily_report_{dtpDay.Value:yyyyMMdd}.png"
+                FileName = $"daily_report_{dtpDay.Value:yyyyMMdd}_{cmbShift.Text.Split(' ')[0]}{(cmbShift.Text.StartsWith("Shift") ? cmbShift.Text.Split(' ')[1] : "")}.png"
             };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
 
